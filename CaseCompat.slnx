@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/CaseCompat.Bethesda.Plugins/CaseCompat.Bethesda.Plugins.csproj" />
     <Project Path="src/CaseCompat.Cli/CaseCompat.Cli.csproj" />
     <Project Path="src/CaseCompat.Core/CaseCompat.Core.csproj" />
     <Project Path="src/CaseCompat.Filesystem.Linux/CaseCompat.Filesystem.Linux.csproj" />
