@@ -22,6 +22,9 @@ switch (command)
     case "compare-branches":
         return BranchCompareCommand.Run(args);
 
+    case "namespace-summary":
+        return NamespaceSummaryCommand.Run(args);
+
     default:
         Console.Error.WriteLine($"Unknown command: {args[0]}");
         Console.Error.WriteLine();
@@ -308,5 +311,8 @@ static void ShowUsage()
 
     Console.WriteLine(
         "  casecompat compare-branches <directory A> <directory B>"
+    );
+    Console.WriteLine(
+        "  casecompat namespace-summary <directory>"
 );
 }
