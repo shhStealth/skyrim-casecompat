@@ -8,11 +8,28 @@ if (args.Length == 0)
 
 string command = args[0].ToLowerInvariant();
 
-if (command == "doctor")
+switch (command)
+{
+    case "doctor":
+        return RunDoctor(args);
+
+    case "collisions":
+        return RunCollisions(args);
+
+    default:
+        Console.Error.WriteLine($"Unknown command: {args[0]}");
+        Console.Error.WriteLine();
+        ShowUsage();
+        return 2;
+}
+
+static int RunDoctor(string[] args)
 {
     if (args.Length != 2)
     {
-        Console.Error.WriteLine("Error: doctor requires a Skyrim Data directory.");
+        Console.Error.WriteLine(
+            "Error: doctor requires a Skyrim Data directory."
+        );
         Console.Error.WriteLine();
         ShowUsage();
         return 2;
@@ -33,15 +50,21 @@ if (command == "doctor")
     Console.WriteLine("CaseCompat Doctor");
     Console.WriteLine("=================");
     Console.WriteLine();
-    Console.WriteLine($"Platform:       {(result.IsLinux ? "Linux" : "Unsupported")}");
+    Console.WriteLine(
+        $"Platform:       {(result.IsLinux ? "Linux" : "Unsupported")}"
+    );
     Console.WriteLine($"Requested path: {result.RequestedPath}");
     Console.WriteLine($"Resolved path:  {result.FullPath}");
-    Console.WriteLine($"Directory:      {(result.Exists ? "FOUND" : "NOT FOUND")}");
+    Console.WriteLine(
+        $"Directory:      {(result.Exists ? "FOUND" : "NOT FOUND")}"
+    );
 
     if (!result.IsLinux)
     {
         Console.Error.WriteLine();
-        Console.Error.WriteLine("CaseCompat currently supports Linux only.");
+        Console.Error.WriteLine(
+            "CaseCompat currently supports Linux only."
+        );
         return 4;
     }
 
@@ -62,62 +85,159 @@ if (command == "doctor")
         Path.Combine(result.FullPath, "meshes", "Terrain", "tamriel")
     ];
 
-	foreach (string path in pathsToInspect)
-	{
-	    PrintCasefoldResult(LinuxDirectoryFlags.Inspect(path));
-	    PrintIdentityResult(LinuxFileIdentity.Inspect(path));
-	}
+    foreach (string path in pathsToInspect)
+    {
+        PrintCasefoldResult(
+            LinuxDirectoryFlags.Inspect(path)
+        );
 
-string lowercaseMeshes =
-    Path.Combine(result.FullPath, "meshes");
+        PrintIdentityResult(
+            LinuxFileIdentity.Inspect(path)
+        );
+    }
 
-string uppercaseMeshes =
-    Path.Combine(result.FullPath, "Meshes");
+    string lowercaseMeshes =
+        Path.Combine(result.FullPath, "meshes");
 
-LinuxFileIdentityResult lowerIdentity =
-    LinuxFileIdentity.Inspect(lowercaseMeshes);
+    string uppercaseMeshes =
+        Path.Combine(result.FullPath, "Meshes");
 
-LinuxFileIdentityResult upperIdentity =
-    LinuxFileIdentity.Inspect(uppercaseMeshes);
+    LinuxFileIdentityResult lowerIdentity =
+        LinuxFileIdentity.Inspect(lowercaseMeshes);
 
-Console.WriteLine();
-Console.WriteLine("Casefold alias check");
-Console.WriteLine("--------------------");
-Console.WriteLine($"meshes: {lowercaseMeshes}");
-Console.WriteLine($"Meshes: {uppercaseMeshes}");
-
-if (lowerIdentity.Success && upperIdentity.Success)
-{
-    Console.WriteLine(
-        $"Same physical object: " +
-        $"{(lowerIdentity.SameObjectAs(upperIdentity) ? "YES" : "NO")}"
-    );
-
-    Console.WriteLine(
-        $"meshes inode: {lowerIdentity.Inode}"
-    );
-
-    Console.WriteLine(
-        $"Meshes inode: {upperIdentity.Inode}"
-    );
-}
-else
-{
-    Console.WriteLine("Same physical object: unable to determine");
-}
+    LinuxFileIdentityResult upperIdentity =
+        LinuxFileIdentity.Inspect(uppercaseMeshes);
 
     Console.WriteLine();
-    Console.WriteLine("Read-only check: no files were modified.");
+    Console.WriteLine("Casefold alias check");
+    Console.WriteLine("--------------------");
+    Console.WriteLine($"meshes: {lowercaseMeshes}");
+    Console.WriteLine($"Meshes: {uppercaseMeshes}");
+
+    if (lowerIdentity.Success && upperIdentity.Success)
+    {
+        Console.WriteLine(
+            "Same physical object: " +
+            (lowerIdentity.SameObjectAs(upperIdentity) ? "YES" : "NO")
+        );
+
+        Console.WriteLine(
+            $"meshes inode: {lowerIdentity.Inode}"
+        );
+
+        Console.WriteLine(
+            $"Meshes inode: {upperIdentity.Inode}"
+        );
+    }
+    else
+    {
+        Console.WriteLine(
+            "Same physical object: unable to determine"
+        );
+    }
+
+    Console.WriteLine();
+    Console.WriteLine(
+        "Read-only check: no files were modified."
+    );
 
     return 0;
 }
 
-Console.Error.WriteLine($"Unknown command: {args[0]}");
-Console.Error.WriteLine();
-ShowUsage();
-return 2;
+static int RunCollisions(string[] args)
+{
+    if (args.Length != 2)
+    {
+        Console.Error.WriteLine(
+            "Error: collisions requires a directory."
+        );
+        Console.Error.WriteLine();
+        ShowUsage();
+        return 2;
+    }
 
-static void PrintCasefoldResult(DirectoryCasefoldResult result)
+    string directory;
+
+    try
+    {
+        directory = Path.GetFullPath(args[1]);
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Error: {ex.Message}");
+        return 3;
+    }
+
+    IReadOnlyList<DirectoryCaseCollision> collisions;
+
+    try
+    {
+        collisions =
+            DirectoryCollisionScanner.Scan(directory);
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Error: {ex.Message}");
+        return 3;
+    }
+
+    Console.WriteLine("CaseCompat Collision Scan");
+    Console.WriteLine("=========================");
+    Console.WriteLine();
+    Console.WriteLine($"Directory: {directory}");
+    Console.WriteLine();
+    Console.WriteLine(
+        $"Case-equivalent collision groups: {collisions.Count}"
+    );
+
+    foreach (DirectoryCaseCollision collision in collisions)
+    {
+        Console.WriteLine();
+        Console.WriteLine("CASE COLLISION");
+        Console.WriteLine("--------------");
+        Console.WriteLine(
+            $"Logical key: {collision.LogicalName}"
+        );
+
+        foreach (DirectoryCollisionMember member in collision.Members)
+        {
+            LinuxFileIdentityResult identity =
+                LinuxFileIdentity.Inspect(member.FullPath);
+
+            string kind =
+                member.IsDirectory ? "directory" : "file";
+
+            Console.WriteLine(
+                $"  {member.Name}  [{kind}]"
+            );
+
+            if (identity.Success)
+            {
+                Console.WriteLine(
+                    $"    dev={identity.DeviceMajor}:{identity.DeviceMinor} " +
+                    $"inode={identity.Inode}"
+                );
+            }
+            else
+            {
+                Console.WriteLine(
+                    $"    identity unavailable: {identity.Error}"
+                );
+            }
+        }
+    }
+
+    Console.WriteLine();
+    Console.WriteLine(
+        "Read-only scan: no files were modified."
+    );
+
+    return 0;
+}
+
+static void PrintCasefoldResult(
+    DirectoryCasefoldResult result
+)
 {
     string state;
 
@@ -140,21 +260,28 @@ static void PrintCasefoldResult(DirectoryCasefoldResult result)
         ? $"  flags=0x{result.RawFlags.Value:X8}"
         : string.Empty;
 
-    Console.WriteLine($"{result.FullPath}");
-    Console.WriteLine($"  casefold: {state}{flags}");
+    Console.WriteLine(result.FullPath);
+    Console.WriteLine(
+        $"  casefold: {state}{flags}"
+    );
 }
 
-static void PrintIdentityResult(LinuxFileIdentityResult result)
+static void PrintIdentityResult(
+    LinuxFileIdentityResult result
+)
 {
     if (!result.Success)
     {
-        Console.WriteLine($"  identity: unavailable ({result.Error})");
+        Console.WriteLine(
+            $"  identity: unavailable ({result.Error})"
+        );
         return;
     }
 
     Console.WriteLine(
         $"  identity: dev={result.DeviceMajor}:{result.DeviceMinor} " +
-        $"inode={result.Inode} links={result.LinkCount} mount={result.MountId}"
+        $"inode={result.Inode} links={result.LinkCount} " +
+        $"mount={result.MountId}"
     );
 }
 
@@ -163,5 +290,10 @@ static void ShowUsage()
     Console.WriteLine("CaseCompat");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  casecompat doctor <Skyrim Data directory>");
+    Console.WriteLine(
+        "  casecompat doctor <Skyrim Data directory>"
+    );
+    Console.WriteLine(
+        "  casecompat collisions <directory>"
+    );
 }
