@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CaseCompat.Cli/CaseCompat.Cli.csproj" />
+    <Project Path="src/CaseCompat.Core/CaseCompat.Core.csproj" />
+    <Project Path="src/CaseCompat.Filesystem.Linux/CaseCompat.Filesystem.Linux.csproj" />
+    <Project Path="src/CaseCompat.Reporting/CaseCompat.Reporting.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CaseCompat.Tests/CaseCompat.Tests.csproj" />
+  </Folder>
+</Solution>
