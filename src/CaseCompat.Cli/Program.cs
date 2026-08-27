@@ -16,6 +16,9 @@ switch (command)
     case "collisions":
         return RunCollisions(args);
 
+    case "collision-tree":
+        return CollisionTreeCommand.Run(args);
+
     default:
         Console.Error.WriteLine($"Unknown command: {args[0]}");
         Console.Error.WriteLine();
@@ -296,4 +299,7 @@ static void ShowUsage()
     Console.WriteLine(
         "  casecompat collisions <directory>"
     );
+    Console.WriteLine(
+        "  casecompat collision-tree <directory>"
+);
 }

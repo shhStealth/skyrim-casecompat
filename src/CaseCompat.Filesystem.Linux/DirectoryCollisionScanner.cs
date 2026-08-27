@@ -27,9 +27,16 @@ public static class DirectoryCollisionScanner
         foreach (string entry in Directory.EnumerateFileSystemEntries(fullPath))
         {
             string name = Path.GetFileName(entry);
+            FileAttributes attributes = File.GetAttributes(entry);
 
-            // This is only a grouping key.
-            // It must never replace the original physical spelling.
+            bool isDirectory =
+                (attributes & FileAttributes.Directory) != 0;
+
+            bool isSymbolicLink =
+                (attributes & FileAttributes.ReparsePoint) != 0;
+
+            // Prototype Windows-logical grouping key.
+            // Never use this as the physical destination spelling.
             string logicalName = name.ToUpperInvariant();
 
             if (!groups.TryGetValue(logicalName, out var members))
@@ -42,7 +49,8 @@ public static class DirectoryCollisionScanner
                 new DirectoryCollisionMember(
                     Name: name,
                     FullPath: entry,
-                    IsDirectory: Directory.Exists(entry)
+                    IsDirectory: isDirectory,
+                    IsSymbolicLink: isSymbolicLink
                 )
             );
         }

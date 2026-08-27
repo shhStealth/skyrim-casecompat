@@ -3,7 +3,8 @@ namespace CaseCompat.Filesystem.Linux;
 public sealed record DirectoryCollisionMember(
     string Name,
     string FullPath,
-    bool IsDirectory
+    bool IsDirectory,
+    bool IsSymbolicLink
 );
 
 public sealed record DirectoryCaseCollision(
