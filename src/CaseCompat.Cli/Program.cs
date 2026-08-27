@@ -25,6 +25,9 @@ switch (command)
     case "namespace-summary":
         return NamespaceSummaryCommand.Run(args);
 
+    case "content-summary":
+        return ContentSummaryCommand.Run(args);
+
     default:
         Console.Error.WriteLine($"Unknown command: {args[0]}");
         Console.Error.WriteLine();
@@ -314,5 +317,8 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat namespace-summary <directory>"
-);
+    );
+    Console.WriteLine(
+        "  casecompat content-summary <directory>"
+    );
 }
