@@ -1,3 +1,4 @@
+using CaseCompat.Core.Analysis;
 using CaseCompat.Filesystem.Linux;
 
 public static class CollisionTreeCommand
@@ -13,11 +14,11 @@ public static class CollisionTreeCommand
             return 2;
         }
 
-        RecursiveCollisionScanResult result;
+        RecursiveCollisionScanResult scan;
 
         try
         {
-            result = RecursiveCollisionScanner.Scan(args[1]);
+            scan = RecursiveCollisionScanner.Scan(args[1]);
         }
         catch (Exception ex)
         {
@@ -25,56 +26,90 @@ public static class CollisionTreeCommand
             return 3;
         }
 
-        Console.WriteLine("CaseCompat Collision Tree Scan");
-        Console.WriteLine("==============================");
+        CollisionTreeAnalysis analysis =
+            CollisionTreeAnalyzer.Analyze(
+                scan.Findings
+            );
+
+        Console.WriteLine(
+            "CaseCompat Collision Tree Analysis"
+        );
+
+        Console.WriteLine(
+            "=================================="
+        );
+
+        Console.WriteLine();
+        Console.WriteLine($"Root: {scan.RootPath}");
         Console.WriteLine();
 
-        Console.WriteLine($"Root: {result.RootPath}");
-        Console.WriteLine();
-
         Console.WriteLine(
-            $"Directories scanned:             {result.DirectoriesScanned:N0}"
+            $"Directories scanned:              {scan.DirectoriesScanned:N0}"
         );
 
         Console.WriteLine(
-            $"Filesystem entries examined:     {result.EntriesScanned:N0}"
+            $"Filesystem entries examined:      {scan.EntriesScanned:N0}"
         );
 
         Console.WriteLine(
-            $"Collision groups found:           {result.Findings.Count:N0}"
+            $"Raw collision groups:              {analysis.RawFindings:N0}"
         );
 
         Console.WriteLine(
-            $"Symbolic links skipped:           {result.SymbolicLinksSkipped:N0}"
+            $"Directory collision groups:        {analysis.DirectoryCollisionFindings:N0}"
         );
 
         Console.WriteLine(
-            $"Duplicate physical dirs skipped:  " +
-            $"{result.DuplicatePhysicalDirectoriesSkipped:N0}"
+            $"File collision groups:             {analysis.FileCollisionFindings:N0}"
         );
 
         Console.WriteLine(
-            $"Scan errors:                      {result.Errors.Count:N0}"
+            $"Other collision groups:            {analysis.OtherCollisionFindings:N0}"
         );
 
-        foreach (RecursiveCollisionFinding finding in result.Findings)
+        Console.WriteLine(
+            $"Top-level directory split trees:   {analysis.Trees.Count:N0}"
+        );
+
+        Console.WriteLine(
+            $"Unassigned collision groups:       {analysis.UnassignedFindings.Count:N0}"
+        );
+
+        Console.WriteLine(
+            $"Symbolic links skipped:            {scan.SymbolicLinksSkipped:N0}"
+        );
+
+        Console.WriteLine(
+            $"Duplicate physical dirs skipped:   " +
+            $"{scan.DuplicatePhysicalDirectoriesSkipped:N0}"
+        );
+
+        Console.WriteLine(
+            $"Scan errors:                       {scan.Errors.Count:N0}"
+        );
+
+        foreach (CollisionTree tree in analysis.Trees)
         {
-            DirectoryCaseCollision collision = finding.Collision;
+            RecursiveCollisionFinding root =
+                tree.Root;
+
+            DirectoryCaseCollision collision =
+                root.Collision;
 
             Console.WriteLine();
-            Console.WriteLine("CASE COLLISION");
-            Console.WriteLine("--------------");
+            Console.WriteLine("COLLISION TREE ROOT");
+            Console.WriteLine("-------------------");
 
             Console.WriteLine(
-                $"Depth:           {finding.Depth}"
+                $"Depth:              {root.Depth}"
             );
 
             Console.WriteLine(
-                $"Parent:          {collision.ParentPath}"
+                $"Parent:             {collision.ParentPath}"
             );
 
             string casefold =
-                finding.ParentCasefoldEnabled switch
+                root.ParentCasefoldEnabled switch
                 {
                     true => "ENABLED",
                     false => "disabled",
@@ -82,33 +117,32 @@ public static class CollisionTreeCommand
                 };
 
             Console.WriteLine(
-                $"Parent casefold: {casefold}"
+                $"Parent casefold:    {casefold}"
             );
 
             Console.WriteLine(
-                $"Logical key:     {collision.LogicalName}"
+                $"Logical key:        {collision.LogicalName}"
+            );
+
+            Console.WriteLine(
+                $"Nested collisions:  {tree.Descendants.Count:N0}"
+            );
+
+            Console.WriteLine(
+                "Physical roots:"
             );
 
             foreach (
                 DirectoryCollisionMember member
-                in collision.Members
-            )
+                in collision.Members)
             {
                 LinuxFileIdentityResult identity =
-                    LinuxFileIdentity.Inspect(member.FullPath);
-
-                string kind =
-                    member.IsDirectory
-                        ? "directory"
-                        : "file";
-
-                if (member.IsSymbolicLink)
-                {
-                    kind += ", symlink";
-                }
+                    LinuxFileIdentity.Inspect(
+                        member.FullPath
+                    );
 
                 Console.WriteLine(
-                    $"  {member.Name} [{kind}]"
+                    $"  {member.Name}/"
                 );
 
                 if (identity.Success)
@@ -119,23 +153,16 @@ public static class CollisionTreeCommand
                         $"inode={identity.Inode}"
                     );
                 }
-                else
-                {
-                    Console.WriteLine(
-                        $"    identity unavailable: " +
-                        $"{identity.Error}"
-                    );
-                }
             }
         }
 
-        if (result.Errors.Count > 0)
+        if (scan.Errors.Count > 0)
         {
             Console.WriteLine();
             Console.WriteLine("SCAN WARNINGS");
             Console.WriteLine("-------------");
 
-            foreach (RecursiveScanError error in result.Errors)
+            foreach (RecursiveScanError error in scan.Errors)
             {
                 Console.WriteLine(
                     $"{error.Path}: {error.Message}"
@@ -145,7 +172,7 @@ public static class CollisionTreeCommand
 
         Console.WriteLine();
         Console.WriteLine(
-            "Read-only scan: no files were modified."
+            "Read-only analysis: no files were modified."
         );
 
         return 0;
