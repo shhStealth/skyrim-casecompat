@@ -19,6 +19,9 @@ switch (command)
     case "collision-tree":
         return CollisionTreeCommand.Run(args);
 
+    case "compare-branches":
+        return BranchCompareCommand.Run(args);
+
     default:
         Console.Error.WriteLine($"Unknown command: {args[0]}");
         Console.Error.WriteLine();
@@ -301,5 +304,9 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat collision-tree <directory>"
+    );
+
+    Console.WriteLine(
+        "  casecompat compare-branches <directory A> <directory B>"
 );
 }
