@@ -159,13 +159,27 @@ public static class BranchCompareCommand
             $"Same size, different SHA-256:{contentComparison.DifferentContent,5:N0}"
         );
 
-        int conflictingOverlaps =
-            contentComparison.DifferentSize +
-            contentComparison.DifferentContent;
+        BranchSplitClassification classification =
+           BranchSplitClassifier.Classify(
+              contentComparison
+        );
 
         Console.WriteLine();
+        Console.WriteLine("Filesystem classification");
+        Console.WriteLine("-------------------------");
+
         Console.WriteLine(
-            $"Conflicting overlaps: {conflictingOverlaps:N0}"
+           $"State: {classification.State}"
+        );
+
+        Console.WriteLine(
+           $"Namespace diverges: " +
+           $"{YesNo(classification.NamespaceDiverges)}"
+        );
+
+        Console.WriteLine(
+           $"Conflicting overlaps: " +
+           $"{classification.ConflictingOverlaps:N0}"
         );
 
         PrintNamespaceDifferences(
