@@ -62,10 +62,49 @@ if (command == "doctor")
         Path.Combine(result.FullPath, "meshes", "Terrain", "tamriel")
     ];
 
-    foreach (string path in pathsToInspect)
-    {
-        PrintCasefoldResult(LinuxDirectoryFlags.Inspect(path));
-    }
+	foreach (string path in pathsToInspect)
+	{
+	    PrintCasefoldResult(LinuxDirectoryFlags.Inspect(path));
+	    PrintIdentityResult(LinuxFileIdentity.Inspect(path));
+	}
+
+string lowercaseMeshes =
+    Path.Combine(result.FullPath, "meshes");
+
+string uppercaseMeshes =
+    Path.Combine(result.FullPath, "Meshes");
+
+LinuxFileIdentityResult lowerIdentity =
+    LinuxFileIdentity.Inspect(lowercaseMeshes);
+
+LinuxFileIdentityResult upperIdentity =
+    LinuxFileIdentity.Inspect(uppercaseMeshes);
+
+Console.WriteLine();
+Console.WriteLine("Casefold alias check");
+Console.WriteLine("--------------------");
+Console.WriteLine($"meshes: {lowercaseMeshes}");
+Console.WriteLine($"Meshes: {uppercaseMeshes}");
+
+if (lowerIdentity.Success && upperIdentity.Success)
+{
+    Console.WriteLine(
+        $"Same physical object: " +
+        $"{(lowerIdentity.SameObjectAs(upperIdentity) ? "YES" : "NO")}"
+    );
+
+    Console.WriteLine(
+        $"meshes inode: {lowerIdentity.Inode}"
+    );
+
+    Console.WriteLine(
+        $"Meshes inode: {upperIdentity.Inode}"
+    );
+}
+else
+{
+    Console.WriteLine("Same physical object: unable to determine");
+}
 
     Console.WriteLine();
     Console.WriteLine("Read-only check: no files were modified.");
@@ -103,6 +142,20 @@ static void PrintCasefoldResult(DirectoryCasefoldResult result)
 
     Console.WriteLine($"{result.FullPath}");
     Console.WriteLine($"  casefold: {state}{flags}");
+}
+
+static void PrintIdentityResult(LinuxFileIdentityResult result)
+{
+    if (!result.Success)
+    {
+        Console.WriteLine($"  identity: unavailable ({result.Error})");
+        return;
+    }
+
+    Console.WriteLine(
+        $"  identity: dev={result.DeviceMajor}:{result.DeviceMinor} " +
+        $"inode={result.Inode} links={result.LinkCount} mount={result.MountId}"
+    );
 }
 
 static void ShowUsage()
