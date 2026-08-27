@@ -2,7 +2,8 @@ using CaseCompat.Core.Analysis;
 
 public static class BranchCompareCommand
 {
-    private const int MaxDisplayedDifferences = 100;
+    private const int MaxDisplayedDifferences = 50;
+    private const int MaxDisplayedConflicts = 50;
 
     public static int Run(string[] args)
     {
@@ -71,11 +72,11 @@ public static class BranchCompareCommand
             return 4;
         }
 
-        BranchComparison comparison;
+        BranchComparison namespaceComparison;
 
         try
         {
-            comparison = BranchComparer.Compare(
+            namespaceComparison = BranchComparer.Compare(
                 branchA,
                 branchB
             );
@@ -84,7 +85,7 @@ public static class BranchCompareCommand
         {
             Console.Error.WriteLine();
             Console.Error.WriteLine(
-                $"Comparison error: {ex.Message}"
+                $"Namespace comparison error: {ex.Message}"
             );
 
             return 5;
@@ -95,58 +96,105 @@ public static class BranchCompareCommand
         Console.WriteLine("----------------------------");
 
         Console.WriteLine(
-            $"Only in A:          {comparison.OnlyInA:N0}"
+            $"Only in A:          {namespaceComparison.OnlyInA:N0}"
         );
 
         Console.WriteLine(
-            $"Only in B:          {comparison.OnlyInB:N0}"
+            $"Only in B:          {namespaceComparison.OnlyInB:N0}"
         );
 
         Console.WriteLine(
-            $"Present in both:    {comparison.PresentInBoth:N0}"
+            $"Present in both:    {namespaceComparison.PresentInBoth:N0}"
         );
 
         bool namespaceDiverges =
-            comparison.OnlyInA > 0 ||
-            comparison.OnlyInB > 0;
+            namespaceComparison.OnlyInA > 0 ||
+            namespaceComparison.OnlyInB > 0;
 
         bool bidirectionalSplit =
-            comparison.OnlyInA > 0 &&
-            comparison.OnlyInB > 0;
+            namespaceComparison.OnlyInA > 0 &&
+            namespaceComparison.OnlyInB > 0;
 
         Console.WriteLine();
         Console.WriteLine(
-            $"Namespace divergence: " +
-            $"{(namespaceDiverges ? "YES" : "NO")}"
+            $"Namespace divergence: {YesNo(namespaceDiverges)}"
         );
 
         Console.WriteLine(
-            $"Bidirectional split:   " +
-            $"{(bidirectionalSplit ? "YES" : "NO")}"
+            $"Bidirectional split:   {YesNo(bidirectionalSplit)}"
         );
 
-        PrintDifferences(
+        BranchContentComparison contentComparison;
+
+        try
+        {
+            contentComparison =
+                BranchContentComparer.Compare(
+                    namespaceComparison
+                );
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(
+                $"Content comparison error: {ex.Message}"
+            );
+
+            return 6;
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("Overlapping file content");
+        Console.WriteLine("------------------------");
+
+        Console.WriteLine(
+            $"Byte-identical:              {contentComparison.Identical:N0}"
+        );
+
+        Console.WriteLine(
+            $"Different size:              {contentComparison.DifferentSize:N0}"
+        );
+
+        Console.WriteLine(
+            $"Same size, different SHA-256:{contentComparison.DifferentContent,5:N0}"
+        );
+
+        int conflictingOverlaps =
+            contentComparison.DifferentSize +
+            contentComparison.DifferentContent;
+
+        Console.WriteLine();
+        Console.WriteLine(
+            $"Conflicting overlaps: {conflictingOverlaps:N0}"
+        );
+
+        PrintNamespaceDifferences(
             "ONLY IN A",
-            comparison.Files.Where(file =>
+            namespaceComparison.Files.Where(file =>
                 file.Presence ==
                 BranchFilePresence.OnlyInA)
         );
 
-        PrintDifferences(
+        PrintNamespaceDifferences(
             "ONLY IN B",
-            comparison.Files.Where(file =>
+            namespaceComparison.Files.Where(file =>
                 file.Presence ==
                 BranchFilePresence.OnlyInB)
         );
 
-        Console.WriteLine();
-        Console.WriteLine(
-            "Note: 'Present in both' currently means the same " +
-            "Windows-logical path exists in both branches."
+        PrintContentConflicts(
+            contentComparison.Files.Where(file =>
+                file.ContentState ==
+                    BranchContentState.DifferentSize ||
+                file.ContentState ==
+                    BranchContentState.DifferentContent)
         );
 
+        Console.WriteLine();
         Console.WriteLine(
-            "File contents have not been hashed or compared yet."
+            "Hashing policy: one-sided files are not hashed; " +
+            "different-size overlaps are not hashed; only " +
+            "same-size overlaps require SHA-256 comparison."
         );
 
         Console.WriteLine();
@@ -157,7 +205,7 @@ public static class BranchCompareCommand
         return 0;
     }
 
-    private static void PrintDifferences(
+    private static void PrintNamespaceDifferences(
         string heading,
         IEnumerable<BranchFileComparison> files)
     {
@@ -205,5 +253,80 @@ public static class BranchCompareCommand
                 "additional differences omitted"
             );
         }
+    }
+
+    private static void PrintContentConflicts(
+        IEnumerable<BranchContentFileComparison> files)
+    {
+        BranchContentFileComparison[] conflicts =
+            files.ToArray();
+
+        if (conflicts.Length == 0)
+        {
+            return;
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("OVERLAPPING CONTENT CONFLICTS");
+        Console.WriteLine("-----------------------------");
+
+        foreach (
+            BranchContentFileComparison conflict
+            in conflicts.Take(MaxDisplayedConflicts))
+        {
+            BranchFileComparison file =
+                conflict.NamespaceComparison;
+
+            Console.WriteLine(
+                $"  {file.LogicalPath}"
+            );
+
+            Console.WriteLine(
+                $"    state: {conflict.ContentState}"
+            );
+
+            if (file.FileA is not null)
+            {
+                Console.WriteLine(
+                    $"    A: {file.FileA.RelativePath} " +
+                    $"({file.FileA.Size:N0} bytes)"
+                );
+            }
+
+            if (file.FileB is not null)
+            {
+                Console.WriteLine(
+                    $"    B: {file.FileB.RelativePath} " +
+                    $"({file.FileB.Size:N0} bytes)"
+                );
+            }
+
+            if (conflict.Sha256A is not null)
+            {
+                Console.WriteLine(
+                    $"    SHA256 A: {conflict.Sha256A}"
+                );
+            }
+
+            if (conflict.Sha256B is not null)
+            {
+                Console.WriteLine(
+                    $"    SHA256 B: {conflict.Sha256B}"
+                );
+            }
+        }
+
+        if (conflicts.Length > MaxDisplayedConflicts)
+        {
+            Console.WriteLine(
+                $"  ... {conflicts.Length - MaxDisplayedConflicts:N0} " +
+                "additional conflicts omitted"
+            );
+        }
+    }
+
+    private static string YesNo(bool value)
+    {
+        return value ? "YES" : "NO";
     }
 }
