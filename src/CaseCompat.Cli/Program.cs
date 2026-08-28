@@ -49,6 +49,9 @@ switch (command)
     case "load-order-probe":
         return LoadOrderProbeCommand.Run(args);
 
+    case "armor-addon-winner":
+        return ArmorAddonWinnerCommand.Run(args);
+
     default:
         Console.Error.WriteLine($"Unknown command: {args[0]}");
         Console.Error.WriteLine();
@@ -362,5 +365,8 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat load-order-probe <Plugins.txt> <loadorder.txt>"
+    );
+    Console.WriteLine(
+        "  casecompat armor-addon-winner <Data root> <Plugins.txt> <loadorder.txt> <FormKey>"
     );
 }
