@@ -67,6 +67,9 @@ switch (command)
     case "runtime-plugin-set":
         return RuntimePluginSetCommand.Run(args);
 
+    case "runtime-archive-evidence":
+        return RuntimeArchiveEvidenceCommand.Run(args);
+
     case "effective-armor-addon-archive-candidates":
         return EffectiveArmorAddonArchiveCandidatesCommand.Run(args);
 
@@ -401,6 +404,9 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat runtime-plugin-set <Plugins.txt> <loadorder.txt> <Skyrim.ccc>"
+    );
+    Console.WriteLine(
+        "  casecompat runtime-archive-evidence <Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> <INI directory>"
     );
     Console.WriteLine(
         "  casecompat effective-armor-addon-archive-candidates <Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> [path search]"
