@@ -58,6 +58,9 @@ switch (command)
     case "winning-armor-addon-inventory":
         return WinningArmorAddonInventoryCommand.Run(args);
 
+    case "effective-armor-addon-scan":
+        return EffectiveArmorAddonScanCommand.Run(args);
+
     default:
         Console.Error.WriteLine($"Unknown command: {args[0]}");
         Console.Error.WriteLine();
@@ -380,5 +383,8 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat winning-armor-addon-inventory <Data root> <Plugins.txt> <loadorder.txt> [path search]"
+    );
+    Console.WriteLine(
+        "  casecompat effective-armor-addon-scan <Data root> <Plugins.txt> <loadorder.txt> [path search]"
     );
 }
