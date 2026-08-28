@@ -37,6 +37,9 @@ switch (command)
     case "armor-addon-models":
         return ArmorAddonModelsCommand.Run(args);
 
+    case "resolve-data-path":
+        return ResolveDataPathCommand.Run(args);
+
     default:
         Console.Error.WriteLine($"Unknown command: {args[0]}");
         Console.Error.WriteLine();
@@ -338,5 +341,8 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat armor-addon-models <plugin path> [search]"
+    );
+    Console.WriteLine(
+        "  casecompat resolve-data-path <Data root> <Data-relative file path>"
     );
 }
