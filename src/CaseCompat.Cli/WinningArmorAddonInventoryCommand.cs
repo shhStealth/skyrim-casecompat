@@ -5,13 +5,13 @@ public static class WinningArmorAddonInventoryCommand
 {
     public static int Run(string[] args)
     {
-        if (args.Length < 4 ||
-            args.Length > 5)
+        if (args.Length < 5 ||
+            args.Length > 6)
         {
             Console.Error.WriteLine(
                 "Error: winning-armor-addon-inventory requires " +
                 "a Data root, Plugins.txt, loadorder.txt, " +
-                "and optional path search."
+                "Skyrim.ccc, and optional path search."
             );
 
             return 2;
@@ -25,10 +25,16 @@ public static class WinningArmorAddonInventoryCommand
                     loadOrderPath: args[3]
                 );
 
-            if (!loadOrder.IsConsistent)
+            SkyrimRuntimePluginSet runtimePluginSet =
+                SkyrimRuntimePluginSetReader.Read(
+                    loadOrder,
+                    args[4]
+                );
+
+            if (!runtimePluginSet.IsConsistent)
             {
                 Console.Error.WriteLine(
-                    "Error: runtime load order is inconsistent."
+                    "Error: runtime plugin set is inconsistent."
                 );
 
                 return 4;
@@ -37,7 +43,7 @@ public static class WinningArmorAddonInventoryCommand
             SkyrimWinningArmorAddonInventoryResult result =
                 SkyrimWinningArmorAddonInventory.Inspect(
                     dataRoot: args[1],
-                    loadOrder: loadOrder
+                    runtimePluginSet: runtimePluginSet
                 );
 
             Console.WriteLine(
@@ -49,7 +55,7 @@ public static class WinningArmorAddonInventoryCommand
             Console.WriteLine();
 
             Console.WriteLine(
-                $"Explicitly active plugins: {result.ExplicitlyActivePluginCount:N0}"
+                $"Runtime-active plugins:    {result.RuntimeActivePluginCount:N0}"
             );
 
             Console.WriteLine(
@@ -76,10 +82,10 @@ public static class WinningArmorAddonInventoryCommand
                 $"Winning model references: {result.WinningModelReferenceCount:N0}"
             );
 
-            if (args.Length == 5)
+            if (args.Length == 6)
             {
                 string filter =
-                    args[4];
+                    args[5];
 
                 SkyrimWinningArmorAddonRecord[] matches =
                     result.Winners

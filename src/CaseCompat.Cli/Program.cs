@@ -385,16 +385,16 @@ static void ShowUsage()
         "  casecompat load-order-probe <Plugins.txt> <loadorder.txt>"
     );
     Console.WriteLine(
-        "  casecompat armor-addon-winner <Data root> <Plugins.txt> <loadorder.txt> <FormKey>"
+        "  casecompat armor-addon-winner <Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> <FormKey>"
     );
     Console.WriteLine(
-        "  casecompat effective-armor-addon-models <Data root> <Plugins.txt> <loadorder.txt> <FormKey> [path search]"
+        "  casecompat effective-armor-addon-models <Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> <FormKey> [path search]"
     );
     Console.WriteLine(
-        "  casecompat winning-armor-addon-inventory <Data root> <Plugins.txt> <loadorder.txt> [path search]"
+        "  casecompat winning-armor-addon-inventory <Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> [path search]"
     );
     Console.WriteLine(
-        "  casecompat effective-armor-addon-scan <Data root> <Plugins.txt> <loadorder.txt> [path search]"
+        "  casecompat effective-armor-addon-scan <Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> [path search]"
     );
     Console.WriteLine(
         "  casecompat archive-candidate-index <Data root> [requested asset path]"
@@ -403,6 +403,6 @@ static void ShowUsage()
         "  casecompat runtime-plugin-set <Plugins.txt> <loadorder.txt> <Skyrim.ccc>"
     );
     Console.WriteLine(
-        "  casecompat effective-armor-addon-archive-candidates <Data root> <Plugins.txt> <loadorder.txt> [path search]"
+        "  casecompat effective-armor-addon-archive-candidates <Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> [path search]"
     );
 }

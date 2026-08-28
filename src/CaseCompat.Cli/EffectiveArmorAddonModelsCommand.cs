@@ -6,19 +6,20 @@ public static class EffectiveArmorAddonModelsCommand
 {
     public static int Run(string[] args)
     {
-        if (args.Length < 5 ||
-            args.Length > 6)
+        if (args.Length < 6 ||
+            args.Length > 7)
         {
             Console.Error.WriteLine(
                 "Error: effective-armor-addon-models requires " +
                 "a Data root, Plugins.txt, loadorder.txt, " +
-                "ArmorAddon FormKey, and optional path search."
+                "Skyrim.ccc, ArmorAddon FormKey, and optional path search."
             );
 
             return 2;
         }
 
         SkyrimRuntimeLoadOrder loadOrder;
+        SkyrimRuntimePluginSet runtimePluginSet;
         SkyrimTargetArmorAddonWinnerResult winner;
 
         try
@@ -29,10 +30,16 @@ public static class EffectiveArmorAddonModelsCommand
                     loadOrderPath: args[3]
                 );
 
-            if (!loadOrder.IsConsistent)
+            runtimePluginSet =
+                SkyrimRuntimePluginSetReader.Read(
+                    loadOrder,
+                    args[4]
+                );
+
+            if (!runtimePluginSet.IsConsistent)
             {
                 Console.Error.WriteLine(
-                    "Error: runtime load order is inconsistent."
+                    "Error: runtime plugin set is inconsistent."
                 );
 
                 return 4;
@@ -41,8 +48,8 @@ public static class EffectiveArmorAddonModelsCommand
             winner =
                 SkyrimTargetArmorAddonWinnerProbe.Inspect(
                     dataRoot: args[1],
-                    loadOrder: loadOrder,
-                    targetFormKey: args[4]
+                    runtimePluginSet: runtimePluginSet,
+                    targetFormKey: args[5]
                 );
         }
         catch (Exception ex)
@@ -67,7 +74,7 @@ public static class EffectiveArmorAddonModelsCommand
         );
 
         Console.WriteLine(
-            $"Explicitly active plugins: {winner.ExplicitlyActivePluginCount:N0}"
+            $"Runtime-active plugins:    {winner.RuntimeActivePluginCount:N0}"
         );
 
         Console.WriteLine(
@@ -117,8 +124,8 @@ public static class EffectiveArmorAddonModelsCommand
         );
 
         string? filter =
-            args.Length == 6
-                ? args[5]
+            args.Length == 7
+                ? args[6]
                 : null;
 
         IReadOnlyList<EffectiveAssetReferenceFinding> allFindings =
@@ -223,7 +230,7 @@ public static class EffectiveArmorAddonModelsCommand
 
         Console.WriteLine();
         Console.WriteLine(
-            "Scope: explicitly active runtime plugins."
+            "Scope: runtime-active plugins."
         );
 
         Console.WriteLine(

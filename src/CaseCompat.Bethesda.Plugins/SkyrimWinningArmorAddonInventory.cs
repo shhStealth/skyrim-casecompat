@@ -20,7 +20,7 @@ public sealed record SkyrimWinningArmorAddonRecord(
 
 public sealed record SkyrimWinningArmorAddonInventoryResult(
     string DataRoot,
-    int ExplicitlyActivePluginCount,
+    int RuntimeActivePluginCount,
     int PluginsOpened,
     IReadOnlyList<string> MissingPluginFiles,
     IReadOnlyList<SkyrimPluginReadError> ReadErrors,
@@ -49,14 +49,14 @@ public static class SkyrimWinningArmorAddonInventory
 
     public static SkyrimWinningArmorAddonInventoryResult Inspect(
         string dataRoot,
-        SkyrimRuntimeLoadOrder loadOrder)
+        SkyrimRuntimePluginSet runtimePluginSet)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(
             dataRoot
         );
 
         ArgumentNullException.ThrowIfNull(
-            loadOrder
+            runtimePluginSet
         );
 
         string fullDataRoot =
@@ -69,9 +69,9 @@ public static class SkyrimWinningArmorAddonInventory
             );
         }
 
-        SkyrimRuntimeLoadOrderEntry[] active =
-            loadOrder
-                .OrderedExplicitlyActiveEntries
+        SkyrimRuntimePluginSetEntry[] active =
+            runtimePluginSet
+                .OrderedRuntimeActiveEntries
                 .OrderBy(entry =>
                     entry.LoadOrderIndex
                 )
@@ -95,7 +95,7 @@ public static class SkyrimWinningArmorAddonInventory
         try
         {
             foreach (
-                SkyrimRuntimeLoadOrderEntry entry
+                SkyrimRuntimePluginSetEntry entry
                 in active)
             {
                 string pluginPath =
@@ -212,7 +212,7 @@ public static class SkyrimWinningArmorAddonInventory
             return new SkyrimWinningArmorAddonInventoryResult(
                 DataRoot:
                     fullDataRoot,
-                ExplicitlyActivePluginCount:
+                RuntimeActivePluginCount:
                     active.Length,
                 PluginsOpened:
                     mods.Count,

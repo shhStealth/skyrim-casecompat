@@ -5,18 +5,19 @@ public static class ArmorAddonWinnerCommand
 {
     public static int Run(string[] args)
     {
-        if (args.Length != 5)
+        if (args.Length != 6)
         {
             Console.Error.WriteLine(
                 "Error: armor-addon-winner requires " +
                 "a Data root, Plugins.txt, loadorder.txt, " +
-                "and ArmorAddon FormKey."
+                "Skyrim.ccc, and ArmorAddon FormKey."
             );
 
             return 2;
         }
 
         SkyrimRuntimeLoadOrder loadOrder;
+        SkyrimRuntimePluginSet runtimePluginSet;
         SkyrimTargetArmorAddonWinnerResult result;
 
         try
@@ -27,10 +28,16 @@ public static class ArmorAddonWinnerCommand
                     loadOrderPath: args[3]
                 );
 
-            if (!loadOrder.IsConsistent)
+            runtimePluginSet =
+                SkyrimRuntimePluginSetReader.Read(
+                    loadOrder,
+                    args[4]
+                );
+
+            if (!runtimePluginSet.IsConsistent)
             {
                 Console.Error.WriteLine(
-                    "Error: runtime load order is inconsistent."
+                    "Error: runtime plugin set is inconsistent."
                 );
 
                 return 4;
@@ -39,8 +46,8 @@ public static class ArmorAddonWinnerCommand
             result =
                 SkyrimTargetArmorAddonWinnerProbe.Inspect(
                     dataRoot: args[1],
-                    loadOrder: loadOrder,
-                    targetFormKey: args[4]
+                    runtimePluginSet: runtimePluginSet,
+                    targetFormKey: args[5]
                 );
         }
         catch (Exception ex)
@@ -69,7 +76,7 @@ public static class ArmorAddonWinnerCommand
         );
 
         Console.WriteLine(
-            $"Explicitly active plugins: {result.ExplicitlyActivePluginCount:N0}"
+            $"Runtime-active plugins:    {result.RuntimeActivePluginCount:N0}"
         );
 
         Console.WriteLine(
@@ -147,7 +154,7 @@ public static class ArmorAddonWinnerCommand
 
         Console.WriteLine();
         Console.WriteLine(
-            "Scope: explicitly active runtime plugins."
+            "Scope: runtime-active plugins."
         );
 
         Console.WriteLine(

@@ -6,13 +6,13 @@ public static class EffectiveArmorAddonArchiveCandidatesCommand
 {
     public static int Run(string[] args)
     {
-        if (args.Length < 4 ||
-            args.Length > 5)
+        if (args.Length < 5 ||
+            args.Length > 6)
         {
             Console.Error.WriteLine(
                 "Error: effective-armor-addon-archive-candidates " +
                 "requires a Data root, Plugins.txt, loadorder.txt, " +
-                "and optional path search."
+                "Skyrim.ccc, and optional path search."
             );
 
             return 2;
@@ -28,10 +28,16 @@ public static class EffectiveArmorAddonArchiveCandidatesCommand
                         args[3]
                 );
 
-            if (!loadOrder.IsConsistent)
+            SkyrimRuntimePluginSet runtimePluginSet =
+                SkyrimRuntimePluginSetReader.Read(
+                    loadOrder,
+                    args[4]
+                );
+
+            if (!runtimePluginSet.IsConsistent)
             {
                 Console.Error.WriteLine(
-                    "Error: runtime load order is inconsistent."
+                    "Error: runtime plugin set is inconsistent."
                 );
 
                 return 4;
@@ -41,8 +47,8 @@ public static class EffectiveArmorAddonArchiveCandidatesCommand
                 SkyrimWinningArmorAddonInventory.Inspect(
                     dataRoot:
                         args[1],
-                    loadOrder:
-                        loadOrder
+                    runtimePluginSet:
+                        runtimePluginSet
                 );
 
             SkyrimWinningArmorAddonEffectiveScanResult effectiveScan =
@@ -193,10 +199,10 @@ public static class EffectiveArmorAddonArchiveCandidatesCommand
                 );
             }
 
-            if (args.Length == 5)
+            if (args.Length == 6)
             {
                 string filter =
-                    args[4];
+                    args[5];
 
                 SkyrimEffectiveArmorAddonArchiveCandidateFinding[]
                     matches =

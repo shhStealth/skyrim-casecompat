@@ -13,7 +13,7 @@ public sealed record SkyrimPluginReadError(
 public sealed record SkyrimTargetArmorAddonWinnerResult(
     string DataRoot,
     FormKey TargetFormKey,
-    int ExplicitlyActivePluginCount,
+    int RuntimeActivePluginCount,
     int PluginsChecked,
     IReadOnlyList<string> MissingPluginFiles,
     IReadOnlyList<SkyrimPluginReadError> ReadErrors,
@@ -35,7 +35,7 @@ public static class SkyrimTargetArmorAddonWinnerProbe
 {
     public static SkyrimTargetArmorAddonWinnerResult Inspect(
         string dataRoot,
-        SkyrimRuntimeLoadOrder loadOrder,
+        SkyrimRuntimePluginSet runtimePluginSet,
         string targetFormKey)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(
@@ -43,7 +43,7 @@ public static class SkyrimTargetArmorAddonWinnerProbe
         );
 
         ArgumentNullException.ThrowIfNull(
-            loadOrder
+            runtimePluginSet
         );
 
         ArgumentException.ThrowIfNullOrWhiteSpace(
@@ -65,9 +65,9 @@ public static class SkyrimTargetArmorAddonWinnerProbe
                 targetFormKey
             );
 
-        SkyrimRuntimeLoadOrderEntry[] active =
-            loadOrder
-                .OrderedExplicitlyActiveEntries
+        SkyrimRuntimePluginSetEntry[] active =
+            runtimePluginSet
+                .OrderedRuntimeActiveEntries
                 .OrderByDescending(entry =>
                     entry.LoadOrderIndex
                 )
@@ -82,7 +82,7 @@ public static class SkyrimTargetArmorAddonWinnerProbe
         int pluginsChecked = 0;
 
         foreach (
-            SkyrimRuntimeLoadOrderEntry entry
+            SkyrimRuntimePluginSetEntry entry
             in active)
         {
             string pluginPath =
@@ -126,7 +126,7 @@ public static class SkyrimTargetArmorAddonWinnerProbe
                         fullDataRoot,
                     TargetFormKey:
                         formKey,
-                    ExplicitlyActivePluginCount:
+                    RuntimeActivePluginCount:
                         active.Length,
                     PluginsChecked:
                         pluginsChecked,
@@ -165,7 +165,7 @@ public static class SkyrimTargetArmorAddonWinnerProbe
                 fullDataRoot,
             TargetFormKey:
                 formKey,
-            ExplicitlyActivePluginCount:
+            RuntimeActivePluginCount:
                 active.Length,
             PluginsChecked:
                 pluginsChecked,
