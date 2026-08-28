@@ -46,6 +46,9 @@ switch (command)
     case "armor-records":
         return ArmorRecordsCommand.Run(args);
 
+    case "load-order-probe":
+        return LoadOrderProbeCommand.Run(args);
+
     default:
         Console.Error.WriteLine($"Unknown command: {args[0]}");
         Console.Error.WriteLine();
@@ -356,5 +359,8 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat armor-records <plugin path>"
+    );
+    Console.WriteLine(
+        "  casecompat load-order-probe <Plugins.txt> <loadorder.txt>"
     );
 }
