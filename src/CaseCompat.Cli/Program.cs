@@ -34,6 +34,9 @@ switch (command)
     case "record-inventory":
         return RecordInventoryCommand.Run(args);
 
+    case "armor-addon-models":
+        return ArmorAddonModelsCommand.Run(args);
+
     default:
         Console.Error.WriteLine($"Unknown command: {args[0]}");
         Console.Error.WriteLine();
@@ -332,5 +335,8 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat record-inventory <plugin path>"
+    );
+    Console.WriteLine(
+        "  casecompat armor-addon-models <plugin path> [search]"
     );
 }
