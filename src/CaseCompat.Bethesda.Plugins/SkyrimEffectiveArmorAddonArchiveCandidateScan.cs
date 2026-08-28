@@ -6,7 +6,8 @@ public sealed record SkyrimEffectiveArmorAddonArchiveCandidateFinding(
     EffectiveAssetReferenceFinding EffectiveFinding,
     IReadOnlyList<SkyrimArchiveAssetProvider> ArchiveCandidates,
     IReadOnlyList<SkyrimArchiveAssetProvider>
-        RuntimeEvidencedArchiveCandidates
+        RuntimeEvidencedArchiveCandidates,
+    SkyrimRuntimeArchivePrecedenceDecision ArchivePrecedence
 )
 {
     public bool HasArchiveCandidates =>
@@ -20,6 +21,16 @@ public sealed record SkyrimEffectiveArmorAddonArchiveCandidateFinding(
 
     public int RuntimeEvidencedArchiveCandidateCount =>
         RuntimeEvidencedArchiveCandidates.Count;
+
+    public bool HasWinningRuntimeArchiveProvider =>
+        ArchivePrecedence.HasWinner;
+
+    public SkyrimArchiveAssetProvider?
+        WinningRuntimeArchiveProvider =>
+            ArchivePrecedence.WinningProvider;
+
+    public bool HasAmbiguousArchivePrecedence =>
+        ArchivePrecedence.IsAmbiguous;
 
     public EffectiveAssetReferenceEvidenceState LooseEvidenceState =>
         EffectiveAssetReferenceEvidenceClassifier.Classify(
@@ -142,18 +153,10 @@ public static class SkyrimEffectiveArmorAddonArchiveCandidateScan
             );
         }
 
-        var runtimeEvidencedArchivePaths =
-            runtimeArchiveEvidence
-                .Archives
-                .Where(archive =>
-                    archive.HasRuntimeEvidence
-                )
-                .Select(archive =>
-                    archive.ArchivePath
-                )
-                .ToHashSet(
-                    StringComparer.Ordinal
-                );
+        var precedenceResolver =
+            new SkyrimRuntimeArchivePrecedenceResolver(
+                runtimeArchiveEvidence
+            );
 
         var findings =
             new List<
@@ -172,15 +175,11 @@ public static class SkyrimEffectiveArmorAddonArchiveCandidateScan
                     archiveCandidates
             );
 
-            SkyrimArchiveAssetProvider[]
-                runtimeEvidencedArchiveCandidates =
-                    archiveCandidates
-                        .Where(provider =>
-                            runtimeEvidencedArchivePaths.Contains(
-                                provider.ArchivePath
-                            )
-                        )
-                        .ToArray();
+            SkyrimRuntimeArchivePrecedenceDecision
+                archivePrecedence =
+                    precedenceResolver.Resolve(
+                        archiveCandidates
+                    );
 
             findings.Add(
                 new SkyrimEffectiveArmorAddonArchiveCandidateFinding(
@@ -189,7 +188,10 @@ public static class SkyrimEffectiveArmorAddonArchiveCandidateScan
                     ArchiveCandidates:
                         archiveCandidates,
                     RuntimeEvidencedArchiveCandidates:
-                        runtimeEvidencedArchiveCandidates
+                        archivePrecedence
+                            .RuntimeEvidencedProviders,
+                    ArchivePrecedence:
+                        archivePrecedence
                 )
             );
         }

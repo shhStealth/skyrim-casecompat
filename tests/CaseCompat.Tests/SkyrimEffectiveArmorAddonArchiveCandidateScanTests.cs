@@ -65,6 +65,25 @@ public sealed class SkyrimEffectiveArmorAddonArchiveCandidateScanTests
         );
 
         Assert.Equal(
+            SkyrimRuntimeArchivePrecedenceState
+                .SingleRuntimeEvidencedProvider,
+            finding.ArchivePrecedence.State
+        );
+
+        Assert.True(
+            finding.HasWinningRuntimeArchiveProvider
+        );
+
+        Assert.False(
+            finding.HasAmbiguousArchivePrecedence
+        );
+
+        Assert.Same(
+            provider,
+            finding.WinningRuntimeArchiveProvider
+        );
+
+        Assert.Equal(
             1,
             result.FindingsWithArchiveCandidates
         );
@@ -219,6 +238,163 @@ public sealed class SkyrimEffectiveArmorAddonArchiveCandidateScanTests
         Assert.Equal(
             "Runtime.bsa",
             runtimeCandidate.ArchiveName
+        );
+    }
+
+    [Fact]
+    public void Inspect_MultipleRuntimeProviders_RetainsWinningPrecedenceDecision()
+    {
+        string dataRoot =
+            CreateDataRoot(
+                "runtime-precedence-winner"
+            );
+
+        SkyrimArchiveAssetProvider early =
+            CreateProvider(
+                dataRoot,
+                "Early.bsa"
+            );
+
+        SkyrimArchiveAssetProvider late =
+            CreateProvider(
+                dataRoot,
+                "Late.bsa"
+            );
+
+        SkyrimEffectiveArmorAddonArchiveCandidateScanResult result =
+            SkyrimEffectiveArmorAddonArchiveCandidateScan.Inspect(
+                CreateEffectiveScan(
+                    dataRoot
+                ),
+                CreateArchiveIndex(
+                    dataRoot,
+                    early,
+                    late
+                ),
+                CreateRuntimeEvidence(
+                    dataRoot,
+                    CreateRuntimeArchive(
+                        early,
+                        hasRuntimeEvidence:
+                            true,
+                        loadOrderIndex:
+                            10
+                    ),
+                    CreateRuntimeArchive(
+                        late,
+                        hasRuntimeEvidence:
+                            true,
+                        loadOrderIndex:
+                            20
+                    )
+                )
+            );
+
+        SkyrimEffectiveArmorAddonArchiveCandidateFinding finding =
+            Assert.Single(
+                result.Findings
+            );
+
+        Assert.Equal(
+            2,
+            finding.RuntimeEvidencedArchiveCandidateCount
+        );
+
+        Assert.Equal(
+            SkyrimRuntimeArchivePrecedenceState
+                .ResolvedByPluginLoadOrder,
+            finding.ArchivePrecedence.State
+        );
+
+        Assert.True(
+            finding.HasWinningRuntimeArchiveProvider
+        );
+
+        Assert.False(
+            finding.HasAmbiguousArchivePrecedence
+        );
+
+        Assert.Same(
+            late,
+            finding.WinningRuntimeArchiveProvider
+        );
+    }
+
+    [Fact]
+    public void Inspect_SamePluginPosition_RetainsAmbiguousPrecedenceDecision()
+    {
+        string dataRoot =
+            CreateDataRoot(
+                "runtime-precedence-ambiguous"
+            );
+
+        SkyrimArchiveAssetProvider first =
+            CreateProvider(
+                dataRoot,
+                "First.bsa"
+            );
+
+        SkyrimArchiveAssetProvider second =
+            CreateProvider(
+                dataRoot,
+                "Second.bsa"
+            );
+
+        SkyrimEffectiveArmorAddonArchiveCandidateScanResult result =
+            SkyrimEffectiveArmorAddonArchiveCandidateScan.Inspect(
+                CreateEffectiveScan(
+                    dataRoot
+                ),
+                CreateArchiveIndex(
+                    dataRoot,
+                    first,
+                    second
+                ),
+                CreateRuntimeEvidence(
+                    dataRoot,
+                    CreateRuntimeArchive(
+                        first,
+                        hasRuntimeEvidence:
+                            true,
+                        loadOrderIndex:
+                            100
+                    ),
+                    CreateRuntimeArchive(
+                        second,
+                        hasRuntimeEvidence:
+                            true,
+                        loadOrderIndex:
+                            100
+                    )
+                )
+            );
+
+        SkyrimEffectiveArmorAddonArchiveCandidateFinding finding =
+            Assert.Single(
+                result.Findings
+            );
+
+        Assert.Equal(
+            2,
+            finding.RuntimeEvidencedArchiveCandidateCount
+        );
+
+        Assert.Equal(
+            SkyrimRuntimeArchivePrecedenceState
+                .AmbiguousSamePluginLoadOrderIndex,
+            finding.ArchivePrecedence.State
+        );
+
+        Assert.False(
+            finding.HasWinningRuntimeArchiveProvider
+        );
+
+        Assert.True(
+            finding.HasAmbiguousArchivePrecedence
+        );
+
+        Assert.Null(
+            finding.WinningRuntimeArchiveProvider
         );
     }
 
@@ -527,7 +703,8 @@ public sealed class SkyrimEffectiveArmorAddonArchiveCandidateScanTests
     private static SkyrimRuntimeArchiveEvidenceEntry
         CreateRuntimeArchive(
             SkyrimArchiveAssetProvider provider,
-            bool hasRuntimeEvidence)
+            bool hasRuntimeEvidence,
+            int loadOrderIndex = 100)
     {
         IReadOnlyList<
             SkyrimRuntimeArchivePluginAssociation
@@ -539,7 +716,7 @@ public sealed class SkyrimEffectiveArmorAddonArchiveCandidateScanTests
                         PluginName:
                             "Fixture.esp",
                         LoadOrderIndex:
-                            100
+                            loadOrderIndex
                     )
                 }
                 : Array.Empty<
