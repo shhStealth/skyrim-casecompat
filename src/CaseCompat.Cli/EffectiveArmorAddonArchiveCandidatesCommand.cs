@@ -1,0 +1,298 @@
+using CaseCompat.Bethesda.Plugins;
+using CaseCompat.Core.Findings;
+using CaseCompat.Core.LoadOrder;
+
+public static class EffectiveArmorAddonArchiveCandidatesCommand
+{
+    public static int Run(string[] args)
+    {
+        if (args.Length < 4 ||
+            args.Length > 5)
+        {
+            Console.Error.WriteLine(
+                "Error: effective-armor-addon-archive-candidates " +
+                "requires a Data root, Plugins.txt, loadorder.txt, " +
+                "and optional path search."
+            );
+
+            return 2;
+        }
+
+        try
+        {
+            SkyrimRuntimeLoadOrder loadOrder =
+                SkyrimRuntimeLoadOrderReader.Read(
+                    pluginsPath:
+                        args[2],
+                    loadOrderPath:
+                        args[3]
+                );
+
+            if (!loadOrder.IsConsistent)
+            {
+                Console.Error.WriteLine(
+                    "Error: runtime load order is inconsistent."
+                );
+
+                return 4;
+            }
+
+            SkyrimWinningArmorAddonInventoryResult inventory =
+                SkyrimWinningArmorAddonInventory.Inspect(
+                    dataRoot:
+                        args[1],
+                    loadOrder:
+                        loadOrder
+                );
+
+            SkyrimWinningArmorAddonEffectiveScanResult effectiveScan =
+                SkyrimWinningArmorAddonEffectiveScanner.Inspect(
+                    inventory
+                );
+
+            SkyrimArchiveCandidateIndexResult archiveIndex =
+                SkyrimArchiveCandidateIndex.Inspect(
+                    args[1]
+                );
+
+            SkyrimEffectiveArmorAddonArchiveCandidateScanResult result =
+                SkyrimEffectiveArmorAddonArchiveCandidateScan.Inspect(
+                    effectiveScan,
+                    archiveIndex
+                );
+
+            Console.WriteLine(
+                "CaseCompat Effective ArmorAddon Archive Candidates"
+            );
+            Console.WriteLine(
+                "================================================="
+            );
+            Console.WriteLine();
+
+            Console.WriteLine(
+                $"Effective findings:                  {result.Findings.Count:N0}"
+            );
+
+            Console.WriteLine(
+                $"Unique requested paths:              {effectiveScan.UniqueRequestedPathCount:N0}"
+            );
+
+            Console.WriteLine(
+                $"Physically present BSAs indexed:     {archiveIndex.ArchivesRead:N0}"
+            );
+
+            Console.WriteLine(
+                $"Archive logical asset paths:         {archiveIndex.UniqueLogicalAssetCount:N0}"
+            );
+
+            Console.WriteLine();
+            Console.WriteLine(
+                $"Findings with BSA candidates:        {result.FindingsWithArchiveCandidates:N0}"
+            );
+
+            Console.WriteLine(
+                $"Findings without BSA candidates:     {result.FindingsWithoutArchiveCandidates:N0}"
+            );
+
+            Console.WriteLine(
+                $"Unique paths with BSA candidates:    {result.UniqueRequestedPathsWithArchiveCandidates:N0}"
+            );
+
+            Console.WriteLine(
+                $"Unique paths without BSA candidates: {result.UniqueRequestedPathsWithoutArchiveCandidates:N0}"
+            );
+
+            Console.WriteLine(
+                $"Complete:                            {(result.Complete ? "YES" : "NO")}"
+            );
+
+            Console.WriteLine();
+            Console.WriteLine(
+                "Loose evidence state / physical BSA candidates:"
+            );
+
+            Console.WriteLine(
+                "  State                            Total   With BSA    No BSA"
+            );
+
+            foreach (
+                EffectiveAssetReferenceEvidenceState state
+                in Enum.GetValues<
+                    EffectiveAssetReferenceEvidenceState>())
+            {
+                SkyrimEffectiveArmorAddonArchiveCandidateFinding[]
+                    stateFindings =
+                        result.Findings
+                            .Where(finding =>
+                                finding.LooseEvidenceState == state
+                            )
+                            .ToArray();
+
+                int withArchive =
+                    stateFindings.Count(finding =>
+                        finding.HasArchiveCandidates
+                    );
+
+                int withoutArchive =
+                    stateFindings.Length -
+                    withArchive;
+
+                Console.WriteLine(
+                    $"  {state,-30} " +
+                    $"{stateFindings.Length,8:N0} " +
+                    $"{withArchive,10:N0} " +
+                    $"{withoutArchive,9:N0}"
+                );
+            }
+
+            Console.WriteLine();
+            Console.WriteLine(
+                "Unique requested paths by loose state / physical BSA candidates:"
+            );
+
+            Console.WriteLine(
+                "  State                            Total   With BSA    No BSA"
+            );
+
+            foreach (
+                EffectiveAssetReferenceEvidenceState state
+                in Enum.GetValues<
+                    EffectiveAssetReferenceEvidenceState>())
+            {
+                var pathGroups =
+                    result.Findings
+                        .Where(finding =>
+                            finding.LooseEvidenceState == state
+                        )
+                        .GroupBy(
+                            finding =>
+                                finding.EffectiveFinding.RequestedPath,
+                            StringComparer.Ordinal
+                        )
+                        .ToArray();
+
+                int totalPaths =
+                    pathGroups.Length;
+
+                int withArchive =
+                    pathGroups.Count(group =>
+                        group.Any(finding =>
+                            finding.HasArchiveCandidates
+                        )
+                    );
+
+                int withoutArchive =
+                    totalPaths -
+                    withArchive;
+
+                Console.WriteLine(
+                    $"  {state,-30} " +
+                    $"{totalPaths,8:N0} " +
+                    $"{withArchive,10:N0} " +
+                    $"{withoutArchive,9:N0}"
+                );
+            }
+
+            if (args.Length == 5)
+            {
+                string filter =
+                    args[4];
+
+                SkyrimEffectiveArmorAddonArchiveCandidateFinding[]
+                    matches =
+                        result.Findings
+                            .Where(finding =>
+                                finding.EffectiveFinding.RawPath.Contains(
+                                    filter,
+                                    StringComparison.OrdinalIgnoreCase
+                                ) ||
+                                finding.EffectiveFinding.RequestedPath.Contains(
+                                    filter,
+                                    StringComparison.OrdinalIgnoreCase
+                                )
+                            )
+                            .ToArray();
+
+                Console.WriteLine();
+                Console.WriteLine(
+                    $"Path filter:                        {filter}"
+                );
+
+                Console.WriteLine(
+                    $"Matching findings:                  {matches.Length:N0}"
+                );
+
+                foreach (
+                    SkyrimEffectiveArmorAddonArchiveCandidateFinding
+                    finding
+                    in matches)
+                {
+                    EffectiveAssetReferenceFinding effective =
+                        finding.EffectiveFinding;
+
+                    Console.WriteLine();
+                    Console.WriteLine(
+                        $"FormKey:       {effective.ConsumerFormKey}"
+                    );
+
+                    Console.WriteLine(
+                        $"Field:         {effective.ReferenceField}"
+                    );
+
+                    Console.WriteLine(
+                        $"Requested:     {effective.RequestedPath}"
+                    );
+
+                    Console.WriteLine(
+                        $"Loose state:   {finding.LooseEvidenceState}"
+                    );
+
+                    Console.WriteLine(
+                        $"BSA candidates:{finding.ArchiveCandidateCount,5:N0}"
+                    );
+
+                    foreach (
+                        SkyrimArchiveAssetProvider provider
+                        in finding.ArchiveCandidates.Take(10))
+                    {
+                        Console.WriteLine(
+                            $"  {provider.ArchiveName}"
+                        );
+                    }
+
+                    if (finding.ArchiveCandidateCount > 10)
+                    {
+                        Console.WriteLine(
+                            $"  ... {finding.ArchiveCandidateCount - 10:N0} more"
+                        );
+                    }
+                }
+            }
+
+            Console.WriteLine();
+            Console.WriteLine(
+                "BSA presence is candidate evidence only."
+            );
+
+            Console.WriteLine(
+                "Archive load state and precedence are not inferred."
+            );
+
+            Console.WriteLine(
+                "Read-only scan: no files were modified or extracted."
+            );
+
+            return result.Complete
+                ? 0
+                : 1;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"Archive-candidate correlation error: {ex.Message}"
+            );
+
+            return 3;
+        }
+    }
+}
