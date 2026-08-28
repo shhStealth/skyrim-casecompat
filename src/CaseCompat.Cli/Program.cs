@@ -31,6 +31,9 @@ switch (command)
     case "plugin-probe":
         return PluginProbeCommand.Run(args);
 
+    case "record-inventory":
+        return RecordInventoryCommand.Run(args);
+
     default:
         Console.Error.WriteLine($"Unknown command: {args[0]}");
         Console.Error.WriteLine();
@@ -326,5 +329,8 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat plugin-probe <plugin path>"
-);
+    );
+    Console.WriteLine(
+        "  casecompat record-inventory <plugin path>"
+    );
 }
