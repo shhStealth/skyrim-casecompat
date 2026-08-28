@@ -193,6 +193,11 @@ public static class EffectiveArmorAddonModelsCommand
                 $"Candidates: {finding.EquivalentCandidateCount}"
             );
 
+            Console.WriteLine(
+                $"Evidence:   " +
+                $"{EffectiveAssetReferenceEvidenceClassifier.Classify(finding)}"
+            );
+
             if (!finding.LinuxResolves)
             {
                 Console.WriteLine(
