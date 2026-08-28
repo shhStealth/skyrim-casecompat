@@ -409,6 +409,6 @@ static void ShowUsage()
         "  casecompat runtime-archive-evidence <Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> <INI directory>"
     );
     Console.WriteLine(
-        "  casecompat effective-armor-addon-archive-candidates <Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> [path search]"
+        "  casecompat effective-armor-addon-archive-candidates <Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> <INI directory> [path search]"
     );
 }

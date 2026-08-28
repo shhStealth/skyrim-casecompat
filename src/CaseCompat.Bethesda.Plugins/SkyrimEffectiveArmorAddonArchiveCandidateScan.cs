@@ -4,7 +4,9 @@ namespace CaseCompat.Bethesda.Plugins;
 
 public sealed record SkyrimEffectiveArmorAddonArchiveCandidateFinding(
     EffectiveAssetReferenceFinding EffectiveFinding,
-    IReadOnlyList<SkyrimArchiveAssetProvider> ArchiveCandidates
+    IReadOnlyList<SkyrimArchiveAssetProvider> ArchiveCandidates,
+    IReadOnlyList<SkyrimArchiveAssetProvider>
+        RuntimeEvidencedArchiveCandidates
 )
 {
     public bool HasArchiveCandidates =>
@@ -12,6 +14,12 @@ public sealed record SkyrimEffectiveArmorAddonArchiveCandidateFinding(
 
     public int ArchiveCandidateCount =>
         ArchiveCandidates.Count;
+
+    public bool HasRuntimeEvidencedArchiveCandidates =>
+        RuntimeEvidencedArchiveCandidates.Count > 0;
+
+    public int RuntimeEvidencedArchiveCandidateCount =>
+        RuntimeEvidencedArchiveCandidates.Count;
 
     public EffectiveAssetReferenceEvidenceState LooseEvidenceState =>
         EffectiveAssetReferenceEvidenceClassifier.Classify(
@@ -22,12 +30,14 @@ public sealed record SkyrimEffectiveArmorAddonArchiveCandidateFinding(
 public sealed record SkyrimEffectiveArmorAddonArchiveCandidateScanResult(
     SkyrimWinningArmorAddonEffectiveScanResult EffectiveScan,
     SkyrimArchiveCandidateIndexResult ArchiveIndex,
+    SkyrimRuntimeArchiveEvidenceResult RuntimeArchiveEvidence,
     IReadOnlyList<SkyrimEffectiveArmorAddonArchiveCandidateFinding> Findings
 )
 {
     public bool Complete =>
         EffectiveScan.Complete &&
-        ArchiveIndex.SearchComplete;
+        ArchiveIndex.SearchComplete &&
+        RuntimeArchiveEvidence.SearchComplete;
 
     public int FindingsWithArchiveCandidates =>
         Findings.Count(finding =>
@@ -54,6 +64,32 @@ public sealed record SkyrimEffectiveArmorAddonArchiveCandidateScanResult(
     public int UniqueRequestedPathsWithoutArchiveCandidates =>
         EffectiveScan.UniqueRequestedPathCount -
         UniqueRequestedPathsWithArchiveCandidates;
+
+    public int FindingsWithRuntimeEvidencedArchiveCandidates =>
+        Findings.Count(finding =>
+            finding.HasRuntimeEvidencedArchiveCandidates
+        );
+
+    public int FindingsWithoutRuntimeEvidencedArchiveCandidates =>
+        Findings.Count -
+        FindingsWithRuntimeEvidencedArchiveCandidates;
+
+    public int UniqueRequestedPathsWithRuntimeEvidencedArchiveCandidates =>
+        Findings
+            .Where(finding =>
+                finding.HasRuntimeEvidencedArchiveCandidates
+            )
+            .Select(finding =>
+                finding.EffectiveFinding.RequestedPath
+            )
+            .Distinct(
+                StringComparer.Ordinal
+            )
+            .Count();
+
+    public int UniqueRequestedPathsWithoutRuntimeEvidencedArchiveCandidates =>
+        EffectiveScan.UniqueRequestedPathCount -
+        UniqueRequestedPathsWithRuntimeEvidencedArchiveCandidates;
 }
 
 public static class SkyrimEffectiveArmorAddonArchiveCandidateScan
@@ -61,7 +97,8 @@ public static class SkyrimEffectiveArmorAddonArchiveCandidateScan
     public static SkyrimEffectiveArmorAddonArchiveCandidateScanResult
         Inspect(
             SkyrimWinningArmorAddonEffectiveScanResult effectiveScan,
-            SkyrimArchiveCandidateIndexResult archiveIndex)
+            SkyrimArchiveCandidateIndexResult archiveIndex,
+            SkyrimRuntimeArchiveEvidenceResult runtimeArchiveEvidence)
     {
         ArgumentNullException.ThrowIfNull(
             effectiveScan
@@ -69,6 +106,10 @@ public static class SkyrimEffectiveArmorAddonArchiveCandidateScan
 
         ArgumentNullException.ThrowIfNull(
             archiveIndex
+        );
+
+        ArgumentNullException.ThrowIfNull(
+            runtimeArchiveEvidence
         );
 
         string effectiveDataRoot =
@@ -81,16 +122,38 @@ public static class SkyrimEffectiveArmorAddonArchiveCandidateScan
                 archiveIndex.DataRoot
             );
 
+        string runtimeArchiveDataRoot =
+            Path.GetFullPath(
+                runtimeArchiveEvidence.DataRoot
+            );
+
         if (!string.Equals(
                 effectiveDataRoot,
                 archiveDataRoot,
+                StringComparison.Ordinal) ||
+            !string.Equals(
+                effectiveDataRoot,
+                runtimeArchiveDataRoot,
                 StringComparison.Ordinal))
         {
             throw new ArgumentException(
-                "Effective scan and archive index " +
-                "must refer to the same Data root."
+                "Effective scan, archive index, and runtime archive " +
+                "evidence must refer to the same Data root."
             );
         }
+
+        var runtimeEvidencedArchivePaths =
+            runtimeArchiveEvidence
+                .Archives
+                .Where(archive =>
+                    archive.HasRuntimeEvidence
+                )
+                .Select(archive =>
+                    archive.ArchivePath
+                )
+                .ToHashSet(
+                    StringComparer.Ordinal
+                );
 
         var findings =
             new List<
@@ -109,12 +172,24 @@ public static class SkyrimEffectiveArmorAddonArchiveCandidateScan
                     archiveCandidates
             );
 
+            SkyrimArchiveAssetProvider[]
+                runtimeEvidencedArchiveCandidates =
+                    archiveCandidates
+                        .Where(provider =>
+                            runtimeEvidencedArchivePaths.Contains(
+                                provider.ArchivePath
+                            )
+                        )
+                        .ToArray();
+
             findings.Add(
                 new SkyrimEffectiveArmorAddonArchiveCandidateFinding(
                     EffectiveFinding:
                         finding,
                     ArchiveCandidates:
-                        archiveCandidates
+                        archiveCandidates,
+                    RuntimeEvidencedArchiveCandidates:
+                        runtimeEvidencedArchiveCandidates
                 )
             );
         }
@@ -124,6 +199,8 @@ public static class SkyrimEffectiveArmorAddonArchiveCandidateScan
                 effectiveScan,
             ArchiveIndex:
                 archiveIndex,
+            RuntimeArchiveEvidence:
+                runtimeArchiveEvidence,
             Findings:
                 findings.ToArray()
         );

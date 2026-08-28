@@ -6,13 +6,13 @@ public static class EffectiveArmorAddonArchiveCandidatesCommand
 {
     public static int Run(string[] args)
     {
-        if (args.Length < 5 ||
-            args.Length > 6)
+        if (args.Length < 6 ||
+            args.Length > 7)
         {
             Console.Error.WriteLine(
                 "Error: effective-armor-addon-archive-candidates " +
                 "requires a Data root, Plugins.txt, loadorder.txt, " +
-                "Skyrim.ccc, and optional path search."
+                "Skyrim.ccc, INI directory, and optional path search."
             );
 
             return 2;
@@ -61,10 +61,21 @@ public static class EffectiveArmorAddonArchiveCandidatesCommand
                     args[1]
                 );
 
+            SkyrimRuntimeArchiveEvidenceResult runtimeArchiveEvidence =
+                SkyrimRuntimeArchiveEvidence.Inspect(
+                    dataRoot:
+                        args[1],
+                    runtimePluginSet:
+                        runtimePluginSet,
+                    iniDirectory:
+                        args[5]
+                );
+
             SkyrimEffectiveArmorAddonArchiveCandidateScanResult result =
                 SkyrimEffectiveArmorAddonArchiveCandidateScan.Inspect(
                     effectiveScan,
-                    archiveIndex
+                    archiveIndex,
+                    runtimeArchiveEvidence
                 );
 
             Console.WriteLine(
@@ -91,6 +102,14 @@ public static class EffectiveArmorAddonArchiveCandidatesCommand
                 $"Archive logical asset paths:         {archiveIndex.UniqueLogicalAssetCount:N0}"
             );
 
+            Console.WriteLine(
+                $"Runtime-evidenced physical BSAs:     {runtimeArchiveEvidence.RuntimeEvidencedArchiveCount:N0}"
+            );
+
+            Console.WriteLine(
+                $"Physical BSAs without runtime evidence:{runtimeArchiveEvidence.NoRuntimeEvidenceArchiveCount,6:N0}"
+            );
+
             Console.WriteLine();
             Console.WriteLine(
                 $"Findings with BSA candidates:        {result.FindingsWithArchiveCandidates:N0}"
@@ -106,6 +125,24 @@ public static class EffectiveArmorAddonArchiveCandidatesCommand
 
             Console.WriteLine(
                 $"Unique paths without BSA candidates: {result.UniqueRequestedPathsWithoutArchiveCandidates:N0}"
+            );
+
+            Console.WriteLine();
+
+            Console.WriteLine(
+                $"Findings with runtime BSA candidates:{result.FindingsWithRuntimeEvidencedArchiveCandidates,10:N0}"
+            );
+
+            Console.WriteLine(
+                $"Findings without runtime BSA candidates:{result.FindingsWithoutRuntimeEvidencedArchiveCandidates,7:N0}"
+            );
+
+            Console.WriteLine(
+                $"Unique paths with runtime BSA:       {result.UniqueRequestedPathsWithRuntimeEvidencedArchiveCandidates:N0}"
+            );
+
+            Console.WriteLine(
+                $"Unique paths without runtime BSA:    {result.UniqueRequestedPathsWithoutRuntimeEvidencedArchiveCandidates:N0}"
             );
 
             Console.WriteLine(
@@ -137,6 +174,45 @@ public static class EffectiveArmorAddonArchiveCandidatesCommand
                 int withArchive =
                     stateFindings.Count(finding =>
                         finding.HasArchiveCandidates
+                    );
+
+                int withoutArchive =
+                    stateFindings.Length -
+                    withArchive;
+
+                Console.WriteLine(
+                    $"  {state,-30} " +
+                    $"{stateFindings.Length,8:N0} " +
+                    $"{withArchive,10:N0} " +
+                    $"{withoutArchive,9:N0}"
+                );
+            }
+
+            Console.WriteLine();
+            Console.WriteLine(
+                "Loose evidence state / runtime-evidenced BSA candidates:"
+            );
+
+            Console.WriteLine(
+                "  State                            Total   With BSA    No BSA"
+            );
+
+            foreach (
+                EffectiveAssetReferenceEvidenceState state
+                in Enum.GetValues<
+                    EffectiveAssetReferenceEvidenceState>())
+            {
+                SkyrimEffectiveArmorAddonArchiveCandidateFinding[]
+                    stateFindings =
+                        result.Findings
+                            .Where(finding =>
+                                finding.LooseEvidenceState == state
+                            )
+                            .ToArray();
+
+                int withArchive =
+                    stateFindings.Count(finding =>
+                        finding.HasRuntimeEvidencedArchiveCandidates
                     );
 
                 int withoutArchive =
@@ -199,10 +275,58 @@ public static class EffectiveArmorAddonArchiveCandidatesCommand
                 );
             }
 
-            if (args.Length == 6)
+            Console.WriteLine();
+            Console.WriteLine(
+                "Unique requested paths by loose state / runtime-evidenced BSA candidates:"
+            );
+
+            Console.WriteLine(
+                "  State                            Total   With BSA    No BSA"
+            );
+
+            foreach (
+                EffectiveAssetReferenceEvidenceState state
+                in Enum.GetValues<
+                    EffectiveAssetReferenceEvidenceState>())
+            {
+                var pathGroups =
+                    result.Findings
+                        .Where(finding =>
+                            finding.LooseEvidenceState == state
+                        )
+                        .GroupBy(
+                            finding =>
+                                finding.EffectiveFinding.RequestedPath,
+                            StringComparer.Ordinal
+                        )
+                        .ToArray();
+
+                int totalPaths =
+                    pathGroups.Length;
+
+                int withArchive =
+                    pathGroups.Count(group =>
+                        group.Any(finding =>
+                            finding.HasRuntimeEvidencedArchiveCandidates
+                        )
+                    );
+
+                int withoutArchive =
+                    totalPaths -
+                    withArchive;
+
+                Console.WriteLine(
+                    $"  {state,-30} " +
+                    $"{totalPaths,8:N0} " +
+                    $"{withArchive,10:N0} " +
+                    $"{withoutArchive,9:N0}"
+                );
+            }
+
+            if (args.Length == 7)
             {
                 string filter =
-                    args[5];
+                    args[6];
 
                 SkyrimEffectiveArmorAddonArchiveCandidateFinding[]
                     matches =
@@ -277,11 +401,13 @@ public static class EffectiveArmorAddonArchiveCandidatesCommand
 
             Console.WriteLine();
             Console.WriteLine(
-                "BSA presence is candidate evidence only."
+                "Physical BSA presence and runtime archive evidence " +
+                "are reported separately."
             );
 
             Console.WriteLine(
-                "Archive load state and precedence are not inferred."
+                "Runtime evidence does not infer archive precedence " +
+                "or a winning provider."
             );
 
             Console.WriteLine(
