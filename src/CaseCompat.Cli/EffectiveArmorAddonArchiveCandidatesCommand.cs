@@ -145,6 +145,60 @@ public static class EffectiveArmorAddonArchiveCandidatesCommand
                 $"Unique paths without runtime BSA:    {result.UniqueRequestedPathsWithoutRuntimeEvidencedArchiveCandidates:N0}"
             );
 
+            int findingsWithArchiveWinner =
+                result.Findings.Count(finding =>
+                    finding.HasWinningRuntimeArchiveProvider
+                );
+
+            int findingsWithAmbiguousArchivePrecedence =
+                result.Findings.Count(finding =>
+                    finding.HasAmbiguousArchivePrecedence
+                );
+
+            int uniquePathsWithArchiveWinner =
+                result.Findings
+                    .Where(finding =>
+                        finding.HasWinningRuntimeArchiveProvider
+                    )
+                    .Select(finding =>
+                        finding.EffectiveFinding.RequestedPath
+                    )
+                    .Distinct(
+                        StringComparer.Ordinal
+                    )
+                    .Count();
+
+            int uniquePathsWithAmbiguousArchivePrecedence =
+                result.Findings
+                    .Where(finding =>
+                        finding.HasAmbiguousArchivePrecedence
+                    )
+                    .Select(finding =>
+                        finding.EffectiveFinding.RequestedPath
+                    )
+                    .Distinct(
+                        StringComparer.Ordinal
+                    )
+                    .Count();
+
+            Console.WriteLine();
+
+            Console.WriteLine(
+                $"Findings with runtime BSA winner:    {findingsWithArchiveWinner:N0}"
+            );
+
+            Console.WriteLine(
+                $"Unique paths with runtime BSA winner:{uniquePathsWithArchiveWinner,10:N0}"
+            );
+
+            Console.WriteLine(
+                $"Findings with ambiguous precedence: {findingsWithAmbiguousArchivePrecedence:N0}"
+            );
+
+            Console.WriteLine(
+                $"Unique paths with ambiguity:        {uniquePathsWithAmbiguousArchivePrecedence:N0}"
+            );
+
             Console.WriteLine(
                 $"Complete:                            {(result.Complete ? "YES" : "NO")}"
             );
@@ -323,6 +377,47 @@ public static class EffectiveArmorAddonArchiveCandidatesCommand
                 );
             }
 
+            Console.WriteLine();
+
+            Console.WriteLine(
+                "Runtime archive precedence states:"
+            );
+
+            Console.WriteLine(
+                "  State                                             Findings     Unique"
+            );
+
+            foreach (
+                SkyrimRuntimeArchivePrecedenceState state
+                in Enum.GetValues<
+                    SkyrimRuntimeArchivePrecedenceState>())
+            {
+                SkyrimEffectiveArmorAddonArchiveCandidateFinding[]
+                    stateFindings =
+                        result.Findings
+                            .Where(finding =>
+                                finding.ArchivePrecedence.State ==
+                                state
+                            )
+                            .ToArray();
+
+                int uniquePaths =
+                    stateFindings
+                        .Select(finding =>
+                            finding.EffectiveFinding.RequestedPath
+                        )
+                        .Distinct(
+                            StringComparer.Ordinal
+                        )
+                        .Count();
+
+                Console.WriteLine(
+                    $"  {state,-48} " +
+                    $"{stateFindings.Length,8:N0} " +
+                    $"{uniquePaths,10:N0}"
+                );
+            }
+
             if (args.Length == 7)
             {
                 string filter =
@@ -396,18 +491,59 @@ public static class EffectiveArmorAddonArchiveCandidatesCommand
                             $"  ... {finding.ArchiveCandidateCount - 10:N0} more"
                         );
                     }
+
+                    Console.WriteLine(
+                        $"Runtime BSAs:  {finding.RuntimeEvidencedArchiveCandidateCount,5:N0}"
+                    );
+
+                    Console.WriteLine(
+                        $"BSA precedence: {finding.ArchivePrecedence.State}"
+                    );
+
+                    Console.WriteLine(
+                        $"BSA ambiguous: {(finding.HasAmbiguousArchivePrecedence ? "YES" : "NO")}"
+                    );
+
+                    if (
+                        finding.WinningRuntimeArchiveProvider
+                        is SkyrimArchiveAssetProvider winningArchive)
+                    {
+                        Console.WriteLine(
+                            $"BSA winner:    {winningArchive.ArchiveName}"
+                        );
+
+                        Console.WriteLine(
+                            $"Winner path:   {winningArchive.ArchivePath}"
+                        );
+                    }
+                    else
+                    {
+                        Console.WriteLine(
+                            "BSA winner:    (none)"
+                        );
+                    }
                 }
             }
 
             Console.WriteLine();
             Console.WriteLine(
-                "Physical BSA presence and runtime archive evidence " +
-                "are reported separately."
+                "Physical BSA presence, runtime archive evidence, and " +
+                "archive precedence are reported separately."
             );
 
             Console.WriteLine(
-                "Runtime evidence does not infer archive precedence " +
-                "or a winning provider."
+                "The archive winner is the highest-precedence provider " +
+                "among runtime-evidenced BSA candidates only."
+            );
+
+            Console.WriteLine(
+                "It is not the overall asset winner; a Linux-resolvable " +
+                "loose file may override archive content."
+            );
+
+            Console.WriteLine(
+                "Runtime archive evidence is evidence of runtime relevance, " +
+                "not proof that an archive was loaded."
             );
 
             Console.WriteLine(
