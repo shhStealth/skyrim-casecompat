@@ -43,6 +43,9 @@ switch (command)
     case "resolve-armor-addon-models":
         return ResolveArmorAddonModelsCommand.Run(args);
 
+    case "armor-records":
+        return ArmorRecordsCommand.Run(args);
+
     default:
         Console.Error.WriteLine($"Unknown command: {args[0]}");
         Console.Error.WriteLine();
@@ -350,5 +353,8 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat resolve-armor-addon-models <Data root> <plugin path> [path search]"
+    );
+    Console.WriteLine(
+        "  casecompat armor-records <plugin path>"
     );
 }
