@@ -15,6 +15,8 @@ public sealed record SkyrimRuntimeArchivePluginAssociation(
 public sealed record SkyrimRuntimeArchiveIniListing(
     string IniName,
     string IniPath,
+    string IniKey,
+    int IndexWithinKey,
     int ListingIndex
 );
 
@@ -54,13 +56,20 @@ public sealed record SkyrimRuntimeArchiveIniReadError(
     string Error
 );
 
+public sealed record SkyrimRuntimeArchiveIniProvenanceError(
+    string IniName,
+    string IniPath,
+    string Error
+);
+
 public sealed record SkyrimRuntimeArchiveEvidenceResult(
     string DataRoot,
     string IniDirectory,
     IReadOnlyList<SkyrimRuntimeArchiveEvidenceEntry> Archives,
     IReadOnlyList<SkyrimRuntimeArchiveMissingIniArchive> MissingIniArchives,
     IReadOnlyList<SkyrimRuntimeArchiveAssociationError> AssociationErrors,
-    IReadOnlyList<SkyrimRuntimeArchiveIniReadError> IniReadErrors
+    IReadOnlyList<SkyrimRuntimeArchiveIniReadError> IniReadErrors,
+    IReadOnlyList<SkyrimRuntimeArchiveIniProvenanceError> IniProvenanceErrors
 )
 {
     public int PhysicalArchiveCount =>
@@ -99,7 +108,8 @@ public sealed record SkyrimRuntimeArchiveEvidenceResult(
 
     public bool SearchComplete =>
         AssociationErrors.Count == 0 &&
-        IniReadErrors.Count == 0;
+        IniReadErrors.Count == 0 &&
+        IniProvenanceErrors.Count == 0;
 
     public bool TryGetEvidence(
         string archiveName,
@@ -124,6 +134,168 @@ public sealed record SkyrimRuntimeArchiveEvidenceResult(
 
 public static class SkyrimRuntimeArchiveEvidence
 {
+    private static readonly string[] IniArchiveKeys =
+    {
+        "sResourceArchiveList",
+        "sResourceArchiveList2"
+    };
+
+    private sealed record ParsedIniArchiveListing(
+        string ArchiveName,
+        string IniKey,
+        int IndexWithinKey,
+        int ListingIndex
+    );
+
+    private static IReadOnlyList<ParsedIniArchiveListing>
+        ParseIniArchiveListings(
+            string iniPath)
+    {
+        var firstValues =
+            new Dictionary<string, string>(
+                StringComparer.OrdinalIgnoreCase
+            );
+
+        bool inArchiveSection =
+            false;
+
+        foreach (
+            string rawLine
+            in File.ReadLines(iniPath))
+        {
+            string line =
+                rawLine
+                    .Trim()
+                    .TrimStart('\uFEFF')
+                    .Trim();
+
+            if (line.Length == 0 ||
+                line.StartsWith(
+                    ";",
+                    StringComparison.Ordinal) ||
+                line.StartsWith(
+                    "#",
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (line.StartsWith(
+                    "[",
+                    StringComparison.Ordinal) &&
+                line.EndsWith(
+                    "]",
+                    StringComparison.Ordinal))
+            {
+                string section =
+                    line[1..^1].Trim();
+
+                inArchiveSection =
+                    string.Equals(
+                        section,
+                        "Archive",
+                        StringComparison.OrdinalIgnoreCase
+                    );
+
+                continue;
+            }
+
+            if (!inArchiveSection)
+            {
+                continue;
+            }
+
+            int equalsIndex =
+                line.IndexOf('=');
+
+            if (equalsIndex < 0)
+            {
+                continue;
+            }
+
+            string key =
+                line[..equalsIndex].Trim();
+
+            string? canonicalKey =
+                IniArchiveKeys.FirstOrDefault(candidate =>
+                    string.Equals(
+                        candidate,
+                        key,
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                );
+
+            if (canonicalKey is null ||
+                firstValues.ContainsKey(
+                    canonicalKey
+                ))
+            {
+                continue;
+            }
+
+            firstValues.Add(
+                canonicalKey,
+                line[(equalsIndex + 1)..].Trim()
+            );
+        }
+
+        var result =
+            new List<ParsedIniArchiveListing>();
+
+        int listingIndex =
+            0;
+
+        foreach (
+            string key
+            in IniArchiveKeys)
+        {
+            if (!firstValues.TryGetValue(
+                    key,
+                    out string? value))
+            {
+                continue;
+            }
+
+            string[] names =
+                value.Split(
+                    ',',
+                    StringSplitOptions.None
+                );
+
+            int indexWithinKey =
+                0;
+
+            foreach (string rawName in names)
+            {
+                string archiveName =
+                    rawName.Trim();
+
+                if (archiveName.Length == 0)
+                {
+                    continue;
+                }
+
+                result.Add(
+                    new ParsedIniArchiveListing(
+                        ArchiveName:
+                            archiveName,
+                        IniKey:
+                            key,
+                        IndexWithinKey:
+                            indexWithinKey,
+                        ListingIndex:
+                            listingIndex
+                    )
+                );
+
+                indexWithinKey++;
+                listingIndex++;
+            }
+        }
+
+        return result;
+    }
+
     private sealed class ArchiveBuilder
     {
         public ArchiveBuilder(
@@ -322,6 +494,9 @@ public static class SkyrimRuntimeArchiveEvidence
         var iniReadErrors =
             new List<SkyrimRuntimeArchiveIniReadError>();
 
+        var iniProvenanceErrors =
+            new List<SkyrimRuntimeArchiveIniProvenanceError>();
+
         var missingIniListings =
             new Dictionary<
                 string,
@@ -375,6 +550,54 @@ public static class SkyrimRuntimeArchiveEvidence
                         )
                         .ToArray();
 
+                IReadOnlyList<ParsedIniArchiveListing>
+                    parsedListings =
+                        ParseIniArchiveListings(
+                            iniPath
+                        );
+
+                bool provenanceMatches =
+                    archiveNames.Length ==
+                        parsedListings.Count;
+
+                if (provenanceMatches)
+                {
+                    for (
+                        int index = 0;
+                        index < archiveNames.Length;
+                        index++)
+                    {
+                        if (!string.Equals(
+                                archiveNames[index],
+                                parsedListings[index]
+                                    .ArchiveName,
+                                StringComparison.OrdinalIgnoreCase))
+                        {
+                            provenanceMatches =
+                                false;
+
+                            break;
+                        }
+                    }
+                }
+
+                if (!provenanceMatches)
+                {
+                    iniProvenanceErrors.Add(
+                        new SkyrimRuntimeArchiveIniProvenanceError(
+                            IniName:
+                                iniName,
+                            IniPath:
+                                iniPath,
+                            Error:
+                                "Raw INI archive-list provenance " +
+                                "did not match Mutagen GetIniListings()."
+                        )
+                    );
+
+                    continue;
+                }
+
                 for (
                     int listingIndex = 0;
                     listingIndex < archiveNames.Length;
@@ -383,14 +606,21 @@ public static class SkyrimRuntimeArchiveEvidence
                     string archiveName =
                         archiveNames[listingIndex];
 
+                    ParsedIniArchiveListing parsed =
+                        parsedListings[listingIndex];
+
                     var listing =
                         new SkyrimRuntimeArchiveIniListing(
                             IniName:
                                 iniName,
                             IniPath:
                                 iniPath,
+                            IniKey:
+                                parsed.IniKey,
+                            IndexWithinKey:
+                                parsed.IndexWithinKey,
                             ListingIndex:
-                                listingIndex
+                                parsed.ListingIndex
                         );
 
                     if (builders.TryGetValue(
@@ -518,7 +748,9 @@ public static class SkyrimRuntimeArchiveEvidence
             AssociationErrors:
                 associationErrors.ToArray(),
             IniReadErrors:
-                iniReadErrors.ToArray()
+                iniReadErrors.ToArray(),
+            IniProvenanceErrors:
+                iniProvenanceErrors.ToArray()
         );
     }
 }

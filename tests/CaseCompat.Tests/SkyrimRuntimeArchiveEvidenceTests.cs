@@ -249,7 +249,8 @@ public sealed class SkyrimRuntimeArchiveEvidenceTests
                 "Skyrim.ini"
             ),
             "[Archive]\n" +
-            "sResourceArchiveList=Second.bsa,First.bsa\n"
+            "sResourceArchiveList=Second.bsa\n" +
+            "sResourceArchiveList2=First.bsa\n"
         );
 
         SkyrimRuntimePluginSet pluginSet =
@@ -281,22 +282,227 @@ public sealed class SkyrimRuntimeArchiveEvidenceTests
                     "Second.bsa"
             );
 
-        Assert.Equal(
-            1,
+        SkyrimRuntimeArchiveIniListing firstListing =
             Assert.Single(
                 first.IniListings
-            ).ListingIndex
+            );
+
+        Assert.Equal(
+            "sResourceArchiveList2",
+            firstListing.IniKey
         );
 
         Assert.Equal(
             0,
+            firstListing.IndexWithinKey
+        );
+
+        Assert.Equal(
+            1,
+            firstListing.ListingIndex
+        );
+
+        SkyrimRuntimeArchiveIniListing secondListing =
             Assert.Single(
                 second.IniListings
-            ).ListingIndex
+            );
+
+        Assert.Equal(
+            "sResourceArchiveList",
+            secondListing.IniKey
+        );
+
+        Assert.Equal(
+            0,
+            secondListing.IndexWithinKey
+        );
+
+        Assert.Equal(
+            0,
+            secondListing.ListingIndex
         );
 
         Assert.True(
             result.SearchComplete
+        );
+    }
+
+    [Fact]
+    public void Inspect_RepeatedKeysAndDuplicates_MatchMutagenSemantics()
+    {
+        using var temp =
+            new TemporaryDirectory();
+
+        string dataRoot =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    temp.RootPath,
+                    "Data"
+                )
+            ).FullName;
+
+        string iniDirectory =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    temp.RootPath,
+                    "Ini"
+                )
+            ).FullName;
+
+        foreach (
+            string archiveName
+            in new[]
+            {
+                "A.bsa",
+                "B.bsa",
+                "C.bsa",
+                "E.bsa"
+            })
+        {
+            File.WriteAllText(
+                Path.Combine(
+                    dataRoot,
+                    archiveName
+                ),
+                string.Empty
+            );
+        }
+
+        File.WriteAllText(
+            Path.Combine(
+                iniDirectory,
+                "Skyrim.ini"
+            ),
+            "[Archive]\n" +
+            "sResourceArchiveList=A.bsa,A.bsa,B.bsa\n" +
+            "sResourceArchiveList=C.bsa\n" +
+            "sResourceArchiveList2=A.bsa,E.bsa,E.bsa\n"
+        );
+
+        SkyrimRuntimePluginSet pluginSet =
+            CreateRuntimePluginSet(
+                temp.RootPath,
+                "Example.esp"
+            );
+
+        SkyrimRuntimeArchiveEvidenceResult result =
+            SkyrimRuntimeArchiveEvidence.Inspect(
+                dataRoot,
+                pluginSet,
+                iniDirectory
+            );
+
+        Assert.True(
+            result.SearchComplete
+        );
+
+        Assert.Empty(
+            result.IniProvenanceErrors
+        );
+
+        SkyrimRuntimeArchiveEvidenceEntry a =
+            Assert.Single(
+                result.Archives,
+                archive =>
+                    archive.ArchiveName ==
+                    "A.bsa"
+            );
+
+        Assert.Equal(
+            3,
+            a.IniListings.Count
+        );
+
+        Assert.Collection(
+            a.IniListings,
+            listing =>
+            {
+                Assert.Equal(
+                    "sResourceArchiveList",
+                    listing.IniKey
+                );
+
+                Assert.Equal(
+                    0,
+                    listing.IndexWithinKey
+                );
+
+                Assert.Equal(
+                    0,
+                    listing.ListingIndex
+                );
+            },
+            listing =>
+            {
+                Assert.Equal(
+                    "sResourceArchiveList",
+                    listing.IniKey
+                );
+
+                Assert.Equal(
+                    1,
+                    listing.IndexWithinKey
+                );
+
+                Assert.Equal(
+                    1,
+                    listing.ListingIndex
+                );
+            },
+            listing =>
+            {
+                Assert.Equal(
+                    "sResourceArchiveList2",
+                    listing.IniKey
+                );
+
+                Assert.Equal(
+                    0,
+                    listing.IndexWithinKey
+                );
+
+                Assert.Equal(
+                    3,
+                    listing.ListingIndex
+                );
+            }
+        );
+
+        SkyrimRuntimeArchiveEvidenceEntry c =
+            Assert.Single(
+                result.Archives,
+                archive =>
+                    archive.ArchiveName ==
+                    "C.bsa"
+            );
+
+        Assert.False(
+            c.IsIniListed
+        );
+
+        Assert.False(
+            c.HasRuntimeEvidence
+        );
+
+        SkyrimRuntimeArchiveEvidenceEntry e =
+            Assert.Single(
+                result.Archives,
+                archive =>
+                    archive.ArchiveName ==
+                    "E.bsa"
+            );
+
+        Assert.Equal(
+            new[]
+            {
+                4,
+                5
+            },
+            e.IniListings
+                .Select(listing =>
+                    listing.ListingIndex
+                )
+                .ToArray()
         );
     }
 

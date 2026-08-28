@@ -112,6 +112,10 @@ public static class RuntimeArchiveEvidenceCommand
             );
 
             Console.WriteLine(
+                $"INI provenance errors:               {result.IniProvenanceErrors.Count,8:N0}"
+            );
+
+            Console.WriteLine(
                 $"Search complete:                     {(result.SearchComplete ? "YES" : "NO")}"
             );
 

@@ -318,7 +318,11 @@ public sealed class SkyrimEffectiveArmorAddonArchiveCandidateScanTests
                             Error:
                                 "fixture INI error"
                         )
-                    }
+                    },
+                IniProvenanceErrors:
+                    Array.Empty<
+                        SkyrimRuntimeArchiveIniProvenanceError
+                    >()
             );
 
         SkyrimEffectiveArmorAddonArchiveCandidateScanResult result =
@@ -512,6 +516,10 @@ public sealed class SkyrimEffectiveArmorAddonArchiveCandidateScanTests
             IniReadErrors:
                 Array.Empty<
                     SkyrimRuntimeArchiveIniReadError
+                >(),
+            IniProvenanceErrors:
+                Array.Empty<
+                    SkyrimRuntimeArchiveIniProvenanceError
                 >()
         );
     }
