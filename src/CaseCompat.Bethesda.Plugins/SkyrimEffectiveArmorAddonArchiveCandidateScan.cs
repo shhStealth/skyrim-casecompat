@@ -101,6 +101,23 @@ public sealed record SkyrimEffectiveArmorAddonArchiveCandidateScanResult(
     public int UniqueRequestedPathsWithoutRuntimeEvidencedArchiveCandidates =>
         EffectiveScan.UniqueRequestedPathCount -
         UniqueRequestedPathsWithRuntimeEvidencedArchiveCandidates;
+
+    public SkyrimEffectiveAssetProviderEvidenceState
+        ClassifyProviderEvidence(
+            SkyrimEffectiveArmorAddonArchiveCandidateFinding finding)
+    {
+        ArgumentNullException.ThrowIfNull(
+            finding
+        );
+
+        return SkyrimEffectiveAssetProviderEvidenceClassifier.Classify(
+            finding,
+            archiveCandidateIndexComplete:
+                ArchiveIndex.SearchComplete,
+            runtimeArchiveEvidenceComplete:
+                RuntimeArchiveEvidence.SearchComplete
+        );
+    }
 }
 
 public static class SkyrimEffectiveArmorAddonArchiveCandidateScan
