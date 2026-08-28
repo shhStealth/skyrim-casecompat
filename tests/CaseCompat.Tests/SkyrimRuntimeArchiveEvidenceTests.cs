@@ -182,6 +182,11 @@ public sealed class SkyrimRuntimeArchiveEvidenceTests
 
         Assert.Equal(
             0,
+            listing.ListingIndex
+        );
+
+        Assert.Equal(
+            0,
             result.PluginAssociatedArchiveCount
         );
 
@@ -193,6 +198,101 @@ public sealed class SkyrimRuntimeArchiveEvidenceTests
         Assert.Equal(
             1,
             result.RuntimeEvidencedArchiveCount
+        );
+
+        Assert.True(
+            result.SearchComplete
+        );
+    }
+
+    [Fact]
+    public void Inspect_IniListings_PreserveReturnedSequence()
+    {
+        using var temp =
+            new TemporaryDirectory();
+
+        string dataRoot =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    temp.RootPath,
+                    "Data"
+                )
+            ).FullName;
+
+        string iniDirectory =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    temp.RootPath,
+                    "Ini"
+                )
+            ).FullName;
+
+        File.WriteAllText(
+            Path.Combine(
+                dataRoot,
+                "First.bsa"
+            ),
+            string.Empty
+        );
+
+        File.WriteAllText(
+            Path.Combine(
+                dataRoot,
+                "Second.bsa"
+            ),
+            string.Empty
+        );
+
+        File.WriteAllText(
+            Path.Combine(
+                iniDirectory,
+                "Skyrim.ini"
+            ),
+            "[Archive]\n" +
+            "sResourceArchiveList=Second.bsa,First.bsa\n"
+        );
+
+        SkyrimRuntimePluginSet pluginSet =
+            CreateRuntimePluginSet(
+                temp.RootPath,
+                "Example.esp"
+            );
+
+        SkyrimRuntimeArchiveEvidenceResult result =
+            SkyrimRuntimeArchiveEvidence.Inspect(
+                dataRoot,
+                pluginSet,
+                iniDirectory
+            );
+
+        SkyrimRuntimeArchiveEvidenceEntry first =
+            Assert.Single(
+                result.Archives,
+                archive =>
+                    archive.ArchiveName ==
+                    "First.bsa"
+            );
+
+        SkyrimRuntimeArchiveEvidenceEntry second =
+            Assert.Single(
+                result.Archives,
+                archive =>
+                    archive.ArchiveName ==
+                    "Second.bsa"
+            );
+
+        Assert.Equal(
+            1,
+            Assert.Single(
+                first.IniListings
+            ).ListingIndex
+        );
+
+        Assert.Equal(
+            0,
+            Assert.Single(
+                second.IniListings
+            ).ListingIndex
         );
 
         Assert.True(

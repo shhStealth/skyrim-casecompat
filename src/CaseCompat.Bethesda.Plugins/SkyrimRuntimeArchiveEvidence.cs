@@ -14,7 +14,8 @@ public sealed record SkyrimRuntimeArchivePluginAssociation(
 
 public sealed record SkyrimRuntimeArchiveIniListing(
     string IniName,
-    string IniPath
+    string IniPath,
+    int ListingIndex
 );
 
 public sealed record SkyrimRuntimeArchiveEvidenceEntry(
@@ -372,21 +373,24 @@ public static class SkyrimRuntimeArchiveEvidence
                         .Select(name =>
                             name.ToString()
                         )
-                        .Distinct(
-                            StringComparer.OrdinalIgnoreCase
-                        )
                         .ToArray();
 
-                foreach (
-                    string archiveName
-                    in archiveNames)
+                for (
+                    int listingIndex = 0;
+                    listingIndex < archiveNames.Length;
+                    listingIndex++)
                 {
+                    string archiveName =
+                        archiveNames[listingIndex];
+
                     var listing =
                         new SkyrimRuntimeArchiveIniListing(
                             IniName:
                                 iniName,
                             IniPath:
-                                iniPath
+                                iniPath,
+                            ListingIndex:
+                                listingIndex
                         );
 
                     if (builders.TryGetValue(
@@ -466,8 +470,11 @@ public static class SkyrimRuntimeArchiveEvidence
                             archive.IniListings
                                 .OrderBy(
                                     listing =>
-                                        listing.IniName,
-                                    StringComparer.OrdinalIgnoreCase
+                                        listing.IniPath,
+                                    StringComparer.Ordinal
+                                )
+                                .ThenBy(listing =>
+                                    listing.ListingIndex
                                 )
                                 .ToArray()
                     )
@@ -488,8 +495,11 @@ public static class SkyrimRuntimeArchiveEvidence
                             pair.Value
                                 .OrderBy(
                                     listing =>
-                                        listing.IniName,
-                                    StringComparer.OrdinalIgnoreCase
+                                        listing.IniPath,
+                                    StringComparer.Ordinal
+                                )
+                                .ThenBy(listing =>
+                                    listing.ListingIndex
                                 )
                                 .ToArray()
                     )
