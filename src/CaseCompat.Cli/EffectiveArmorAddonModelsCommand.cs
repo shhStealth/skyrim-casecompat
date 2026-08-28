@@ -1,6 +1,6 @@
 using CaseCompat.Bethesda.Plugins;
 using CaseCompat.Core.LoadOrder;
-using CaseCompat.Core.Resolution;
+using CaseCompat.Core.Findings;
 
 public static class EffectiveArmorAddonModelsCommand
 {
@@ -121,29 +121,34 @@ public static class EffectiveArmorAddonModelsCommand
                 ? args[5]
                 : null;
 
-        IEnumerable<SkyrimArmorAddonModelReference> references =
-            winner.WinningModelReferences;
+        IReadOnlyList<EffectiveAssetReferenceFinding> allFindings =
+            SkyrimEffectiveArmorAddonFindingBuilder.Build(
+                winner
+            );
+
+        IEnumerable<EffectiveAssetReferenceFinding> findings =
+            allFindings;
 
         if (!string.IsNullOrWhiteSpace(filter))
         {
-            references =
-                references.Where(reference =>
-                    reference.GivenPath.Contains(
+            findings =
+                findings.Where(finding =>
+                    finding.RawPath.Contains(
                         filter,
                         StringComparison.OrdinalIgnoreCase
                     ) ||
-                    reference.DataRelativePath.Contains(
+                    finding.RequestedPath.Contains(
                         filter,
                         StringComparison.OrdinalIgnoreCase
                     )
                 );
         }
 
-        SkyrimArmorAddonModelReference[] displayed =
-            references.ToArray();
+        EffectiveAssetReferenceFinding[] displayed =
+            findings.ToArray();
 
         Console.WriteLine(
-            $"Winning model references: {winner.WinningModelReferences.Count:N0}"
+            $"Winning model references: {allFindings.Count:N0}"
         );
 
         if (!string.IsNullOrWhiteSpace(filter))
@@ -158,74 +163,55 @@ public static class EffectiveArmorAddonModelsCommand
         );
 
         foreach (
-            SkyrimArmorAddonModelReference reference
+            EffectiveAssetReferenceFinding finding
             in displayed)
         {
             Console.WriteLine();
             Console.WriteLine(
-                $"Field:      {reference.Field}"
+                $"Field:      {finding.ReferenceField}"
             );
 
             Console.WriteLine(
-                $"Given:      {reference.GivenPath}"
+                $"Given:      {finding.RawPath}"
             );
 
             Console.WriteLine(
-                $"Requested:  {reference.DataRelativePath}"
+                $"Requested:  {finding.RequestedPath}"
             );
 
-            try
+            Console.WriteLine(
+                $"Resolution: " +
+                $"{(finding.LinuxResolves ? "RESOLVES" : "UNRESOLVED")}"
+            );
+
+            Console.WriteLine(
+                $"Physical:   " +
+                $"{finding.Resolution.ResolvedPhysicalPath ?? "(none)"}"
+            );
+
+            Console.WriteLine(
+                $"Candidates: {finding.EquivalentCandidateCount}"
+            );
+
+            if (!finding.LinuxResolves)
             {
-                DataRelativePathResolution resolution =
-                    DataRelativePathResolver.ResolveFile(
-                        winner.DataRoot,
-                        reference.DataRelativePath
-                    );
-
                 Console.WriteLine(
-                    $"Resolution: " +
-                    $"{(resolution.LinuxResolves ? "RESOLVES" : "UNRESOLVED")}"
+                    $"Failed at:  " +
+                    $"{finding.Resolution.FailedComponentIndex?.ToString() ?? "(unknown)"}"
                 );
 
                 Console.WriteLine(
-                    $"Physical:   " +
-                    $"{resolution.ResolvedPhysicalPath ?? "(none)"}"
+                    $"Failure:    " +
+                    $"{finding.Resolution.FailureReason ?? "(unknown)"}"
                 );
-
-                Console.WriteLine(
-                    $"Candidates: {resolution.CandidateCount}"
-                );
-
-                if (!resolution.LinuxResolves)
-                {
-                    Console.WriteLine(
-                        $"Failed at:  " +
-                        $"{resolution.FailedComponentIndex?.ToString() ?? "(unknown)"}"
-                    );
-
-                    Console.WriteLine(
-                        $"Failure:    " +
-                        $"{resolution.FailureReason ?? "(unknown)"}"
-                    );
-                }
-
-                foreach (
-                    string candidate
-                    in resolution.EquivalentPhysicalCandidates)
-                {
-                    Console.WriteLine(
-                        $"Candidate:  {candidate}"
-                    );
-                }
             }
-            catch (Exception ex)
+
+            foreach (
+                string candidate
+                in finding.Resolution.EquivalentPhysicalCandidates)
             {
                 Console.WriteLine(
-                    "Resolution: ERROR"
-                );
-
-                Console.WriteLine(
-                    $"Error:      {ex.Message}"
+                    $"Candidate:  {candidate}"
                 );
             }
         }
