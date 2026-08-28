@@ -55,6 +55,9 @@ switch (command)
     case "effective-armor-addon-models":
         return EffectiveArmorAddonModelsCommand.Run(args);
 
+    case "winning-armor-addon-inventory":
+        return WinningArmorAddonInventoryCommand.Run(args);
+
     default:
         Console.Error.WriteLine($"Unknown command: {args[0]}");
         Console.Error.WriteLine();
@@ -374,5 +377,8 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat effective-armor-addon-models <Data root> <Plugins.txt> <loadorder.txt> <FormKey> [path search]"
+    );
+    Console.WriteLine(
+        "  casecompat winning-armor-addon-inventory <Data root> <Plugins.txt> <loadorder.txt> [path search]"
     );
 }
