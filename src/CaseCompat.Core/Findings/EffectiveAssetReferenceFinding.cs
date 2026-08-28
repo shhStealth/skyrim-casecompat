@@ -20,4 +20,7 @@ public sealed record EffectiveAssetReferenceFinding(
 
     public int EquivalentCandidateCount =>
         Resolution.CandidateCount;
+
+    public bool CandidateSearchComplete =>
+        Resolution.CandidateSearchErrors.Count == 0;
 }

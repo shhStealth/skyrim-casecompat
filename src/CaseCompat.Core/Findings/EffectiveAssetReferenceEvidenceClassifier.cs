@@ -14,6 +14,8 @@ public static class EffectiveAssetReferenceEvidenceClassifier
                 finding.WinnerSearchComplete,
             linuxResolves:
                 finding.LinuxResolves,
+            candidateSearchComplete:
+                finding.CandidateSearchComplete,
             equivalentCandidateCount:
                 finding.EquivalentCandidateCount
         );
@@ -22,6 +24,7 @@ public static class EffectiveAssetReferenceEvidenceClassifier
     public static EffectiveAssetReferenceEvidenceState Classify(
         bool winnerSearchComplete,
         bool linuxResolves,
+        bool candidateSearchComplete,
         int equivalentCandidateCount)
     {
         if (equivalentCandidateCount < 0)
@@ -41,6 +44,12 @@ public static class EffectiveAssetReferenceEvidenceClassifier
         {
             return EffectiveAssetReferenceEvidenceState
                 .LinuxResolvable;
+        }
+
+        if (!candidateSearchComplete)
+        {
+            return EffectiveAssetReferenceEvidenceState
+                .IncompleteCandidateSearch;
         }
 
         return equivalentCandidateCount switch

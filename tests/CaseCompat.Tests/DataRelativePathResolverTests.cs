@@ -1,3 +1,4 @@
+using CaseCompat.Core.Findings;
 using CaseCompat.Core.Resolution;
 using CaseCompat.Filesystem.Linux;
 using Xunit;
@@ -104,6 +105,16 @@ public sealed class DataRelativePathResolverTests
             Assert.Single(
                 result.EquivalentPhysicalCandidates
             )
+        );
+
+        EffectiveAssetReferenceFinding finding =
+            CreateBishopFinding(result);
+
+        Assert.Equal(
+            EffectiveAssetReferenceEvidenceState
+                .UnresolvedUniqueEquivalent,
+            EffectiveAssetReferenceEvidenceClassifier
+                .Classify(finding)
         );
     }
 
@@ -226,6 +237,45 @@ public sealed class DataRelativePathResolverTests
         Assert.Contains(
             alternateFile,
             result.EquivalentPhysicalCandidates
+        );
+
+        EffectiveAssetReferenceFinding finding =
+            CreateBishopFinding(result);
+
+        Assert.Equal(
+            EffectiveAssetReferenceEvidenceState
+                .LinuxResolvable,
+            EffectiveAssetReferenceEvidenceClassifier
+                .Classify(finding)
+        );
+    }
+
+    private static EffectiveAssetReferenceFinding
+        CreateBishopFinding(
+            DataRelativePathResolution resolution)
+    {
+        return new EffectiveAssetReferenceFinding(
+            ConsumerKind:
+                "ArmorAddon",
+            ConsumerFormKey:
+                "00080E:[FB] Bishop Armor.esp",
+            ConsumerEditorId:
+                "000_Bishop_Bodysuit_Blue_AA",
+            WinningPluginName:
+                "[FB] Bishop Armor.esp",
+            WinningLoadOrderIndex:
+                1712,
+            WinnerSearchComplete:
+                true,
+            ReferenceField:
+                "WorldModel.Female",
+            RawPath:
+                @"Fafny stash\Bishop Armor\Bishop_Bodysuit_1.nif",
+            RequestedPath:
+                "Meshes/Fafny stash/Bishop Armor/" +
+                "Bishop_Bodysuit_1.nif",
+            Resolution:
+                resolution
         );
     }
 

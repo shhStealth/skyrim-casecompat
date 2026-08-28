@@ -12,6 +12,7 @@ public sealed class EffectiveAssetReferenceEvidenceClassifierTests
             EffectiveAssetReferenceEvidenceClassifier.Classify(
                 winnerSearchComplete: false,
                 linuxResolves: false,
+                candidateSearchComplete: true,
                 equivalentCandidateCount: 1
             );
 
@@ -29,6 +30,7 @@ public sealed class EffectiveAssetReferenceEvidenceClassifierTests
             EffectiveAssetReferenceEvidenceClassifier.Classify(
                 winnerSearchComplete: true,
                 linuxResolves: true,
+                candidateSearchComplete: true,
                 equivalentCandidateCount: 2
             );
 
@@ -40,12 +42,31 @@ public sealed class EffectiveAssetReferenceEvidenceClassifierTests
     }
 
     [Fact]
+    public void UnresolvedWithIncompleteCandidateSearch_IsIncomplete()
+    {
+        EffectiveAssetReferenceEvidenceState state =
+            EffectiveAssetReferenceEvidenceClassifier.Classify(
+                winnerSearchComplete: true,
+                linuxResolves: false,
+                candidateSearchComplete: false,
+                equivalentCandidateCount: 1
+            );
+
+        Assert.Equal(
+            EffectiveAssetReferenceEvidenceState
+                .IncompleteCandidateSearch,
+            state
+        );
+    }
+
+    [Fact]
     public void UnresolvedWithNoEquivalent_IsClassified()
     {
         EffectiveAssetReferenceEvidenceState state =
             EffectiveAssetReferenceEvidenceClassifier.Classify(
                 winnerSearchComplete: true,
                 linuxResolves: false,
+                candidateSearchComplete: true,
                 equivalentCandidateCount: 0
             );
 
@@ -63,6 +84,7 @@ public sealed class EffectiveAssetReferenceEvidenceClassifierTests
             EffectiveAssetReferenceEvidenceClassifier.Classify(
                 winnerSearchComplete: true,
                 linuxResolves: false,
+                candidateSearchComplete: true,
                 equivalentCandidateCount: 1
             );
 
@@ -80,6 +102,7 @@ public sealed class EffectiveAssetReferenceEvidenceClassifierTests
             EffectiveAssetReferenceEvidenceClassifier.Classify(
                 winnerSearchComplete: true,
                 linuxResolves: false,
+                candidateSearchComplete: true,
                 equivalentCandidateCount: 2
             );
 
@@ -98,6 +121,7 @@ public sealed class EffectiveAssetReferenceEvidenceClassifierTests
                 EffectiveAssetReferenceEvidenceClassifier.Classify(
                     winnerSearchComplete: true,
                     linuxResolves: false,
+                    candidateSearchComplete: true,
                     equivalentCandidateCount: -1
                 )
         );
