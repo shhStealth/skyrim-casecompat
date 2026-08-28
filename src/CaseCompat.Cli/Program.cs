@@ -61,6 +61,9 @@ switch (command)
     case "effective-armor-addon-scan":
         return EffectiveArmorAddonScanCommand.Run(args);
 
+    case "archive-candidate-index":
+        return ArchiveCandidateIndexCommand.Run(args);
+
     default:
         Console.Error.WriteLine($"Unknown command: {args[0]}");
         Console.Error.WriteLine();
@@ -386,5 +389,8 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat effective-armor-addon-scan <Data root> <Plugins.txt> <loadorder.txt> [path search]"
+    );
+    Console.WriteLine(
+        "  casecompat archive-candidate-index <Data root> [requested asset path]"
     );
 }
