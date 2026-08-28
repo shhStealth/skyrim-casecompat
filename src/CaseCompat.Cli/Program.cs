@@ -28,6 +28,9 @@ switch (command)
     case "content-summary":
         return ContentSummaryCommand.Run(args);
 
+    case "plugin-probe":
+        return PluginProbeCommand.Run(args);
+
     default:
         Console.Error.WriteLine($"Unknown command: {args[0]}");
         Console.Error.WriteLine();
@@ -321,4 +324,7 @@ static void ShowUsage()
     Console.WriteLine(
         "  casecompat content-summary <directory>"
     );
+    Console.WriteLine(
+        "  casecompat plugin-probe <plugin path>"
+);
 }
