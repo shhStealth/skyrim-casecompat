@@ -64,6 +64,9 @@ switch (command)
     case "archive-candidate-index":
         return ArchiveCandidateIndexCommand.Run(args);
 
+    case "runtime-plugin-set":
+        return RuntimePluginSetCommand.Run(args);
+
     case "effective-armor-addon-archive-candidates":
         return EffectiveArmorAddonArchiveCandidatesCommand.Run(args);
 
@@ -395,6 +398,9 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat archive-candidate-index <Data root> [requested asset path]"
+    );
+    Console.WriteLine(
+        "  casecompat runtime-plugin-set <Plugins.txt> <loadorder.txt> <Skyrim.ccc>"
     );
     Console.WriteLine(
         "  casecompat effective-armor-addon-archive-candidates <Data root> <Plugins.txt> <loadorder.txt> [path search]"
