@@ -1,7 +1,6 @@
 using CaseCompat.Core.LoadOrder;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Archives;
-using Mutagen.Bethesda.Plugins;
 using Noggog;
 using System.IO.Abstractions;
 
@@ -414,77 +413,42 @@ public static class SkyrimRuntimeArchiveEvidence
             SkyrimRuntimePluginSetEntry plugin
             in runtimePluginSet.OrderedRuntimeActiveEntries)
         {
-            ModKey modKey;
+            string pluginBaseName =
+                Path.GetFileNameWithoutExtension(
+                    plugin.PluginName
+                );
 
-            try
+            string primaryArchiveName =
+                pluginBaseName +
+                ".bsa";
+
+            string textureArchiveName =
+                pluginBaseName +
+                " - Textures.bsa";
+
+            foreach (
+                string archiveName
+                in new[]
+                {
+                    primaryArchiveName,
+                    textureArchiveName
+                })
             {
-                modKey =
-                    ModKey.FromNameAndExtension(
-                        plugin.PluginName
-                    );
-            }
-            catch (Exception ex)
-            {
-                associationErrors.Add(
-                    new SkyrimRuntimeArchiveAssociationError(
+                if (!builders.TryGetValue(
+                        archiveName,
+                        out ArchiveBuilder? archive))
+                {
+                    continue;
+                }
+
+                archive.PluginAssociations.Add(
+                    new SkyrimRuntimeArchivePluginAssociation(
                         PluginName:
                             plugin.PluginName,
                         LoadOrderIndex:
-                            plugin.LoadOrderIndex,
-                        ArchiveName:
-                            "(ModKey)",
-                        Error:
-                            ex.Message
+                            plugin.LoadOrderIndex
                     )
                 );
-
-                continue;
-            }
-
-            foreach (
-                ArchiveBuilder archive
-                in builders.Values)
-            {
-                try
-                {
-                    bool applicable =
-                        Archive.IsApplicable(
-                            GameRelease.SkyrimSE,
-                            modKey,
-                            new FileName(
-                                archive.ArchiveName
-                            )
-                        );
-
-                    if (!applicable)
-                    {
-                        continue;
-                    }
-
-                    archive.PluginAssociations.Add(
-                        new SkyrimRuntimeArchivePluginAssociation(
-                            PluginName:
-                                plugin.PluginName,
-                            LoadOrderIndex:
-                                plugin.LoadOrderIndex
-                        )
-                    );
-                }
-                catch (Exception ex)
-                {
-                    associationErrors.Add(
-                        new SkyrimRuntimeArchiveAssociationError(
-                            PluginName:
-                                plugin.PluginName,
-                            LoadOrderIndex:
-                                plugin.LoadOrderIndex,
-                            ArchiveName:
-                                archive.ArchiveName,
-                            Error:
-                                ex.Message
-                        )
-                    );
-                }
             }
         }
 

@@ -102,6 +102,162 @@ public sealed class SkyrimRuntimeArchiveEvidenceTests
     }
 
     [Fact]
+    public void Inspect_PluginAssociations_UseExactSkyrimSeArchiveNames()
+    {
+        using var temp =
+            new TemporaryDirectory();
+
+        string dataRoot =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    temp.RootPath,
+                    "Data"
+                )
+            ).FullName;
+
+        string iniDirectory =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    temp.RootPath,
+                    "Ini"
+                )
+            ).FullName;
+
+        foreach (
+            string archiveName
+            in new[]
+            {
+                "Base.bsa",
+                "Base - Textures.bsa",
+                "Base - Patch.bsa",
+                "Base - Patch - Textures.bsa",
+                "Base - Unrelated.bsa"
+            })
+        {
+            File.WriteAllText(
+                Path.Combine(
+                    dataRoot,
+                    archiveName
+                ),
+                string.Empty
+            );
+        }
+
+        SkyrimRuntimePluginSet pluginSet =
+            CreateRuntimePluginSet(
+                temp.RootPath,
+                "Base.esp",
+                "Base - Patch.esp"
+            );
+
+        SkyrimRuntimeArchiveEvidenceResult result =
+            SkyrimRuntimeArchiveEvidence.Inspect(
+                dataRoot,
+                pluginSet,
+                iniDirectory
+            );
+
+        Assert.True(
+            result.SearchComplete
+        );
+
+        Assert.Equal(
+            4,
+            result.PluginAssociatedArchiveCount
+        );
+
+        Assert.Equal(
+            0,
+            result.MultiPluginAssociationArchiveCount
+        );
+
+        Assert.Equal(
+            1,
+            result.MaximumPluginAssociationsPerArchive
+        );
+
+        SkyrimRuntimeArchiveEvidenceEntry primary =
+            Assert.Single(
+                result.Archives,
+                archive =>
+                    archive.ArchiveName ==
+                    "Base.bsa"
+            );
+
+        Assert.Equal(
+            "Base.esp",
+            Assert.Single(
+                primary.PluginAssociations
+            ).PluginName
+        );
+
+        SkyrimRuntimeArchiveEvidenceEntry textures =
+            Assert.Single(
+                result.Archives,
+                archive =>
+                    archive.ArchiveName ==
+                    "Base - Textures.bsa"
+            );
+
+        Assert.Equal(
+            "Base.esp",
+            Assert.Single(
+                textures.PluginAssociations
+            ).PluginName
+        );
+
+        SkyrimRuntimeArchiveEvidenceEntry patch =
+            Assert.Single(
+                result.Archives,
+                archive =>
+                    archive.ArchiveName ==
+                    "Base - Patch.bsa"
+            );
+
+        Assert.Equal(
+            "Base - Patch.esp",
+            Assert.Single(
+                patch.PluginAssociations
+            ).PluginName
+        );
+
+        SkyrimRuntimeArchiveEvidenceEntry patchTextures =
+            Assert.Single(
+                result.Archives,
+                archive =>
+                    archive.ArchiveName ==
+                    "Base - Patch - Textures.bsa"
+            );
+
+        Assert.Equal(
+            "Base - Patch.esp",
+            Assert.Single(
+                patchTextures.PluginAssociations
+            ).PluginName
+        );
+
+        SkyrimRuntimeArchiveEvidenceEntry unrelated =
+            Assert.Single(
+                result.Archives,
+                archive =>
+                    archive.ArchiveName ==
+                    "Base - Unrelated.bsa"
+            );
+
+        Assert.Empty(
+            unrelated.PluginAssociations
+        );
+
+        Assert.False(
+            unrelated.HasPluginAssociation
+        );
+
+        Assert.False(
+            unrelated.HasRuntimeEvidence
+        );
+    }
+
+    [Fact]
     public void Inspect_IniListedPhysicalArchive_HasRuntimeEvidence()
     {
         using var temp =
@@ -656,7 +812,7 @@ public sealed class SkyrimRuntimeArchiveEvidenceTests
     private static SkyrimRuntimePluginSet
         CreateRuntimePluginSet(
             string root,
-            string explicitPlugin)
+            params string[] explicitPlugins)
     {
         string pluginsPath =
             Path.Combine(
@@ -678,7 +834,11 @@ public sealed class SkyrimRuntimeArchiveEvidenceTests
 
         File.WriteAllText(
             pluginsPath,
-            $"*{explicitPlugin}\n"
+            string.Concat(
+                explicitPlugins.Select(plugin =>
+                    $"*{plugin}\n"
+                )
+            )
         );
 
         File.WriteAllText(
@@ -688,7 +848,11 @@ public sealed class SkyrimRuntimeArchiveEvidenceTests
             "Dawnguard.esm\n" +
             "HearthFires.esm\n" +
             "Dragonborn.esm\n" +
-            $"{explicitPlugin}\n"
+            string.Concat(
+                explicitPlugins.Select(plugin =>
+                    $"{plugin}\n"
+                )
+            )
         );
 
         File.WriteAllText(
