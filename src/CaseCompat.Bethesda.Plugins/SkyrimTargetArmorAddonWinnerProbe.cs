@@ -19,11 +19,16 @@ public sealed record SkyrimTargetArmorAddonWinnerResult(
     IReadOnlyList<SkyrimPluginReadError> ReadErrors,
     string? WinningPluginName,
     int? WinningLoadOrderIndex,
-    string? WinningEditorId
+    string? WinningEditorId,
+    IReadOnlyList<SkyrimArmorAddonModelReference> WinningModelReferences
 )
 {
     public bool Found =>
         WinningPluginName is not null;
+
+    public bool SearchComplete =>
+        MissingPluginFiles.Count == 0 &&
+        ReadErrors.Count == 0;
 }
 
 public static class SkyrimTargetArmorAddonWinnerProbe
@@ -99,7 +104,7 @@ public static class SkyrimTargetArmorAddonWinnerProbe
 
             try
             {
-                var mod =
+                using var mod =
                     SkyrimMod.CreateFromBinaryOverlay(
                         pluginPath,
                         SkyrimRelease.SkyrimSE
@@ -134,7 +139,10 @@ public static class SkyrimTargetArmorAddonWinnerProbe
                     WinningLoadOrderIndex:
                         entry.LoadOrderIndex,
                     WinningEditorId:
-                        winner.EditorID
+                        winner.EditorID,
+                    WinningModelReferences:
+                        SkyrimArmorAddonModelReferenceExtractor
+                            .Extract(winner)
                 );
             }
             catch (Exception ex)
@@ -170,7 +178,9 @@ public static class SkyrimTargetArmorAddonWinnerProbe
             WinningLoadOrderIndex:
                 null,
             WinningEditorId:
-                null
+                null,
+            WinningModelReferences:
+                Array.Empty<SkyrimArmorAddonModelReference>()
         );
     }
 }
