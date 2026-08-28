@@ -418,6 +418,48 @@ public static class EffectiveArmorAddonArchiveCandidatesCommand
                 );
             }
 
+            Console.WriteLine();
+
+            Console.WriteLine(
+                "Effective asset provider evidence states:"
+            );
+
+            Console.WriteLine(
+                "  State                                             Findings     Unique"
+            );
+
+            foreach (
+                SkyrimEffectiveAssetProviderEvidenceState state
+                in Enum.GetValues<
+                    SkyrimEffectiveAssetProviderEvidenceState>())
+            {
+                SkyrimEffectiveArmorAddonArchiveCandidateFinding[]
+                    stateFindings =
+                        result.Findings
+                            .Where(finding =>
+                                result.ClassifyProviderEvidence(
+                                    finding
+                                ) == state
+                            )
+                            .ToArray();
+
+                int uniquePaths =
+                    stateFindings
+                        .Select(finding =>
+                            finding.EffectiveFinding.RequestedPath
+                        )
+                        .Distinct(
+                            StringComparer.Ordinal
+                        )
+                        .Count();
+
+                Console.WriteLine(
+                    $"  {state,-48} " +
+                    $"{stateFindings.Length,8:N0} " +
+                    $"{uniquePaths,10:N0}"
+                );
+            }
+
             if (args.Length == 7)
             {
                 string filter =
@@ -470,6 +512,10 @@ public static class EffectiveArmorAddonArchiveCandidatesCommand
 
                     Console.WriteLine(
                         $"Loose state:   {finding.LooseEvidenceState}"
+                    );
+
+                    Console.WriteLine(
+                        $"Provider state: {result.ClassifyProviderEvidence(finding)}"
                     );
 
                     Console.WriteLine(
@@ -544,6 +590,11 @@ public static class EffectiveArmorAddonArchiveCandidatesCommand
             Console.WriteLine(
                 "Runtime archive evidence is evidence of runtime relevance, " +
                 "not proof that an archive was loaded."
+            );
+
+            Console.WriteLine(
+                "Provider evidence combines loose resolution and archive " +
+                "evidence; it is not a health or severity verdict."
             );
 
             Console.WriteLine(
