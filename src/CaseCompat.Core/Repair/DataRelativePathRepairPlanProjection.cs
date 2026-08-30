@@ -19,6 +19,9 @@ public enum DataRelativePathRepairPlanProjectionState
     DestinationParentUnavailable,
     DestinationParentSymbolicLinkRejected,
     DestinationParentNotDirectory,
+    DestinationParentOpenFailed,
+    DestinationParentSnapshotFailed,
+    DestinationParentCasefoldNotStrict,
     DestinationInspectionFailed,
     DestinationConflict,
 
@@ -38,6 +41,14 @@ public sealed record DataRelativePathRepairSourceSnapshot(
     LinuxFileIdentityResult Identity
 );
 
+public sealed record
+    DataRelativePathRepairDestinationParentSnapshot(
+        string PhysicalPath,
+        LinuxFileIdentityResult Identity,
+        bool CasefoldEnabled,
+        long RawFlags
+    );
+
 public sealed record DataRelativePathRepairPlanOperation(
     DataRelativePathRepairPlanOperationKind Kind,
     string DestinationPath,
@@ -49,12 +60,17 @@ public sealed record DataRelativePathRepairPlanProjection(
     DataRelativePathCaseMismatchTopologyState TopologyState,
     DataRelativePathResolution Resolution,
     DataRelativePathRepairSourceSnapshot? SourceSnapshot,
+    DataRelativePathRepairDestinationParentSnapshot?
+        DestinationParentSnapshot,
     IReadOnlyList<DataRelativePathRepairPlanOperation> Operations,
     string? Error
 )
 {
     public bool HasPlan =>
         State ==
-        DataRelativePathRepairPlanProjectionState
-            .Projected;
+            DataRelativePathRepairPlanProjectionState
+                .Projected &&
+        SourceSnapshot is not null &&
+        DestinationParentSnapshot is not null &&
+        Operations.Count > 0;
 }

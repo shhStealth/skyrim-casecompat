@@ -376,6 +376,93 @@ public static class DataRelativePathRepairPlanProjector
             );
         }
 
+        LinuxNoFollowPathOpenResult parentOpen =
+            parentRelative == "."
+                ? LinuxNoFollowPath.OpenRootReadOnly(
+                    dataRoot
+                )
+                : LinuxNoFollowPath.OpenReadOnlyUnderRoot(
+                    dataRoot,
+                    parentRelative
+                );
+
+        if (
+            !parentOpen.Success ||
+            parentOpen.OpenedPath is null)
+        {
+            return Result(
+                resolution,
+                topologyState,
+                DataRelativePathRepairPlanProjectionState
+                    .DestinationParentOpenFailed,
+                sourceSnapshot,
+                error:
+                    parentOpen.Error ??
+                    "Unable to open the destination parent " +
+                    $"without following symlinks ({parentOpen.State})."
+            );
+        }
+
+        LinuxOpenedDirectorySnapshotResult
+            openedParentSnapshot;
+
+        using (parentOpen.OpenedPath)
+        {
+            openedParentSnapshot =
+                LinuxOpenedDirectorySnapshot.Capture(
+                    parentOpen.OpenedPath
+                );
+        }
+
+        if (
+            !openedParentSnapshot.Success ||
+            openedParentSnapshot.Identity is not
+                LinuxFileIdentityResult parentIdentity ||
+            openedParentSnapshot.CasefoldEnabled is not
+                bool parentCasefoldEnabled ||
+            openedParentSnapshot.RawFlags is not
+                long parentRawFlags)
+        {
+            return Result(
+                resolution,
+                topologyState,
+                DataRelativePathRepairPlanProjectionState
+                    .DestinationParentSnapshotFailed,
+                sourceSnapshot,
+                error:
+                    openedParentSnapshot.Error ??
+                    "The opened destination parent snapshot " +
+                    "was incomplete."
+            );
+        }
+
+        if (parentCasefoldEnabled)
+        {
+            return Result(
+                resolution,
+                topologyState,
+                DataRelativePathRepairPlanProjectionState
+                    .DestinationParentCasefoldNotStrict,
+                sourceSnapshot,
+                error:
+                    "The destination parent is currently " +
+                    "casefold-enabled, but direct strict case " +
+                    "mismatch projection requires a strict parent."
+            );
+        }
+
+        var destinationParentSnapshot =
+            new DataRelativePathRepairDestinationParentSnapshot(
+                PhysicalPath:
+                    expectedParent,
+                Identity:
+                    parentIdentity,
+                CasefoldEnabled:
+                    parentCasefoldEnabled,
+                RawFlags:
+                    parentRawFlags
+            );
+
         string[] requestedComponents =
             SplitComponents(
                 resolution.RequestedPath
@@ -483,7 +570,9 @@ public static class DataRelativePathRepairPlanProjector
             DataRelativePathRepairPlanProjectionState
                 .Projected,
             sourceSnapshot,
-            operations
+            operations,
+            destinationParentSnapshot:
+                destinationParentSnapshot
         );
     }
 
@@ -493,6 +582,8 @@ public static class DataRelativePathRepairPlanProjector
         DataRelativePathRepairPlanProjectionState state,
         DataRelativePathRepairSourceSnapshot? sourceSnapshot = null,
         IReadOnlyList<DataRelativePathRepairPlanOperation>? operations = null,
+        DataRelativePathRepairDestinationParentSnapshot?
+            destinationParentSnapshot = null,
         string? error = null)
     {
         return new DataRelativePathRepairPlanProjection(
@@ -504,6 +595,8 @@ public static class DataRelativePathRepairPlanProjector
                 resolution,
             SourceSnapshot:
                 sourceSnapshot,
+            DestinationParentSnapshot:
+                destinationParentSnapshot,
             Operations:
                 operations ??
                 Array.Empty<

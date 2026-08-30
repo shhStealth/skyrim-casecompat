@@ -158,6 +158,54 @@ public sealed class DataRelativePathRepairPlanProjectorTests
             snapshot.Identity.FullPath
         );
 
+        string expectedDestinationParent =
+            Path.Combine(
+                dataRoot,
+                "meshes",
+                "00Taliesin"
+            );
+
+        DataRelativePathRepairDestinationParentSnapshot
+            parentSnapshot =
+                Assert.IsType<
+                    DataRelativePathRepairDestinationParentSnapshot
+                >(
+                    projection.DestinationParentSnapshot
+                );
+
+        Assert.Equal(
+            Path.GetFullPath(
+                expectedDestinationParent
+            ),
+            parentSnapshot.PhysicalPath
+        );
+
+        Assert.False(
+            parentSnapshot.CasefoldEnabled
+        );
+
+        Assert.Equal(
+            0L,
+            parentSnapshot.RawFlags &
+            LinuxDirectoryFlags.FsCasefoldFlag
+        );
+
+        LinuxFileIdentityResult
+            destinationParentIdentity =
+                LinuxFileIdentity.Inspect(
+                    expectedDestinationParent
+                );
+
+        Assert.True(
+            destinationParentIdentity.Success
+        );
+
+        Assert.True(
+            parentSnapshot.Identity.SameObjectAs(
+                destinationParentIdentity
+            )
+        );
+
         Assert.Equal(
             2,
             projection.Operations.Count
@@ -472,6 +520,165 @@ public sealed class DataRelativePathRepairPlanProjectorTests
 
         Assert.Empty(
             projection.Operations
+        );
+    }
+
+    [Fact]
+    public void Project_StrictMismatchAtFirstComponent_SnapshotsDataRoot()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var temp =
+            new TemporaryDirectory();
+
+        string dataRoot =
+            CreateDataRoot(
+                temp
+            );
+
+        string physicalDirectory =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    dataRoot,
+                    "meshes"
+                )
+            ).FullName;
+
+        string physicalFile =
+            Path.Combine(
+                physicalDirectory,
+                "fixture.nif"
+            );
+
+        File.WriteAllText(
+            physicalFile,
+            "root-parent-fixture"
+        );
+
+        DataRelativePathResolution resolution =
+            DataRelativePathResolver.ResolveFile(
+                dataRoot,
+                "Meshes/fixture.nif",
+                path =>
+                {
+                    string fullPath =
+                        Path.GetFullPath(
+                            path
+                        );
+
+                    return new DirectoryCasefoldResult(
+                        FullPath:
+                            fullPath,
+                        Exists:
+                            Directory.Exists(
+                                fullPath
+                            ),
+                        CasefoldEnabled:
+                            false,
+                        RawFlags:
+                            0L,
+                        Error:
+                            null
+                    );
+                }
+            );
+
+        Assert.Equal(
+            DataRelativePathCaseMismatchTopologyState
+                .DirectStrictCaseMismatch,
+            DataRelativePathCaseMismatchTopologyClassifier
+                .Classify(
+                    resolution
+                )
+        );
+
+        Assert.Equal(
+            0,
+            resolution.FailedComponentIndex
+        );
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector.Project(
+                resolution
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanProjectionState
+                .Projected,
+            projection.State
+        );
+
+        Assert.True(
+            projection.HasPlan
+        );
+
+        DataRelativePathRepairDestinationParentSnapshot
+            parentSnapshot =
+                Assert.IsType<
+                    DataRelativePathRepairDestinationParentSnapshot
+                >(
+                    projection.DestinationParentSnapshot
+                );
+
+        Assert.Equal(
+            Path.GetFullPath(
+                dataRoot
+            ),
+            parentSnapshot.PhysicalPath
+        );
+
+        Assert.False(
+            parentSnapshot.CasefoldEnabled
+        );
+
+        LinuxFileIdentityResult dataIdentity =
+            LinuxFileIdentity.Inspect(
+                dataRoot
+            );
+
+        Assert.True(
+            parentSnapshot.Identity.SameObjectAs(
+                dataIdentity
+            )
+        );
+
+        string requestedDirectory =
+            Path.Combine(
+                dataRoot,
+                "Meshes"
+            );
+
+        string requestedFile =
+            Path.Combine(
+                requestedDirectory,
+                "fixture.nif"
+            );
+
+        Assert.Equal(
+            2,
+            projection.Operations.Count
+        );
+
+        Assert.Equal(
+            requestedDirectory,
+            projection.Operations[0]
+                .DestinationPath
+        );
+
+        Assert.Equal(
+            requestedFile,
+            projection.Operations[1]
+                .DestinationPath
+        );
+
+        // Projection remains read-only.
+        Assert.False(
+            Directory.Exists(
+                requestedDirectory
+            )
         );
     }
 
