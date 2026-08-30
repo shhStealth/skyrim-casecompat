@@ -10,7 +10,8 @@ public enum LinuxOpenedFileSnapshotState
     MetadataUnavailable,
     NotRegularFile,
     SizeUnavailable,
-    HashFailed
+    HashFailed,
+    SizeChangedDuringHash
 }
 
 public sealed record LinuxOpenedFileSnapshotResult(

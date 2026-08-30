@@ -68,8 +68,23 @@ public static class LinuxOpenedFileSnapshot
             openedPath
         );
 
-        string displayPath =
-            openedPath.FullPath;
+        return Capture(
+            openedPath,
+            openedPath.FullPath
+        );
+    }
+
+    public static LinuxOpenedFileSnapshotResult Capture(
+        ILinuxOpenedHandle openedHandle,
+        string displayPath)
+    {
+        ArgumentNullException.ThrowIfNull(
+            openedHandle
+        );
+
+        ArgumentNullException.ThrowIfNull(
+            displayPath
+        );
 
         if (!OperatingSystem.IsLinux())
         {
@@ -84,7 +99,7 @@ public static class LinuxOpenedFileSnapshot
         }
 
         SafeFileHandle handle =
-            openedPath.Handle;
+            openedHandle.Handle;
 
         if (
             handle.IsInvalid ||
@@ -207,6 +222,46 @@ public static class LinuxOpenedFileSnapshot
                         size,
                     error:
                         ex.Message
+                );
+            }
+
+            long sizeAfterHash;
+
+            try
+            {
+                sizeAfterHash =
+                    RandomAccess.GetLength(
+                        handle
+                    );
+            }
+            catch (Exception ex)
+            {
+                return Result(
+                    LinuxOpenedFileSnapshotState
+                        .SizeUnavailable,
+                    displayPath,
+                    identity:
+                        identity,
+                    size:
+                        size,
+                    error:
+                        ex.Message
+                );
+            }
+
+            if (sizeAfterHash != size)
+            {
+                return Result(
+                    LinuxOpenedFileSnapshotState
+                        .SizeChangedDuringHash,
+                    displayPath,
+                    identity:
+                        identity,
+                    size:
+                        sizeAfterHash,
+                    error:
+                        "The opened file size changed while " +
+                        "its contents were being hashed."
                 );
             }
 
