@@ -47,6 +47,93 @@ public static class LinuxNoFollowPath
     );
 
     public static LinuxNoFollowPathOpenResult
+        OpenRootReadOnly(
+            string rootPath)
+    {
+        if (string.IsNullOrWhiteSpace(rootPath))
+        {
+            throw new ArgumentException(
+                "A root path is required.",
+                nameof(rootPath)
+            );
+        }
+
+        string root =
+            Path.GetFullPath(
+                rootPath
+            );
+
+        if (!OperatingSystem.IsLinux())
+        {
+            return Result(
+                LinuxNoFollowPathOpenState
+                    .UnsupportedPlatform,
+                root,
+                ".",
+                fullPath:
+                    root,
+                error:
+                    "No-follow path opening is " +
+                    "supported on Linux only."
+            );
+        }
+
+        int rootFd =
+            Open(
+                root,
+                ORdonly |
+                ODirectory |
+                ONoFollow |
+                OCloexec
+            );
+
+        if (rootFd < 0)
+        {
+            int errno =
+                Marshal.GetLastPInvokeError();
+
+            return RootFailure(
+                root,
+                ".",
+                root,
+                errno
+            );
+        }
+
+        var handle =
+            new SafeFileHandle(
+                new IntPtr(
+                    rootFd
+                ),
+                ownsHandle:
+                    true
+            );
+
+        return new LinuxNoFollowPathOpenResult(
+            State:
+                LinuxNoFollowPathOpenState
+                    .Opened,
+            RootPath:
+                root,
+            RelativePath:
+                ".",
+            FullPath:
+                root,
+            OpenedPath:
+                new LinuxNoFollowPathHandle(
+                    root,
+                    ".",
+                    root,
+                    handle
+                ),
+            Errno:
+                null,
+            Error:
+                null
+        );
+    }
+
+    public static LinuxNoFollowPathOpenResult
         OpenReadOnlyUnderRoot(
             string rootPath,
             string relativePath)

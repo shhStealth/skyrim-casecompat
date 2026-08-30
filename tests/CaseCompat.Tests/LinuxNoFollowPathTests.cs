@@ -322,6 +322,133 @@ public sealed class LinuxNoFollowPathTests
         );
     }
 
+    [Fact]
+    public void OpenRootReadOnly_RegularDirectory_OpensRootDescriptor()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var temp =
+            new TemporaryDirectory();
+
+        string dataRoot =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    temp.RootPath,
+                    "Data"
+                )
+            ).FullName;
+
+        LinuxNoFollowPathOpenResult result =
+            LinuxNoFollowPath.OpenRootReadOnly(
+                dataRoot
+            );
+
+        Assert.True(
+            result.Success
+        );
+
+        Assert.Equal(
+            LinuxNoFollowPathOpenState.Opened,
+            result.State
+        );
+
+        Assert.Equal(
+            ".",
+            result.RelativePath
+        );
+
+        Assert.Equal(
+            Path.GetFullPath(
+                dataRoot
+            ),
+            result.FullPath
+        );
+
+        LinuxNoFollowPathHandle opened =
+            Assert.IsType<
+                LinuxNoFollowPathHandle
+            >(
+                result.OpenedPath
+            );
+
+        using (opened)
+        {
+            LinuxOpenedDirectorySnapshotResult snapshot =
+                LinuxOpenedDirectorySnapshot.Capture(
+                    opened
+                );
+
+            Assert.True(
+                snapshot.Success
+            );
+
+            LinuxFileIdentityResult pathnameIdentity =
+                LinuxFileIdentity.Inspect(
+                    dataRoot
+                );
+
+            Assert.True(
+                snapshot.Identity!
+                    .SameObjectAs(
+                        pathnameIdentity
+                    )
+            );
+        }
+    }
+
+    [Fact]
+    public void OpenRootReadOnly_SymbolicLinkRoot_IsRejected()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var temp =
+            new TemporaryDirectory();
+
+        string realRoot =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    temp.RootPath,
+                    "RealData"
+                )
+            ).FullName;
+
+        string linkedRoot =
+            Path.Combine(
+                temp.RootPath,
+                "Data"
+            );
+
+        Directory.CreateSymbolicLink(
+            linkedRoot,
+            realRoot
+        );
+
+        LinuxNoFollowPathOpenResult result =
+            LinuxNoFollowPath.OpenRootReadOnly(
+                linkedRoot
+            );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            LinuxNoFollowPathOpenState
+                .RootNotDirectoryOrSymbolicLink,
+            result.State
+        );
+
+        Assert.Null(
+            result.OpenedPath
+        );
+    }
+
     private sealed class TemporaryDirectory
         : IDisposable
     {
