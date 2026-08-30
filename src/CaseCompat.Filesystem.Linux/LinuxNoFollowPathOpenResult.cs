@@ -23,7 +23,7 @@ public enum LinuxNoFollowPathOpenState
 }
 
 public sealed class LinuxNoFollowPathHandle
-    : IDisposable
+    : ILinuxOpenedHandle
 {
     internal LinuxNoFollowPathHandle(
         string rootPath,

@@ -15,7 +15,7 @@ public static class LinuxFsync
     );
 
     public static LinuxFsyncResult Sync(
-        LinuxNoFollowPathHandle openedPath)
+        ILinuxOpenedHandle openedPath)
     {
         ArgumentNullException.ThrowIfNull(
             openedPath

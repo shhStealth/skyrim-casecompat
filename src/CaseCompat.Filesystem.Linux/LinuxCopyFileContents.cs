@@ -6,8 +6,8 @@ namespace CaseCompat.Filesystem.Linux;
 public static class LinuxCopyFileContents
 {
     public static LinuxCopyFileContentsResult CopyAndVerify(
-        LinuxNoFollowPathHandle source,
-        LinuxNoFollowPathHandle destination,
+        ILinuxOpenedHandle source,
+        ILinuxOpenedHandle destination,
         long expectedSize,
         string expectedSha256)
     {
