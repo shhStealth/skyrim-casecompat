@@ -432,6 +432,16 @@ public static class DataRelativePathRepairFileJournal
                 "a physical path.";
         }
 
+        string? pathBindingError =
+            ValidatePathBindings(
+                record
+            );
+
+        if (pathBindingError is not null)
+        {
+            return pathBindingError;
+        }
+
         if (
             !HasPhysicalIdentity(
                 record.DestinationParentSnapshot
@@ -611,6 +621,192 @@ public static class DataRelativePathRepairFileJournal
             $"Cannot transition journal from {record.State} " +
             $"to {destination}."
         );
+    }
+
+    private static string? ValidatePathBindings(
+        DataRelativePathRepairFileJournalRecord record)
+    {
+        try
+        {
+            string dataRoot =
+                NormalizePath(
+                    record.DataRoot
+                );
+
+            string operationSource =
+                NormalizePath(
+                    record.Operation.SourcePath!
+                );
+
+            string snapshotSource =
+                NormalizePath(
+                    record.SourceSnapshot.PhysicalPath
+                );
+
+            string destination =
+                NormalizePath(
+                    record.Operation.DestinationPath
+                );
+
+            string destinationParent =
+                NormalizePath(
+                    record.DestinationParentSnapshot
+                        .PhysicalPath
+                );
+
+            if (
+                !string.Equals(
+                    operationSource,
+                    snapshotSource,
+                    StringComparison.Ordinal
+                ))
+            {
+                return
+                    "The operation source path must match the " +
+                    "source snapshot physical path.";
+            }
+
+            if (
+                !IsAtOrBelow(
+                    dataRoot,
+                    snapshotSource
+                ))
+            {
+                return
+                    "The source snapshot must be inside the " +
+                    "journal Data root.";
+            }
+
+            if (
+                !IsStrictDescendant(
+                    dataRoot,
+                    destination
+                ))
+            {
+                return
+                    "The destination file must be inside the " +
+                    "journal Data root.";
+            }
+
+            if (
+                !IsAtOrBelow(
+                    dataRoot,
+                    destinationParent
+                ))
+            {
+                return
+                    "The destination-parent snapshot must be " +
+                    "inside the journal Data root.";
+            }
+
+            string? actualParent =
+                Path.GetDirectoryName(
+                    destination
+                );
+
+            if (
+                actualParent is null ||
+                !string.Equals(
+                    NormalizePath(
+                        actualParent
+                    ),
+                    destinationParent,
+                    StringComparison.Ordinal
+                ))
+            {
+                return
+                    "This file journal requires the destination-" +
+                    "parent snapshot to identify the direct " +
+                    "physical parent of the destination file.";
+            }
+
+            string childName =
+                Path.GetFileName(
+                    destination
+                );
+
+            if (
+                string.IsNullOrEmpty(
+                    childName
+                ) ||
+                childName is "." or ".." ||
+                childName.Contains('/') ||
+                childName.Contains('\\') ||
+                childName.Contains('\0'))
+            {
+                return
+                    "The destination must identify exactly one " +
+                    "direct file child beneath the recorded " +
+                    "destination parent.";
+            }
+
+            return null;
+        }
+        catch (
+            Exception ex)
+            when (
+                ex is ArgumentException or
+                NotSupportedException or
+                PathTooLongException)
+        {
+            return
+                "The journal contains an invalid filesystem " +
+                $"path: {ex.Message}";
+        }
+    }
+
+    private static string NormalizePath(
+        string path)
+    {
+        return Path.TrimEndingDirectorySeparator(
+            Path.GetFullPath(
+                path
+            )
+        );
+    }
+
+    private static bool IsAtOrBelow(
+        string root,
+        string candidate)
+    {
+        if (
+            string.Equals(
+                root,
+                candidate,
+                StringComparison.Ordinal
+            ))
+        {
+            return true;
+        }
+
+        string prefix =
+            root.EndsWith(
+                Path.DirectorySeparatorChar
+            )
+                ? root
+                : root +
+                    Path.DirectorySeparatorChar;
+
+        return candidate.StartsWith(
+            prefix,
+            StringComparison.Ordinal
+        );
+    }
+
+    private static bool IsStrictDescendant(
+        string root,
+        string candidate)
+    {
+        return
+            !string.Equals(
+                root,
+                candidate,
+                StringComparison.Ordinal
+            ) &&
+            IsAtOrBelow(
+                root,
+                candidate
+            );
     }
 
     private static bool HasPhysicalIdentity(

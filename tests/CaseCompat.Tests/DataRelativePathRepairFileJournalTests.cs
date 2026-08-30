@@ -414,6 +414,164 @@ public sealed class DataRelativePathRepairFileJournalTests
         );
     }
 
+    [Fact]
+    public void CreateIntent_DestinationParentIsAncestor_IsRejected()
+    {
+        DataRelativePathRepairDestinationParentSnapshot parent =
+            ParentSnapshot() with
+            {
+                PhysicalPath =
+                    "/game/Data/Meshes"
+            };
+
+        DataRelativePathRepairFileJournalTransitionResult result =
+            DataRelativePathRepairFileJournal.CreateIntent(
+                Guid.NewGuid(),
+                T0,
+                "/game/Data",
+                Operation(),
+                SourceSnapshot(),
+                parent
+            );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairFileJournalTransitionState
+                .InvalidRecord,
+            result.State
+        );
+
+        Assert.Contains(
+            "direct physical parent",
+            result.Error
+        );
+    }
+
+    [Fact]
+    public void CreateIntent_SourceOperationAndSnapshotDiffer_IsRejected()
+    {
+        DataRelativePathRepairPlanOperation operation =
+            Operation() with
+            {
+                SourcePath =
+                    "/game/Data/meshes/other/Armor.nif"
+            };
+
+        DataRelativePathRepairFileJournalTransitionResult result =
+            DataRelativePathRepairFileJournal.CreateIntent(
+                Guid.NewGuid(),
+                T0,
+                "/game/Data",
+                operation,
+                SourceSnapshot(),
+                ParentSnapshot()
+            );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairFileJournalTransitionState
+                .InvalidRecord,
+            result.State
+        );
+
+        Assert.Contains(
+            "source path must match",
+            result.Error
+        );
+    }
+
+    [Fact]
+    public void CreateIntent_DestinationOutsideDataRoot_IsRejected()
+    {
+        DataRelativePathRepairPlanOperation operation =
+            Operation() with
+            {
+                DestinationPath =
+                    "/game/Outside/Armor.nif"
+            };
+
+        DataRelativePathRepairDestinationParentSnapshot parent =
+            ParentSnapshot() with
+            {
+                PhysicalPath =
+                    "/game/Outside"
+            };
+
+        DataRelativePathRepairFileJournalTransitionResult result =
+            DataRelativePathRepairFileJournal.CreateIntent(
+                Guid.NewGuid(),
+                T0,
+                "/game/Data",
+                operation,
+                SourceSnapshot(),
+                parent
+            );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairFileJournalTransitionState
+                .InvalidRecord,
+            result.State
+        );
+
+        Assert.Contains(
+            "destination file must be inside",
+            result.Error
+        );
+    }
+
+    [Fact]
+    public void CreateIntent_SourceOutsideDataRoot_IsRejected()
+    {
+        DataRelativePathRepairSourceSnapshot source =
+            SourceSnapshot() with
+            {
+                PhysicalPath =
+                    "/game/Outside/Armor.nif"
+            };
+
+        DataRelativePathRepairPlanOperation operation =
+            Operation() with
+            {
+                SourcePath =
+                    "/game/Outside/Armor.nif"
+            };
+
+        DataRelativePathRepairFileJournalTransitionResult result =
+            DataRelativePathRepairFileJournal.CreateIntent(
+                Guid.NewGuid(),
+                T0,
+                "/game/Data",
+                operation,
+                source,
+                ParentSnapshot()
+            );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairFileJournalTransitionState
+                .InvalidRecord,
+            result.State
+        );
+
+        Assert.Contains(
+            "source snapshot must be inside",
+            result.Error
+        );
+    }
+
     private static
         DataRelativePathRepairFileJournalTransitionResult
         CreateIntent()
