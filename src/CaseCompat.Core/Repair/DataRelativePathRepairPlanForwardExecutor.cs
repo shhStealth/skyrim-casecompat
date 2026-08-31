@@ -65,6 +65,42 @@ public static class DataRelativePathRepairPlanForwardExecutor
             );
         }
 
+        /*
+         * Validate all durable plan history before starting or
+         * recovering any individual operation.
+         *
+         * This preflight is deliberately read/classify only. It is not
+         * a global plan lock and grants no mutation authority. Every
+         * later operation still performs its normal fresh journal read,
+         * classification, lock/re-read, and incarnation-aware guarded
+         * action.
+         *
+         * Existing journals must form one contiguous prefix. Every
+         * existing journal must also cross-bind to the immutable plan
+         * and already be in a recovery state understood by this forward
+         * executor.
+         */
+        PreflightResult preflight =
+            Preflight(
+                journalDirectory,
+                manifest,
+                trustedDataRoot
+            );
+
+        if (!preflight.Success)
+        {
+            return PlanResult(
+                DataRelativePathRepairPlanForwardExecutionState
+                    .PreflightFailed,
+                manifestRead,
+                preflight.Failure is null
+                    ? []
+                    : [preflight.Failure],
+                preflight.Failure?.Error ??
+                    "Forward plan preflight failed."
+            );
+        }
+
         var results =
             new List<
                 DataRelativePathRepairPlanForwardOperationExecution
@@ -136,6 +172,318 @@ public static class DataRelativePathRepairPlanForwardExecutor
             error:
                 null
         );
+    }
+
+    private static PreflightResult Preflight(
+        LinuxNoFollowPathHandle journalDirectory,
+        DataRelativePathRepairPlanManifestRecord manifest,
+        string trustedDataRoot)
+    {
+        int? firstMissingIndex =
+            null;
+
+        for (
+            int index = 0;
+            index < manifest.Operations.Count;
+            index++)
+        {
+            DataRelativePathRepairPlanManifestOperation entry =
+                manifest.Operations[index];
+
+            switch (entry.Operation.Kind)
+            {
+                case
+                    DataRelativePathRepairPlanOperationKind
+                        .CreateDirectory:
+                {
+                    DataRelativePathRepairDirectoryJournalReaderResult read =
+                        DataRelativePathRepairDirectoryJournalReader.Read(
+                            journalDirectory,
+                            entry.JournalChildName
+                        );
+
+                    if (
+                        read.State ==
+                        DataRelativePathRepairDirectoryJournalReadState
+                            .JournalUnavailable)
+                    {
+                        firstMissingIndex ??=
+                            index;
+
+                        continue;
+                    }
+
+                    if (!read.Success)
+                    {
+                        return PreflightResult.Failed(
+                            OperationResult(
+                                entry,
+                                DataRelativePathRepairPlanForwardOperationExecutionState
+                                    .JournalReadFailed,
+                                directoryJournalRead:
+                                    read,
+                                error:
+                                    read.Error ??
+                                    read.State.ToString()
+                            )
+                        );
+                    }
+
+                    if (firstMissingIndex is not null)
+                    {
+                        DataRelativePathRepairPlanManifestOperation
+                            missingEntry =
+                                manifest.Operations[
+                                    firstMissingIndex.Value
+                                ];
+
+                        return PreflightResult.Failed(
+                            OperationResult(
+                                entry,
+                                DataRelativePathRepairPlanForwardOperationExecutionState
+                                    .JournalGap,
+                                directoryJournalRead:
+                                    read,
+                                error:
+                                    $"Operation journal " +
+                                    $"{missingEntry.JournalChildName} " +
+                                    $"at index {missingEntry.Index} is " +
+                                    "missing while a later operation " +
+                                    $"journal {entry.JournalChildName} " +
+                                    $"at index {entry.Index} exists."
+                            )
+                        );
+                    }
+
+                    DataRelativePathRepairDirectoryJournalRecord journal =
+                        read.Record!;
+
+                    string? bindingError =
+                        DataRelativePathRepairPlanJournalBinding
+                            .ValidateDirectory(
+                                entry,
+                                journal,
+                                trustedDataRoot
+                            );
+
+                    if (bindingError is not null)
+                    {
+                        return PreflightResult.Failed(
+                            OperationResult(
+                                entry,
+                                DataRelativePathRepairPlanForwardOperationExecutionState
+                                    .JournalMismatch,
+                                directoryJournalRead:
+                                    read,
+                                error:
+                                    bindingError
+                            )
+                        );
+                    }
+
+                    DataRelativePathRepairDirectoryRecoveryClassification
+                        classification =
+                            DataRelativePathRepairDirectoryRecoveryClassifier
+                                .Classify(
+                                    journal,
+                                    trustedDataRoot
+                                );
+
+                    if (
+                        !IsDirectoryForwardSafe(
+                            classification.State
+                        ))
+                    {
+                        return PreflightResult.Failed(
+                            OperationResult(
+                                entry,
+                                DataRelativePathRepairPlanForwardOperationExecutionState
+                                    .DirectoryRecoveryStateNotForwardSafe,
+                                directoryJournalRead:
+                                    read,
+                                directoryClassification:
+                                    classification,
+                                error:
+                                    classification.Error ??
+                                    $"Directory recovery state " +
+                                    $"{classification.State} is not a " +
+                                    "safe plan-forward preflight state."
+                            )
+                        );
+                    }
+
+                    break;
+                }
+
+                case
+                    DataRelativePathRepairPlanOperationKind
+                        .CreateFile:
+                {
+                    DataRelativePathRepairFileJournalReaderResult read =
+                        DataRelativePathRepairFileJournalReader.Read(
+                            journalDirectory,
+                            entry.JournalChildName
+                        );
+
+                    if (
+                        read.State ==
+                        DataRelativePathRepairFileJournalReadState
+                            .JournalUnavailable)
+                    {
+                        firstMissingIndex ??=
+                            index;
+
+                        continue;
+                    }
+
+                    if (!read.Success)
+                    {
+                        return PreflightResult.Failed(
+                            OperationResult(
+                                entry,
+                                DataRelativePathRepairPlanForwardOperationExecutionState
+                                    .JournalReadFailed,
+                                fileJournalRead:
+                                    read,
+                                error:
+                                    read.Error ??
+                                    read.State.ToString()
+                            )
+                        );
+                    }
+
+                    if (firstMissingIndex is not null)
+                    {
+                        DataRelativePathRepairPlanManifestOperation
+                            missingEntry =
+                                manifest.Operations[
+                                    firstMissingIndex.Value
+                                ];
+
+                        return PreflightResult.Failed(
+                            OperationResult(
+                                entry,
+                                DataRelativePathRepairPlanForwardOperationExecutionState
+                                    .JournalGap,
+                                fileJournalRead:
+                                    read,
+                                error:
+                                    $"Operation journal " +
+                                    $"{missingEntry.JournalChildName} " +
+                                    $"at index {missingEntry.Index} is " +
+                                    "missing while a later operation " +
+                                    $"journal {entry.JournalChildName} " +
+                                    $"at index {entry.Index} exists."
+                            )
+                        );
+                    }
+
+                    DataRelativePathRepairFileJournalRecord journal =
+                        read.Record!;
+
+                    string? bindingError =
+                        DataRelativePathRepairPlanJournalBinding
+                            .ValidateFile(
+                                manifest,
+                                entry,
+                                journal,
+                                trustedDataRoot
+                            );
+
+                    if (bindingError is not null)
+                    {
+                        return PreflightResult.Failed(
+                            OperationResult(
+                                entry,
+                                DataRelativePathRepairPlanForwardOperationExecutionState
+                                    .JournalMismatch,
+                                fileJournalRead:
+                                    read,
+                                error:
+                                    bindingError
+                            )
+                        );
+                    }
+
+                    DataRelativePathRepairFileRecoveryClassification
+                        classification =
+                            DataRelativePathRepairFileRecoveryClassifier
+                                .Classify(
+                                    journal,
+                                    trustedDataRoot
+                                );
+
+                    if (
+                        !IsFileForwardSafe(
+                            classification.State
+                        ))
+                    {
+                        return PreflightResult.Failed(
+                            OperationResult(
+                                entry,
+                                DataRelativePathRepairPlanForwardOperationExecutionState
+                                    .FileRecoveryStateNotForwardSafe,
+                                fileJournalRead:
+                                    read,
+                                fileClassification:
+                                    classification,
+                                error:
+                                    classification.Error ??
+                                    $"File recovery state " +
+                                    $"{classification.State} is not a " +
+                                    "safe plan-forward preflight state."
+                            )
+                        );
+                    }
+
+                    break;
+                }
+
+                default:
+                    return PreflightResult.Failed(
+                        OperationResult(
+                            entry,
+                            DataRelativePathRepairPlanForwardOperationExecutionState
+                                .JournalMismatch,
+                            error:
+                                $"Unsupported plan operation kind " +
+                                $"{entry.Operation.Kind}."
+                        )
+                    );
+            }
+        }
+
+        return PreflightResult.Succeeded();
+    }
+
+    private static bool IsDirectoryForwardSafe(
+        DataRelativePathRepairDirectoryRecoveryState state)
+    {
+        return state is
+            DataRelativePathRepairDirectoryRecoveryState
+                .AppliedFinalMatches or
+            DataRelativePathRepairDirectoryRecoveryState
+                .IntentFinalMissing or
+            DataRelativePathRepairDirectoryRecoveryState
+                .PreparedBothMissing or
+            DataRelativePathRepairDirectoryRecoveryState
+                .PreparedStagingMatchesFinalMissing or
+            DataRelativePathRepairDirectoryRecoveryState
+                .PreparedFinalMatchesStagingMissing;
+    }
+
+    private static bool IsFileForwardSafe(
+        DataRelativePathRepairFileRecoveryState state)
+    {
+        return state is
+            DataRelativePathRepairFileRecoveryState
+                .AppliedDestinationMatches or
+            DataRelativePathRepairFileRecoveryState
+                .IntentDestinationMissing or
+            DataRelativePathRepairFileRecoveryState
+                .PreparedDestinationMissing or
+            DataRelativePathRepairFileRecoveryState
+                .PreparedDestinationMatches;
     }
 
     private static
@@ -1014,6 +1362,36 @@ public static class DataRelativePathRepairPlanForwardExecutor
         return capture.Success
             ? capture.Snapshot
             : null;
+    }
+
+    private sealed record PreflightResult(
+        DataRelativePathRepairPlanForwardOperationExecution?
+            Failure
+    )
+    {
+        public bool Success =>
+            Failure is null;
+
+        public static PreflightResult Succeeded()
+        {
+            return new(
+                Failure:
+                    null
+            );
+        }
+
+        public static PreflightResult Failed(
+            DataRelativePathRepairPlanForwardOperationExecution failure)
+        {
+            ArgumentNullException.ThrowIfNull(
+                failure
+            );
+
+            return new(
+                Failure:
+                    failure
+            );
+        }
     }
 
     private static

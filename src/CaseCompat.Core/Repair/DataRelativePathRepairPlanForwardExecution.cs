@@ -7,6 +7,7 @@ public enum DataRelativePathRepairPlanForwardExecutionState
     ManifestReadFailed,
     ManifestDataRootMismatch,
 
+    PreflightFailed,
     OperationFailed
 }
 
@@ -16,6 +17,7 @@ public enum DataRelativePathRepairPlanForwardOperationExecutionState
 
     JournalReadFailed,
     JournalMismatch,
+    JournalGap,
 
     DestinationParentSnapshotCaptureFailed,
 
