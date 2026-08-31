@@ -81,8 +81,27 @@ public static class LinuxOpenedDirectorySnapshot
             openedPath
         );
 
-        string displayPath =
-            openedPath.FullPath;
+        return Capture(
+            openedPath,
+            openedPath.FullPath
+        );
+    }
+
+    public static LinuxOpenedDirectorySnapshotResult Capture(
+        ILinuxOpenedHandle openedHandle,
+        string displayPath)
+    {
+        ArgumentNullException.ThrowIfNull(
+            openedHandle
+        );
+
+        if (string.IsNullOrWhiteSpace(displayPath))
+        {
+            throw new ArgumentException(
+                "A diagnostic display path is required.",
+                nameof(displayPath)
+            );
+        }
 
         if (!OperatingSystem.IsLinux())
         {
@@ -97,7 +116,7 @@ public static class LinuxOpenedDirectorySnapshot
         }
 
         SafeFileHandle handle =
-            openedPath.Handle;
+            openedHandle.Handle;
 
         if (
             handle.IsInvalid ||
