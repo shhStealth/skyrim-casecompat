@@ -9,8 +9,8 @@ public static class DataRelativePathRepairFileRecoveryReconciler
         Reconcile(
             LinuxNoFollowPathHandle journalDirectory,
             string journalChildName,
-            LinuxOpenedFileIdentityResult
-                expectedCurrentJournalIdentity,
+            LinuxFileIncarnationIdentity
+                expectedCurrentJournalIncarnation,
             DataRelativePathRepairFileJournalRecord journal,
             DateTimeOffset nowUtc)
     {
@@ -19,7 +19,7 @@ public static class DataRelativePathRepairFileRecoveryReconciler
         );
 
         ArgumentNullException.ThrowIfNull(
-            expectedCurrentJournalIdentity
+            expectedCurrentJournalIncarnation
         );
 
         ArgumentNullException.ThrowIfNull(
@@ -33,7 +33,7 @@ public static class DataRelativePathRepairFileRecoveryReconciler
                         journal
                     );
 
-        if (!expectedCurrentJournalIdentity.Success)
+        if (!expectedCurrentJournalIncarnation.Success)
         {
             return Result(
                 DataRelativePathRepairFileRecoveryReconciliationState
@@ -223,7 +223,7 @@ public static class DataRelativePathRepairFileRecoveryReconciler
                 .ReplaceExisting(
                     journalDirectory,
                     journalChildName,
-                    expectedCurrentJournalIdentity,
+                    expectedCurrentJournalIncarnation,
                     next
                 );
 

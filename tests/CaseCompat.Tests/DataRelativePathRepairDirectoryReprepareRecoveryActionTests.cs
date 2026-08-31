@@ -485,7 +485,7 @@ public sealed class
                     .ReplaceExisting(
                         JournalDirectory,
                         "journal.json",
-                        before.JournalIdentity!,
+                        before.JournalIncarnationIdentity!,
                         prepared
                     );
 

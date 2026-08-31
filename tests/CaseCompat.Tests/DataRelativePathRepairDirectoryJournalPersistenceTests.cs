@@ -254,7 +254,7 @@ public sealed class
                 .ReplaceExisting(
                     fixture.JournalDirectory,
                     "journal.json",
-                    before.JournalIdentity!,
+                    before.JournalIncarnationIdentity!,
                     prepared
                 );
 
@@ -350,8 +350,8 @@ public sealed class
         DataRelativePathRepairDirectoryJournalReaderResult initialRead =
             fixture.ReadJournal();
 
-        LinuxOpenedFileIdentityResult staleIdentity =
-            initialRead.JournalIdentity!;
+        LinuxFileIncarnationIdentity staleIncarnation =
+            initialRead.JournalIncarnationIdentity!;
 
         DataRelativePathRepairDirectoryJournalRecord prepared =
             RequireRecord(
@@ -372,7 +372,7 @@ public sealed class
                 .ReplaceExisting(
                     fixture.JournalDirectory,
                     "journal.json",
-                    staleIdentity,
+                    staleIncarnation,
                     prepared
                 );
 
@@ -394,7 +394,7 @@ public sealed class
                 .ReplaceExisting(
                     fixture.JournalDirectory,
                     "journal.json",
-                    staleIdentity,
+                    staleIncarnation,
                     applied
                 );
 

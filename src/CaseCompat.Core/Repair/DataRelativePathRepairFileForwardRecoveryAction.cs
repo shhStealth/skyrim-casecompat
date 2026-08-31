@@ -403,7 +403,7 @@ public static class
                     .ReplaceExisting(
                         journalDirectory,
                         journalChildName,
-                        read.JournalIdentity!,
+                        read.JournalIncarnationIdentity!,
                         preparedTransition.Record!
                     );
 
@@ -442,13 +442,12 @@ public static class
             );
         }
 
-        LinuxOpenedFileIdentityResult?
-            preparedJournalIdentity =
-                preparedWrite.WrittenJournalIdentity;
+        LinuxFileIncarnationIdentity? preparedJournalIncarnation =
+                preparedWrite.WrittenJournalIncarnationIdentity;
 
         if (
-            preparedJournalIdentity is null ||
-            !preparedJournalIdentity.Success)
+            preparedJournalIncarnation is null ||
+            !preparedJournalIncarnation.Success)
         {
             return Result(
                 DataRelativePathRepairFileForwardRecoveryState
@@ -637,7 +636,7 @@ public static class
                 .ReplaceExisting(
                     journalDirectory,
                     journalChildName,
-                    preparedJournalIdentity,
+                    preparedJournalIncarnation,
                     appliedTransition.Record!
                 );
 

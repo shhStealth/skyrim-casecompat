@@ -285,7 +285,7 @@ public static class
                 .ReplaceExisting(
                     journalDirectory,
                     journalChildName,
-                    read.JournalIdentity!,
+                    read.JournalIncarnationIdentity!,
                     transition.Record!
                 );
 

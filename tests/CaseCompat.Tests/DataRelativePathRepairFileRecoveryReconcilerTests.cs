@@ -56,7 +56,7 @@ public sealed class
                 .Reconcile(
                     fixture.JournalDirectory,
                     "journal.json",
-                    before.JournalIdentity!,
+                    before.JournalIncarnationIdentity!,
                     before.Record!,
                     T0.AddSeconds(10)
                 );
@@ -133,7 +133,7 @@ public sealed class
                 .Reconcile(
                     fixture.JournalDirectory,
                     "journal.json",
-                    before.JournalIdentity!,
+                    before.JournalIncarnationIdentity!,
                     before.Record,
                     T0.AddSeconds(10)
                 );
@@ -188,7 +188,7 @@ public sealed class
                 .Reconcile(
                     fixture.JournalDirectory,
                     "journal.json",
-                    before.JournalIdentity!,
+                    before.JournalIncarnationIdentity!,
                     before.Record!,
                     T0.AddSeconds(10)
                 );
@@ -254,7 +254,7 @@ public sealed class
                 .Reconcile(
                     fixture.JournalDirectory,
                     "journal.json",
-                    before.JournalIdentity!,
+                    before.JournalIncarnationIdentity!,
                     before.Record!,
                     T0.AddSeconds(10)
                 );
@@ -350,7 +350,7 @@ public sealed class
                 .Reconcile(
                     fixture.JournalDirectory,
                     "journal.json",
-                    stale.JournalIdentity!,
+                    stale.JournalIncarnationIdentity!,
                     stale.Record!,
                     T0.AddSeconds(10)
                 );
@@ -688,7 +688,7 @@ public sealed class
                     .ReplaceExisting(
                         JournalDirectory,
                         "journal.json",
-                        current.JournalIdentity!,
+                        current.JournalIncarnationIdentity!,
                         next
                     );
 

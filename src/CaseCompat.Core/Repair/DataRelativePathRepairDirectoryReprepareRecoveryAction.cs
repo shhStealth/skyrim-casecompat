@@ -347,7 +347,7 @@ public static class
                     .ReplaceExisting(
                         journalDirectory,
                         journalChildName,
-                        read.JournalIdentity!,
+                        read.JournalIncarnationIdentity!,
                         reprepareTransition.Record!
                     );
 

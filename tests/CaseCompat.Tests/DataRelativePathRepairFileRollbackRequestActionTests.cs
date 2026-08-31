@@ -525,7 +525,7 @@ public sealed class
                         .ReplaceExisting(
                             JournalDirectory,
                             "journal.json",
-                            initial.WrittenJournalIdentity!,
+                            initial.WrittenJournalIncarnationIdentity!,
                             prepared
                         );
 
@@ -549,7 +549,7 @@ public sealed class
                         .ReplaceExisting(
                             JournalDirectory,
                             "journal.json",
-                            preparedWrite.WrittenJournalIdentity!,
+                            preparedWrite.WrittenJournalIncarnationIdentity!,
                             applied
                         );
 

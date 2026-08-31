@@ -576,7 +576,7 @@ public static class
                     .ReplaceExisting(
                         journalDirectory,
                         journalChildName,
-                        read.JournalIdentity!,
+                        read.JournalIncarnationIdentity!,
                         appliedTransition.Record!
                     );
 

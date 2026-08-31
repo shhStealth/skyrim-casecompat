@@ -154,8 +154,8 @@ public sealed class DataRelativePathRepairFileJournalReaderTests
             initial.Error
         );
 
-        LinuxOpenedFileIdentityResult currentIdentity =
-            RequireJournalIdentity(
+        LinuxFileIncarnationIdentity currentIncarnation =
+            RequireJournalIncarnation(
                 directory,
                 initial,
                 "journal.json"
@@ -177,7 +177,7 @@ public sealed class DataRelativePathRepairFileJournalReaderTests
                 .ReplaceExisting(
                     directory,
                     "journal.json",
-                    currentIdentity,
+                    currentIncarnation,
                     prepared
                 );
 
@@ -613,15 +613,15 @@ public sealed class DataRelativePathRepairFileJournalReaderTests
         );
     }
 
-    private static LinuxOpenedFileIdentityResult
-        RequireJournalIdentity(
+    private static LinuxFileIncarnationIdentity
+        RequireJournalIncarnation(
             LinuxNoFollowPathHandle directory,
             DataRelativePathRepairFileJournalWriterResult result,
             string childName)
     {
         if (
-            result.WrittenJournalIdentity is
-                LinuxOpenedFileIdentityResult identity &&
+            result.WrittenJournalIncarnationIdentity is
+                LinuxFileIncarnationIdentity identity &&
             identity.Success)
         {
             return identity;
@@ -644,16 +644,17 @@ public sealed class DataRelativePathRepairFileJournalReaderTests
                 opened.OpenedChild
             );
 
-        LinuxOpenedFileIdentityResult captured =
-            LinuxOpenedFileIdentity.Capture(
+        LinuxOpenedFileIncarnationResult incarnation =
+            LinuxOpenedFileIncarnation.Capture(
                 child
             );
 
         Assert.True(
-            captured.Success
+            incarnation.Success,
+            incarnation.Error
         );
 
-        return captured;
+        return incarnation.Identity!;
     }
 
     private static DataRelativePathRepairFileJournalRecord

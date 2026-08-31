@@ -228,8 +228,8 @@ public sealed class DataRelativePathRepairFileJournalWriterTests
             initial.Error
         );
 
-        LinuxOpenedFileIdentityResult currentIdentity =
-            RequireJournalIdentity(
+        LinuxFileIncarnationIdentity currentIncarnation =
+            RequireJournalIncarnation(
                 directory,
                 initial,
                 "journal.json"
@@ -251,7 +251,7 @@ public sealed class DataRelativePathRepairFileJournalWriterTests
                 .ReplaceExisting(
                     directory,
                     "journal.json",
-                    currentIdentity,
+                    currentIncarnation,
                     prepared
                 );
 
@@ -373,8 +373,8 @@ public sealed class DataRelativePathRepairFileJournalWriterTests
             initial.Error
         );
 
-        LinuxOpenedFileIdentityResult expectedIdentity =
-            RequireJournalIdentity(
+        LinuxFileIncarnationIdentity expectedIncarnation =
+            RequireJournalIncarnation(
                 directory,
                 initial,
                 "journal.json"
@@ -418,7 +418,7 @@ public sealed class DataRelativePathRepairFileJournalWriterTests
                 .ReplaceExisting(
                     directory,
                     "journal.json",
-                    expectedIdentity,
+                    expectedIncarnation,
                     prepared
                 );
 
@@ -494,8 +494,8 @@ public sealed class DataRelativePathRepairFileJournalWriterTests
                 temp.RootPath
             );
 
-        LinuxOpenedFileIdentityResult targetIdentity =
-            Capture(
+        LinuxFileIncarnationIdentity targetIncarnation =
+            CaptureIncarnation(
                 directory,
                 "actual.json"
             );
@@ -516,7 +516,7 @@ public sealed class DataRelativePathRepairFileJournalWriterTests
                 .ReplaceExisting(
                     directory,
                     "journal.json",
-                    targetIdentity,
+                    targetIncarnation,
                     prepared
                 );
 
@@ -634,8 +634,8 @@ public sealed class DataRelativePathRepairFileJournalWriterTests
             initial.Error
         );
 
-        LinuxOpenedFileIdentityResult currentIdentity =
-            RequireJournalIdentity(
+        LinuxFileIncarnationIdentity currentIncarnation =
+            RequireJournalIncarnation(
                 directory,
                 initial,
                 "journal.json"
@@ -680,7 +680,7 @@ public sealed class DataRelativePathRepairFileJournalWriterTests
                 .ReplaceExisting(
                     directory,
                     "journal.json",
-                    currentIdentity,
+                    currentIncarnation,
                     prepared
                 );
 
@@ -723,29 +723,30 @@ public sealed class DataRelativePathRepairFileJournalWriterTests
         );
     }
 
-    private static LinuxOpenedFileIdentityResult
-        RequireJournalIdentity(
+    private static LinuxFileIncarnationIdentity
+        RequireJournalIncarnation(
             LinuxNoFollowPathHandle directory,
             DataRelativePathRepairFileJournalWriterResult result,
             string childName)
     {
         if (
-            result.WrittenJournalIdentity is
-                LinuxOpenedFileIdentityResult identity &&
+            result.WrittenJournalIncarnationIdentity is
+                LinuxFileIncarnationIdentity identity &&
             identity.Success)
         {
             return identity;
         }
 
-        return Capture(
+        return CaptureIncarnation(
             directory,
             childName
         );
     }
 
-    private static LinuxOpenedFileIdentityResult Capture(
-        LinuxNoFollowPathHandle directory,
-        string childName)
+    private static LinuxFileIncarnationIdentity
+        CaptureIncarnation(
+            LinuxNoFollowPathHandle directory,
+            string childName)
     {
         LinuxOpenChildReadOnlyAtResult opened =
             LinuxOpenChildReadOnlyAt.Open(
@@ -764,16 +765,17 @@ public sealed class DataRelativePathRepairFileJournalWriterTests
                 opened.OpenedChild
             );
 
-        LinuxOpenedFileIdentityResult identity =
-            LinuxOpenedFileIdentity.Capture(
+        LinuxOpenedFileIncarnationResult incarnation =
+            LinuxOpenedFileIncarnation.Capture(
                 child
             );
 
         Assert.True(
-            identity.Success
+            incarnation.Success,
+            incarnation.Error
         );
 
-        return identity;
+        return incarnation.Identity!;
     }
 
     private static DataRelativePathRepairFileJournalRecord

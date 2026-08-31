@@ -240,13 +240,12 @@ public static class DataRelativePathRepairFileExecutor
             );
         }
 
-        LinuxOpenedFileIdentityResult?
-            initialJournalIdentity =
-                initialWrite.WrittenJournalIdentity;
+        LinuxFileIncarnationIdentity? initialJournalIncarnation =
+                initialWrite.WrittenJournalIncarnationIdentity;
 
         if (
-            initialJournalIdentity is null ||
-            !initialJournalIdentity.Success)
+            initialJournalIncarnation is null ||
+            !initialJournalIncarnation.Success)
         {
             return Result(
                 DataRelativePathRepairFileExecutionState
@@ -459,7 +458,7 @@ public static class DataRelativePathRepairFileExecutor
                     .ReplaceExisting(
                         journalDirectory,
                         journalChildName,
-                        initialJournalIdentity,
+                        initialJournalIncarnation,
                         preparedTransition.Record!
                     );
 
@@ -496,13 +495,12 @@ public static class DataRelativePathRepairFileExecutor
             );
         }
 
-        LinuxOpenedFileIdentityResult?
-            preparedJournalIdentity =
-                preparedWrite.WrittenJournalIdentity;
+        LinuxFileIncarnationIdentity? preparedJournalIncarnation =
+                preparedWrite.WrittenJournalIncarnationIdentity;
 
         if (
-            preparedJournalIdentity is null ||
-            !preparedJournalIdentity.Success)
+            preparedJournalIncarnation is null ||
+            !preparedJournalIncarnation.Success)
         {
             return Result(
                 DataRelativePathRepairFileExecutionState
@@ -684,7 +682,7 @@ public static class DataRelativePathRepairFileExecutor
                 .ReplaceExisting(
                     journalDirectory,
                     journalChildName,
-                    preparedJournalIdentity,
+                    preparedJournalIncarnation,
                     appliedTransition.Record!
                 );
 

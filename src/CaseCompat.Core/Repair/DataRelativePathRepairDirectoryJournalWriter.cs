@@ -238,8 +238,8 @@ public static class DataRelativePathRepairDirectoryJournalWriter
         ReplaceExisting(
             LinuxNoFollowPathHandle journalDirectory,
             string journalChildName,
-            LinuxOpenedFileIdentityResult
-                expectedCurrentJournalIdentity,
+            LinuxFileIncarnationIdentity
+                expectedCurrentJournalIncarnation,
             DataRelativePathRepairDirectoryJournalRecord record)
     {
         ArgumentNullException.ThrowIfNull(
@@ -247,7 +247,7 @@ public static class DataRelativePathRepairDirectoryJournalWriter
         );
 
         ArgumentNullException.ThrowIfNull(
-            expectedCurrentJournalIdentity
+            expectedCurrentJournalIncarnation
         );
 
         ArgumentNullException.ThrowIfNull(
@@ -294,7 +294,7 @@ public static class DataRelativePathRepairDirectoryJournalWriter
             );
         }
 
-        if (!expectedCurrentJournalIdentity.Success)
+        if (!expectedCurrentJournalIncarnation.Success)
         {
             return Result(
                 DataRelativePathRepairDirectoryJournalWriteState
@@ -327,26 +327,26 @@ public static class DataRelativePathRepairDirectoryJournalWriter
         using LinuxOpenedChildHandle current =
             currentOpen.OpenedChild!;
 
-        LinuxOpenedFileIdentityResult actualCurrentIdentity =
-            LinuxOpenedFileIdentity.Capture(
+        LinuxOpenedFileIncarnationResult actualCurrentIncarnation =
+            LinuxOpenedFileIncarnation.Capture(
                 current
             );
 
-        if (!actualCurrentIdentity.Success)
+        if (!actualCurrentIncarnation.Success)
         {
             return Result(
                 DataRelativePathRepairDirectoryJournalWriteState
                     .CurrentJournalIdentityFailed,
                 journalChildName,
                 error:
-                    actualCurrentIdentity.Error ??
-                    actualCurrentIdentity.State.ToString()
+                    actualCurrentIncarnation.Error ??
+                    actualCurrentIncarnation.State.ToString()
             );
         }
 
         if (
-            !expectedCurrentJournalIdentity.SameObjectAs(
-                actualCurrentIdentity
+            !expectedCurrentJournalIncarnation.SameIncarnationAs(
+                actualCurrentIncarnation.Identity!
             ))
         {
             return Result(
@@ -514,7 +514,8 @@ public static class DataRelativePathRepairDirectoryJournalWriter
                 stagingName,
                 journalChildName,
                 stagedIdentity,
-                expectedCurrentJournalIdentity
+                expectedCurrentJournalIncarnation
+                    .PhysicalIdentity
             );
 
         if (!replace.Success)
