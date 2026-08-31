@@ -162,8 +162,8 @@ public static class DataRelativePathRepairDirectoryJournalWriter
             );
         }
 
-        LinuxOpenedFileIdentityResult writtenIdentity =
-            LinuxOpenedFileIdentity.Capture(
+        LinuxOpenedFileIncarnationResult writtenIncarnation =
+            LinuxOpenedFileIncarnation.Capture(
                 temporary
             );
 
@@ -178,9 +178,9 @@ public static class DataRelativePathRepairDirectoryJournalWriter
                 DataRelativePathRepairDirectoryJournalWriteState
                     .DirectorySyncFailed,
                 journalChildName,
-                writtenJournalIdentity:
-                    writtenIdentity.Success
-                        ? writtenIdentity
+                writtenJournalIncarnation:
+                    writtenIncarnation.Success
+                        ? writtenIncarnation
                         : null,
                 journalEntryChanged:
                     true,
@@ -190,7 +190,7 @@ public static class DataRelativePathRepairDirectoryJournalWriter
             );
         }
 
-        if (!writtenIdentity.Success)
+        if (!writtenIncarnation.Success)
         {
             /*
              * The directory entry is already durable here.
@@ -209,7 +209,7 @@ public static class DataRelativePathRepairDirectoryJournalWriter
                         journalChildName,
                     StagingChildName:
                         null,
-                    WrittenJournalIdentity:
+                    WrittenJournalIncarnation:
                         null,
                     JournalEntryChanged:
                         true,
@@ -217,7 +217,7 @@ public static class DataRelativePathRepairDirectoryJournalWriter
                         false,
                     Error:
                         "The journal was durably created, but " +
-                        "its post-publication identity could not " +
+                        "its post-publication incarnation could not " +
                         "be captured."
                 );
         }
@@ -226,8 +226,8 @@ public static class DataRelativePathRepairDirectoryJournalWriter
             DataRelativePathRepairDirectoryJournalWriteState
                 .CreatedDurably,
             journalChildName,
-            writtenJournalIdentity:
-                writtenIdentity,
+            writtenJournalIncarnation:
+                writtenIncarnation,
             journalEntryChanged:
                 true
         );
@@ -543,8 +543,8 @@ public static class DataRelativePathRepairDirectoryJournalWriter
             );
         }
 
-        LinuxOpenedFileIdentityResult writtenIdentity =
-            LinuxOpenedFileIdentity.Capture(
+        LinuxOpenedFileIncarnationResult writtenIncarnation =
+            LinuxOpenedFileIncarnation.Capture(
                 temporary
             );
 
@@ -559,9 +559,9 @@ public static class DataRelativePathRepairDirectoryJournalWriter
                 DataRelativePathRepairDirectoryJournalWriteState
                     .DirectorySyncFailed,
                 journalChildName,
-                writtenJournalIdentity:
-                    writtenIdentity.Success
-                        ? writtenIdentity
+                writtenJournalIncarnation:
+                    writtenIncarnation.Success
+                        ? writtenIncarnation
                         : null,
                 journalEntryChanged:
                     true,
@@ -571,7 +571,7 @@ public static class DataRelativePathRepairDirectoryJournalWriter
             );
         }
 
-        if (!writtenIdentity.Success)
+        if (!writtenIncarnation.Success)
         {
             return new
                 DataRelativePathRepairDirectoryJournalWriterResult(
@@ -582,7 +582,7 @@ public static class DataRelativePathRepairDirectoryJournalWriter
                         journalChildName,
                     StagingChildName:
                         null,
-                    WrittenJournalIdentity:
+                    WrittenJournalIncarnation:
                         null,
                     JournalEntryChanged:
                         true,
@@ -590,7 +590,7 @@ public static class DataRelativePathRepairDirectoryJournalWriter
                         false,
                     Error:
                         "The journal was durably replaced, but " +
-                        "its post-replacement identity could not " +
+                        "its post-replacement incarnation could not " +
                         "be captured."
                 );
         }
@@ -599,8 +599,8 @@ public static class DataRelativePathRepairDirectoryJournalWriter
             DataRelativePathRepairDirectoryJournalWriteState
                 .ReplacedDurably,
             journalChildName,
-            writtenJournalIdentity:
-                writtenIdentity,
+            writtenJournalIncarnation:
+                writtenIncarnation,
             journalEntryChanged:
                 true
         );
@@ -735,8 +735,8 @@ public static class DataRelativePathRepairDirectoryJournalWriter
             DataRelativePathRepairDirectoryJournalWriteState state,
             string? journalChildName,
             string? stagingChildName = null,
-            LinuxOpenedFileIdentityResult?
-                writtenJournalIdentity = null,
+            LinuxOpenedFileIncarnationResult?
+                writtenJournalIncarnation = null,
             bool journalEntryChanged = false,
             bool stagingEntryMayRemain = false,
             string? error = null)
@@ -749,8 +749,8 @@ public static class DataRelativePathRepairDirectoryJournalWriter
                     journalChildName ?? string.Empty,
                 StagingChildName:
                     stagingChildName,
-                WrittenJournalIdentity:
-                    writtenJournalIdentity,
+                WrittenJournalIncarnation:
+                    writtenJournalIncarnation,
                 JournalEntryChanged:
                     journalEntryChanged,
                 StagingEntryMayRemain:

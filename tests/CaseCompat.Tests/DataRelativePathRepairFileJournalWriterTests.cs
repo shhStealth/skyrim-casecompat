@@ -63,6 +63,37 @@ public sealed class DataRelativePathRepairFileJournalWriterTests
             result.StagingEntryMayRemain
         );
 
+        Assert.NotNull(
+            result.WrittenJournalIncarnation
+        );
+
+        Assert.True(
+            result.WrittenJournalIncarnation!.Success,
+            result.WrittenJournalIncarnation.Error
+        );
+
+        Assert.NotNull(
+            result.WrittenJournalIncarnationIdentity
+        );
+
+        Assert.True(
+            result.WrittenJournalIncarnationIdentity!
+                .SameIncarnationAs(
+                    result.WrittenJournalIncarnation.Identity!
+                )
+        );
+
+        Assert.NotNull(
+            result.WrittenJournalIdentity
+        );
+
+        Assert.True(
+            result.WrittenJournalIdentity!.SameObjectAs(
+                result.WrittenJournalIncarnationIdentity
+                    .PhysicalIdentity
+            )
+        );
+
         Assert.True(
             File.Exists(
                 Path.Combine(
@@ -233,6 +264,37 @@ public sealed class DataRelativePathRepairFileJournalWriterTests
             DataRelativePathRepairFileJournalWriteState
                 .ReplacedDurably,
             update.State
+        );
+
+        Assert.NotNull(
+            update.WrittenJournalIncarnation
+        );
+
+        Assert.True(
+            update.WrittenJournalIncarnation!.Success,
+            update.WrittenJournalIncarnation.Error
+        );
+
+        Assert.NotNull(
+            update.WrittenJournalIncarnationIdentity
+        );
+
+        Assert.True(
+            update.WrittenJournalIncarnationIdentity!
+                .SameIncarnationAs(
+                    update.WrittenJournalIncarnation.Identity!
+                )
+        );
+
+        Assert.NotNull(
+            update.WrittenJournalIdentity
+        );
+
+        Assert.True(
+            update.WrittenJournalIdentity!.SameObjectAs(
+                update.WrittenJournalIncarnationIdentity
+                    .PhysicalIdentity
+            )
         );
 
         Assert.True(

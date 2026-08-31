@@ -37,12 +37,19 @@ public sealed record
         DataRelativePathRepairDirectoryJournalWriteState State,
         string JournalChildName,
         string? StagingChildName,
-        LinuxOpenedFileIdentityResult? WrittenJournalIdentity,
+        LinuxOpenedFileIncarnationResult? WrittenJournalIncarnation,
         bool JournalEntryChanged,
         bool StagingEntryMayRemain,
         string? Error
     )
 {
+    public LinuxOpenedFileIdentityResult? WrittenJournalIdentity =>
+        WrittenJournalIncarnation?.PhysicalIdentity;
+
+    public LinuxFileIncarnationIdentity?
+        WrittenJournalIncarnationIdentity =>
+            WrittenJournalIncarnation?.Identity;
+
     public bool Success =>
         State is
             DataRelativePathRepairDirectoryJournalWriteState

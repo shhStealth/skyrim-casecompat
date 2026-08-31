@@ -56,6 +56,37 @@ public sealed class
             write.State
         );
 
+        Assert.NotNull(
+            write.WrittenJournalIncarnation
+        );
+
+        Assert.True(
+            write.WrittenJournalIncarnation!.Success,
+            write.WrittenJournalIncarnation.Error
+        );
+
+        Assert.NotNull(
+            write.WrittenJournalIncarnationIdentity
+        );
+
+        Assert.True(
+            write.WrittenJournalIncarnationIdentity!
+                .SameIncarnationAs(
+                    write.WrittenJournalIncarnation.Identity!
+                )
+        );
+
+        Assert.NotNull(
+            write.WrittenJournalIdentity
+        );
+
+        Assert.True(
+            write.WrittenJournalIdentity!.SameObjectAs(
+                write.WrittenJournalIncarnationIdentity
+                    .PhysicalIdentity
+            )
+        );
+
         DataRelativePathRepairDirectoryJournalReaderResult read =
             fixture.ReadJournal();
 
@@ -236,6 +267,37 @@ public sealed class
             DataRelativePathRepairDirectoryJournalWriteState
                 .ReplacedDurably,
             update.State
+        );
+
+        Assert.NotNull(
+            update.WrittenJournalIncarnation
+        );
+
+        Assert.True(
+            update.WrittenJournalIncarnation!.Success,
+            update.WrittenJournalIncarnation.Error
+        );
+
+        Assert.NotNull(
+            update.WrittenJournalIncarnationIdentity
+        );
+
+        Assert.True(
+            update.WrittenJournalIncarnationIdentity!
+                .SameIncarnationAs(
+                    update.WrittenJournalIncarnation.Identity!
+                )
+        );
+
+        Assert.NotNull(
+            update.WrittenJournalIdentity
+        );
+
+        Assert.True(
+            update.WrittenJournalIdentity!.SameObjectAs(
+                update.WrittenJournalIncarnationIdentity
+                    .PhysicalIdentity
+            )
         );
 
         DataRelativePathRepairDirectoryJournalReaderResult after =
