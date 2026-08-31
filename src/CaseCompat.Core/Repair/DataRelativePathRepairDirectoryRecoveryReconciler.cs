@@ -99,24 +99,40 @@ public static class
                 acquisition.Lease!;
 
         /*
-         * The shared destination-parent lease predates the stronger
-         * mount-aware directory-journal identity rule.
+         * Journal-only reconciliation is about to durably record the
+         * outcome of an earlier directory namespace mutation.
          *
-         * Recheck the complete physical identity before using this
-         * descriptor for reconciliation.
+         * Revalidate the complete destination-parent incarnation from
+         * the retained descriptor before trusting the namespace beneath
+         * it. Generation-unavailable is a hard failure; there is no
+         * device/inode/mount-only fallback.
          */
-        LinuxFileIdentityResult expectedParentIdentity =
-            journal.DestinationParentSnapshot.Identity;
-
-        LinuxFileIdentityResult? actualParentIdentity =
-            parent.ActualSnapshot.Identity;
+        if (
+            !parent.ActualIncarnation.Success ||
+            parent.IncarnationIdentity is null)
+        {
+            return Result(
+                DataRelativePathRepairDirectoryRecoveryReconciliationState
+                    .DestinationParentValidationFailed,
+                classification,
+                parentValidation:
+                    acquisition.Validation,
+                error:
+                    "The destination parent could not provide " +
+                    "generation-aware incarnation identity from the " +
+                    "retained directory descriptor: " +
+                    (
+                        parent.ActualIncarnation.Error ??
+                        parent.ActualIncarnation.State.ToString()
+                    )
+            );
+        }
 
         if (
-            actualParentIdentity is null ||
-            !SameDirectoryObject(
-                expectedParentIdentity,
-                actualParentIdentity
-            ))
+            !journal.DestinationParentIncarnationIdentity
+                .SameIncarnationAs(
+                    parent.IncarnationIdentity
+                ))
         {
             return Result(
                 DataRelativePathRepairDirectoryRecoveryReconciliationState
@@ -126,8 +142,8 @@ public static class
                     acquisition.Validation,
                 error:
                     "The destination parent no longer matches the " +
-                    "complete mount-aware physical identity " +
-                    "recorded by the directory journal."
+                    "generation-aware directory incarnation recorded " +
+                    "by the durable journal."
             );
         }
 
@@ -146,7 +162,7 @@ public static class
          *
          * PreparedFinalMatchesStagingMissing:
          *   staging must still be absent;
-         *   final must still be the recorded directory inode.
+         *   final must still be the recorded directory incarnation.
          *
          * RollbackRequestedFinalMissing:
          *   staging must still be absent;
@@ -351,52 +367,49 @@ public static class
         using LinuxOpenedChildHandle child =
             opened.OpenedChild!;
 
-        LinuxOpenedDirectorySnapshotResult snapshot =
-            LinuxOpenedDirectorySnapshot.Capture(
+        LinuxOpenedDirectoryIncarnationResult incarnation =
+            LinuxOpenedDirectoryIncarnation.Capture(
                 child,
                 journal.Operation.DestinationPath
             );
 
         if (
-            snapshot.State ==
-            LinuxOpenedDirectorySnapshotState.NotDirectory)
+            incarnation.State ==
+            LinuxOpenedDirectoryIncarnationState.NotDirectory)
         {
             return RevalidationResult.ChangedResult(
                 "The final destination is no longer a directory."
             );
         }
 
-        bool usableIdentity =
-            snapshot.Identity is not null &&
-            HasCompleteIdentity(
-                snapshot.Identity
-            ) &&
-            (
-                snapshot.State ==
-                    LinuxOpenedDirectorySnapshotState.Captured ||
-                snapshot.State ==
-                    LinuxOpenedDirectorySnapshotState.FlagsUnavailable
-            );
-
-        if (!usableIdentity)
+        /*
+         * A journal transition to Applied permanently records that the
+         * published Final is the directory prepared by this repair.
+         *
+         * A physical dev/inode/mount match is insufficient because an
+         * inode may have been deleted and reused by another directory.
+         */
+        if (
+            !incarnation.Success ||
+            incarnation.Identity is null)
         {
             return RevalidationResult.Failed(
-                snapshot.Error ??
-                snapshot.State.ToString()
+                incarnation.Error ??
+                incarnation.State.ToString()
             );
         }
 
         if (
-            journal.PreparedDirectoryIdentity is null ||
-            !SameDirectoryObject(
-                journal.PreparedDirectoryIdentity,
-                snapshot.Identity!
-            ))
+            journal.PreparedDirectoryIncarnationIdentity is null ||
+            !journal.PreparedDirectoryIncarnationIdentity
+                .SameIncarnationAs(
+                    incarnation.Identity
+                ))
         {
             return RevalidationResult.ChangedResult(
                 "The final destination no longer matches the " +
-                "mount-aware directory identity recorded while " +
-                "the repair was Prepared."
+                "generation-aware directory incarnation recorded " +
+                "while the repair was Prepared."
             );
         }
 
@@ -446,34 +459,6 @@ public static class
             opened.Error ??
             opened.State.ToString()
         );
-    }
-
-    private static bool SameDirectoryObject(
-        LinuxFileIdentityResult left,
-        LinuxFileIdentityResult right)
-    {
-        return
-            HasCompleteIdentity(left) &&
-            HasCompleteIdentity(right) &&
-            left.DeviceMajor ==
-                right.DeviceMajor &&
-            left.DeviceMinor ==
-                right.DeviceMinor &&
-            left.Inode ==
-                right.Inode &&
-            left.MountId ==
-                right.MountId;
-    }
-
-    private static bool HasCompleteIdentity(
-        LinuxFileIdentityResult identity)
-    {
-        return
-            identity.Success &&
-            identity.DeviceMajor is not null &&
-            identity.DeviceMinor is not null &&
-            identity.Inode is not null &&
-            identity.MountId is not null;
     }
 
     private static
