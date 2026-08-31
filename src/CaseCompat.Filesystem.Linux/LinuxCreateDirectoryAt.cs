@@ -33,6 +33,20 @@ public static class LinuxCreateDirectoryAt
             parentDirectory
         );
 
+        return Create(
+            (ILinuxOpenedHandle)parentDirectory,
+            childName
+        );
+    }
+
+    public static LinuxCreateDirectoryAtResult Create(
+        ILinuxOpenedHandle parentDirectory,
+        string childName)
+    {
+        ArgumentNullException.ThrowIfNull(
+            parentDirectory
+        );
+
         if (!IsValidChildName(childName))
         {
             return Result(

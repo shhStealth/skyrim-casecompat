@@ -54,6 +54,20 @@ public static class LinuxOpenChildReadOnlyAt
             parentDirectory
         );
 
+        return Open(
+            (ILinuxOpenedHandle)parentDirectory,
+            childName
+        );
+    }
+
+    public static LinuxOpenChildReadOnlyAtResult Open(
+        ILinuxOpenedHandle parentDirectory,
+        string childName)
+    {
+        ArgumentNullException.ThrowIfNull(
+            parentDirectory
+        );
+
         if (!IsValidChildName(childName))
         {
             return Result(
