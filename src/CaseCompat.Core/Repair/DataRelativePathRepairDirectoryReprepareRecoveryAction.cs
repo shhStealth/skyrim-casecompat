@@ -117,18 +117,45 @@ public static class
             parent =
                 parentAcquisition.Lease!;
 
-        LinuxFileIdentityResult expectedParentIdentity =
-            journal.DestinationParentSnapshot.Identity;
-
-        LinuxFileIdentityResult? actualParentIdentity =
-            parent.ActualSnapshot.Identity;
+        /*
+         * Re-preparation is about to create a fresh directory beneath
+         * this retained parent descriptor. Authorize that namespace
+         * mutation only from the complete durable parent incarnation.
+         *
+         * Generation-unavailable is a hard failure. There is no
+         * device/inode/mount-only fallback for directory ownership.
+         */
+        if (
+            !parent.ActualIncarnation.Success ||
+            parent.IncarnationIdentity is null)
+        {
+            return Result(
+                DataRelativePathRepairDirectoryReprepareRecoveryState
+                    .DestinationParentValidationFailed,
+                lockState:
+                    lockResult.State,
+                journalRead:
+                    read,
+                classification:
+                    classification,
+                parentValidation:
+                    parentAcquisition.Validation,
+                error:
+                    "The destination parent could not provide " +
+                    "generation-aware incarnation identity from the " +
+                    "retained directory descriptor: " +
+                    (
+                        parent.ActualIncarnation.Error ??
+                        parent.ActualIncarnation.State.ToString()
+                    )
+            );
+        }
 
         if (
-            actualParentIdentity is null ||
-            !SameDirectoryObject(
-                expectedParentIdentity,
-                actualParentIdentity
-            ))
+            !journal.DestinationParentIncarnationIdentity
+                .SameIncarnationAs(
+                    parent.IncarnationIdentity
+                ))
         {
             return Result(
                 DataRelativePathRepairDirectoryReprepareRecoveryState
@@ -143,8 +170,8 @@ public static class
                     parentAcquisition.Validation,
                 error:
                     "The destination parent no longer matches the " +
-                    "complete mount-aware identity recorded by the " +
-                    "directory journal."
+                    "generation-aware directory incarnation recorded " +
+                    "by the durable journal."
             );
         }
 
@@ -455,34 +482,6 @@ public static class
                 return candidate;
             }
         }
-    }
-
-    private static bool SameDirectoryObject(
-        LinuxFileIdentityResult left,
-        LinuxFileIdentityResult right)
-    {
-        return
-            HasCompleteIdentity(left) &&
-            HasCompleteIdentity(right) &&
-            left.DeviceMajor ==
-                right.DeviceMajor &&
-            left.DeviceMinor ==
-                right.DeviceMinor &&
-            left.Inode ==
-                right.Inode &&
-            left.MountId ==
-                right.MountId;
-    }
-
-    private static bool HasCompleteIdentity(
-        LinuxFileIdentityResult identity)
-    {
-        return
-            identity.Success &&
-            identity.DeviceMajor is not null &&
-            identity.DeviceMinor is not null &&
-            identity.Inode is not null &&
-            identity.MountId is not null;
     }
 
     private static
