@@ -949,6 +949,992 @@ public sealed class
         );
     }
 
+    [Fact]
+    public void
+        Rollback_FullyAppliedPlan_RollsBackInReverseAndIsIdempotent()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathResolution initialResolution =
+            fixture.ResolveRequestedPath();
+
+        byte[] sourceBefore =
+            File.ReadAllBytes(
+                fixture.SourcePath
+            );
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector.Project(
+                initialResolution
+            );
+
+        Assert.True(
+            projection.HasPlan,
+            projection.Error
+        );
+
+        DataRelativePathRepairPlanManifestRecord manifest =
+            fixture.PersistManifest(
+                initialResolution,
+                projection
+            );
+
+        DataRelativePathRepairPlanForwardExecution forward =
+            DataRelativePathRepairPlanForwardExecutor.Execute(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot,
+                T0.AddSeconds(10)
+            );
+
+        if (NoReplaceUnsupported(forward))
+        {
+            return;
+        }
+
+        Assert.True(
+            forward.Success,
+            forward.Error
+        );
+
+        fixture.AssertAllOperationJournalsApplied(
+            manifest
+        );
+
+        DataRelativePathRepairPlanRollbackExecution rollback =
+            DataRelativePathRepairPlanRollbackExecutor.Execute(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot,
+                T0.AddSeconds(20)
+            );
+
+        Assert.True(
+            rollback.Success,
+            rollback.Error
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanRollbackExecutionState
+                .RolledBackDurably,
+            rollback.State
+        );
+
+        Assert.Equal(
+            new[]
+            {
+                2,
+                1,
+                0
+            },
+            rollback.OperationResults
+                .Select(
+                    result =>
+                        result.Index
+                )
+                .ToArray()
+        );
+
+        Assert.All(
+            rollback.OperationResults,
+            result =>
+            {
+                Assert.Equal(
+                    DataRelativePathRepairPlanRollbackOperationExecutionState
+                        .RolledBackDurably,
+                    result.State
+                );
+            }
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.SourcePath
+            )
+        );
+
+        Assert.Equal(
+            sourceBefore,
+            File.ReadAllBytes(
+                fixture.SourcePath
+            )
+        );
+
+        Assert.False(
+            File.Exists(
+                fixture.DestinationPath
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.RequestedParentPath
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.RequestedTopDirectoryPath
+            )
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.SourceParentPath
+            )
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.SourceTopDirectoryPath
+            )
+        );
+
+        DataRelativePathResolution restored =
+            fixture.ResolveRequestedPath();
+
+        Assert.False(
+            restored.LinuxResolves
+        );
+
+        Assert.Equal(
+            DataRelativePathCaseMismatchTopologyState
+                .DirectStrictCaseMismatch,
+            DataRelativePathCaseMismatchTopologyClassifier.Classify(
+                restored
+            )
+        );
+
+        for (
+            int index = 0;
+            index < 2;
+            index++)
+        {
+            DataRelativePathRepairDirectoryJournalReaderResult read =
+                DataRelativePathRepairDirectoryJournalReader.Read(
+                    fixture.JournalDirectory,
+                    manifest.Operations[index].JournalChildName
+                );
+
+            Assert.True(
+                read.Success,
+                read.Error
+            );
+
+            Assert.Equal(
+                DataRelativePathRepairDirectoryJournalState
+                    .RolledBack,
+                read.Record!.State
+            );
+
+            Assert.Equal(
+                4,
+                read.Record.Revision
+            );
+        }
+
+        DataRelativePathRepairFileJournalReaderResult fileRead =
+            DataRelativePathRepairFileJournalReader.Read(
+                fixture.JournalDirectory,
+                manifest.Operations[2].JournalChildName
+            );
+
+        Assert.True(
+            fileRead.Success,
+            fileRead.Error
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairFileJournalState
+                .RolledBack,
+            fileRead.Record!.State
+        );
+
+        Assert.Equal(
+            4,
+            fileRead.Record.Revision
+        );
+
+        JournalCheckpoint[] beforeSecondRun =
+            fixture.CaptureJournalCheckpoints(
+                manifest
+            );
+
+        DataRelativePathRepairPlanRollbackExecution second =
+            DataRelativePathRepairPlanRollbackExecutor.Execute(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot,
+                T0.AddSeconds(30)
+            );
+
+        Assert.True(
+            second.Success,
+            second.Error
+        );
+
+        Assert.Equal(
+            new[]
+            {
+                2,
+                1,
+                0
+            },
+            second.OperationResults
+                .Select(
+                    result =>
+                        result.Index
+                )
+                .ToArray()
+        );
+
+        Assert.All(
+            second.OperationResults,
+            result =>
+            {
+                Assert.Equal(
+                    DataRelativePathRepairPlanRollbackOperationExecutionState
+                        .RolledBackDurably,
+                    result.State
+                );
+            }
+        );
+
+        JournalCheckpoint[] afterSecondRun =
+            fixture.CaptureJournalCheckpoints(
+                manifest
+            );
+
+        Assert.Equal(
+            beforeSecondRun,
+            afterSecondRun
+        );
+    }
+
+    [Fact]
+    public void
+        Rollback_OnlyFirstOperationApplied_SkipsUntouchedSuffix()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathResolution resolution =
+            fixture.ResolveRequestedPath();
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector.Project(
+                resolution
+            );
+
+        Assert.True(
+            projection.HasPlan,
+            projection.Error
+        );
+
+        DataRelativePathRepairPlanManifestRecord manifest =
+            fixture.PersistManifest(
+                resolution,
+                projection
+            );
+
+        DataRelativePathRepairPlanManifestOperation first =
+            manifest.Operations[0];
+
+        DataRelativePathRepairDirectoryExecution firstExecution =
+            DataRelativePathRepairDirectoryExecutor.Execute(
+                fixture.JournalDirectory,
+                first.JournalChildName,
+                first.Operation,
+                manifest.InitialDestinationParentSnapshot,
+                fixture.DataRoot,
+                T0.AddSeconds(5)
+            );
+
+        if (
+            firstExecution.ForwardRecovery?.Publication?.State ==
+            LinuxPublishOwnedDirectoryAtState.NoReplaceUnsupported)
+        {
+            return;
+        }
+
+        Assert.True(
+            firstExecution.Success,
+            firstExecution.Error
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.RequestedTopDirectoryPath
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.RequestedParentPath
+            )
+        );
+
+        DataRelativePathRepairPlanRollbackExecution rollback =
+            DataRelativePathRepairPlanRollbackExecutor.Execute(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot,
+                T0.AddSeconds(20)
+            );
+
+        Assert.True(
+            rollback.Success,
+            rollback.Error
+        );
+
+        Assert.Equal(
+            new[]
+            {
+                2,
+                1,
+                0
+            },
+            rollback.OperationResults
+                .Select(
+                    result =>
+                        result.Index
+                )
+                .ToArray()
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanRollbackOperationExecutionState
+                .NotStartedSkipped,
+            rollback.OperationResults[0].State
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanRollbackOperationExecutionState
+                .NotStartedSkipped,
+            rollback.OperationResults[1].State
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanRollbackOperationExecutionState
+                .RolledBackDurably,
+            rollback.OperationResults[2].State
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.RequestedTopDirectoryPath
+            )
+        );
+
+        DataRelativePathRepairDirectoryJournalReaderResult secondRead =
+            DataRelativePathRepairDirectoryJournalReader.Read(
+                fixture.JournalDirectory,
+                manifest.Operations[1].JournalChildName
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryJournalReadState
+                .JournalUnavailable,
+            secondRead.State
+        );
+
+        DataRelativePathRepairFileJournalReaderResult thirdRead =
+            DataRelativePathRepairFileJournalReader.Read(
+                fixture.JournalDirectory,
+                manifest.Operations[2].JournalChildName
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairFileJournalReadState
+                .JournalUnavailable,
+            thirdRead.State
+        );
+
+        DataRelativePathRepairDirectoryJournalReaderResult firstRead =
+            DataRelativePathRepairDirectoryJournalReader.Read(
+                fixture.JournalDirectory,
+                first.JournalChildName
+            );
+
+        Assert.True(
+            firstRead.Success,
+            firstRead.Error
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryJournalState
+                .RolledBack,
+            firstRead.Record!.State
+        );
+    }
+
+    [Fact]
+    public void
+        Rollback_JournalGap_IsRejectedBeforeFilesystemMutation()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathResolution resolution =
+            fixture.ResolveRequestedPath();
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector.Project(
+                resolution
+            );
+
+        Assert.True(
+            projection.HasPlan,
+            projection.Error
+        );
+
+        DataRelativePathRepairPlanManifestRecord manifest =
+            fixture.PersistManifest(
+                resolution,
+                projection
+            );
+
+        DataRelativePathRepairPlanForwardExecution forward =
+            DataRelativePathRepairPlanForwardExecutor.Execute(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot,
+                T0.AddSeconds(10)
+            );
+
+        if (NoReplaceUnsupported(forward))
+        {
+            return;
+        }
+
+        Assert.True(
+            forward.Success,
+            forward.Error
+        );
+
+        DataRelativePathRepairDirectoryJournalReaderResult innerBefore =
+            DataRelativePathRepairDirectoryJournalReader.Read(
+                fixture.JournalDirectory,
+                manifest.Operations[1].JournalChildName
+            );
+
+        DataRelativePathRepairFileJournalReaderResult fileBefore =
+            DataRelativePathRepairFileJournalReader.Read(
+                fixture.JournalDirectory,
+                manifest.Operations[2].JournalChildName
+            );
+
+        Assert.True(
+            innerBefore.Success,
+            innerBefore.Error
+        );
+
+        Assert.True(
+            fileBefore.Success,
+            fileBefore.Error
+        );
+
+        File.Delete(
+            Path.Combine(
+                fixture.JournalDirectoryPath,
+                manifest.Operations[0].JournalChildName
+            )
+        );
+
+        DataRelativePathRepairPlanRollbackExecution rollback =
+            DataRelativePathRepairPlanRollbackExecutor.Execute(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot,
+                T0.AddSeconds(20)
+            );
+
+        Assert.False(
+            rollback.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanRollbackExecutionState
+                .PreflightFailed,
+            rollback.State
+        );
+
+        DataRelativePathRepairPlanRollbackOperationExecution failed =
+            Assert.Single(
+                rollback.OperationResults
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanRollbackOperationExecutionState
+                .JournalGap,
+            failed.State
+        );
+
+        Assert.Equal(
+            1,
+            failed.Index
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.DestinationPath
+            )
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.RequestedParentPath
+            )
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.RequestedTopDirectoryPath
+            )
+        );
+
+        DataRelativePathRepairDirectoryJournalReaderResult innerAfter =
+            DataRelativePathRepairDirectoryJournalReader.Read(
+                fixture.JournalDirectory,
+                manifest.Operations[1].JournalChildName
+            );
+
+        DataRelativePathRepairFileJournalReaderResult fileAfter =
+            DataRelativePathRepairFileJournalReader.Read(
+                fixture.JournalDirectory,
+                manifest.Operations[2].JournalChildName
+            );
+
+        Assert.Equal(
+            innerBefore.Record,
+            innerAfter.Record
+        );
+
+        Assert.Equal(
+            fileBefore.Record,
+            fileAfter.Record
+        );
+    }
+
+    [Fact]
+    public void
+        Rollback_UnsafeLowerOperation_IsRejectedBeforeHigherRemoval()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathResolution resolution =
+            fixture.ResolveRequestedPath();
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector.Project(
+                resolution
+            );
+
+        Assert.True(
+            projection.HasPlan,
+            projection.Error
+        );
+
+        DataRelativePathRepairPlanManifestRecord manifest =
+            fixture.PersistManifest(
+                resolution,
+                projection
+            );
+
+        DataRelativePathRepairPlanForwardExecution forward =
+            DataRelativePathRepairPlanForwardExecutor.Execute(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot,
+                T0.AddSeconds(10)
+            );
+
+        if (NoReplaceUnsupported(forward))
+        {
+            return;
+        }
+
+        Assert.True(
+            forward.Success,
+            forward.Error
+        );
+
+        DataRelativePathRepairDirectoryJournalReaderResult innerBefore =
+            DataRelativePathRepairDirectoryJournalReader.Read(
+                fixture.JournalDirectory,
+                manifest.Operations[1].JournalChildName
+            );
+
+        DataRelativePathRepairFileJournalReaderResult fileBefore =
+            DataRelativePathRepairFileJournalReader.Read(
+                fixture.JournalDirectory,
+                manifest.Operations[2].JournalChildName
+            );
+
+        Assert.True(
+            innerBefore.Success,
+            innerBefore.Error
+        );
+
+        Assert.True(
+            fileBefore.Success,
+            fileBefore.Error
+        );
+
+        DataRelativePathRepairPlanManifestOperation outerEntry =
+            manifest.Operations[0];
+
+        using LinuxNoFollowPathHandle parent =
+            Fixture.OpenRoot(
+                fixture.MeshesPath
+            );
+
+        LinuxOpenedDirectoryIncarnationResult parentIncarnation =
+            LinuxOpenedDirectoryIncarnation.Capture(
+                parent,
+                fixture.MeshesPath
+            );
+
+        Assert.True(
+            parentIncarnation.Success,
+            parentIncarnation.Error
+        );
+
+        DataRelativePathRepairDirectoryJournalTransitionResult
+            replacementIntent =
+                DataRelativePathRepairDirectoryJournal.CreateIntent(
+                    Guid.NewGuid(),
+                    T0.AddSeconds(15),
+                    fixture.DataRoot,
+                    outerEntry.Operation,
+                    manifest.InitialDestinationParentSnapshot,
+                    parentIncarnation.Identity!
+                );
+
+        Assert.True(
+            replacementIntent.Success,
+            replacementIntent.Error
+        );
+
+        File.Delete(
+            Path.Combine(
+                fixture.JournalDirectoryPath,
+                outerEntry.JournalChildName
+            )
+        );
+
+        DataRelativePathRepairDirectoryJournalWriterResult replacementWrite =
+            DataRelativePathRepairDirectoryJournalWriter.CreateInitial(
+                fixture.JournalDirectory,
+                outerEntry.JournalChildName,
+                replacementIntent.Record!
+            );
+
+        Assert.True(
+            replacementWrite.Success,
+            replacementWrite.Error
+        );
+
+        DataRelativePathRepairDirectoryJournalReaderResult outerRead =
+            DataRelativePathRepairDirectoryJournalReader.Read(
+                fixture.JournalDirectory,
+                outerEntry.JournalChildName
+            );
+
+        Assert.True(
+            outerRead.Success,
+            outerRead.Error
+        );
+
+        DataRelativePathRepairDirectoryRecoveryClassification
+            outerClassification =
+                DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
+                    outerRead.Record!,
+                    fixture.DataRoot
+                );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryRecoveryState
+                .IntentFinalConflict,
+            outerClassification.State
+        );
+
+        DataRelativePathRepairPlanRollbackExecution rollback =
+            DataRelativePathRepairPlanRollbackExecutor.Execute(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot,
+                T0.AddSeconds(20)
+            );
+
+        Assert.False(
+            rollback.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanRollbackExecutionState
+                .PreflightFailed,
+            rollback.State
+        );
+
+        DataRelativePathRepairPlanRollbackOperationExecution failed =
+            Assert.Single(
+                rollback.OperationResults
+            );
+
+        Assert.Equal(
+            0,
+            failed.Index
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanRollbackOperationExecutionState
+                .DirectoryRecoveryStateNotRollbackSafe,
+            failed.State
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryRecoveryState
+                .IntentFinalConflict,
+            failed.DirectoryClassification!.State
+        );
+
+        /*
+         * Preflight discovered the lower unsafe operation before the
+         * reverse execution phase reached the higher file or directory.
+         */
+        Assert.True(
+            File.Exists(
+                fixture.DestinationPath
+            )
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.RequestedParentPath
+            )
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.RequestedTopDirectoryPath
+            )
+        );
+
+        DataRelativePathRepairDirectoryJournalReaderResult innerAfter =
+            DataRelativePathRepairDirectoryJournalReader.Read(
+                fixture.JournalDirectory,
+                manifest.Operations[1].JournalChildName
+            );
+
+        DataRelativePathRepairFileJournalReaderResult fileAfter =
+            DataRelativePathRepairFileJournalReader.Read(
+                fixture.JournalDirectory,
+                manifest.Operations[2].JournalChildName
+            );
+
+        Assert.Equal(
+            innerBefore.Record,
+            innerAfter.Record
+        );
+
+        Assert.Equal(
+            fileBefore.Record,
+            fileAfter.Record
+        );
+    }
+
+    [Fact]
+    public void
+        Rollback_RolledBackAncestorReappears_IsRejected()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathResolution resolution =
+            fixture.ResolveRequestedPath();
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector.Project(
+                resolution
+            );
+
+        Assert.True(
+            projection.HasPlan,
+            projection.Error
+        );
+
+        DataRelativePathRepairPlanManifestRecord manifest =
+            fixture.PersistManifest(
+                resolution,
+                projection
+            );
+
+        DataRelativePathRepairPlanForwardExecution forward =
+            DataRelativePathRepairPlanForwardExecutor.Execute(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot,
+                T0.AddSeconds(10)
+            );
+
+        if (NoReplaceUnsupported(forward))
+        {
+            return;
+        }
+
+        Assert.True(
+            forward.Success,
+            forward.Error
+        );
+
+        DataRelativePathRepairPlanRollbackExecution firstRollback =
+            DataRelativePathRepairPlanRollbackExecutor.Execute(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot,
+                T0.AddSeconds(20)
+            );
+
+        Assert.True(
+            firstRollback.Success,
+            firstRollback.Error
+        );
+
+        JournalCheckpoint[] beforeSecondRun =
+            fixture.CaptureJournalCheckpoints(
+                manifest
+            );
+
+        /*
+         * Recreate the outer requested namespace entry with a new
+         * incarnation after durable rollback. A second plan rollback
+         * must not treat the old RolledBack journals alone as proof
+         * that the subtree is still absent.
+         */
+        Directory.CreateDirectory(
+            fixture.RequestedTopDirectoryPath
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.RequestedTopDirectoryPath
+            )
+        );
+
+        DataRelativePathRepairPlanRollbackExecution second =
+            DataRelativePathRepairPlanRollbackExecutor.Execute(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot,
+                T0.AddSeconds(30)
+            );
+
+        Assert.False(
+            second.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanRollbackExecutionState
+                .PreflightFailed,
+            second.State
+        );
+
+        DataRelativePathRepairPlanRollbackOperationExecution failed =
+            Assert.Single(
+                second.OperationResults
+            );
+
+        Assert.Equal(
+            0,
+            failed.Index
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanRollbackOperationExecutionState
+                .DirectoryRecoveryStateNotRollbackSafe,
+            failed.State
+        );
+
+        Assert.NotNull(
+            failed.DirectoryClassification
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryRecoveryState
+                .RolledBackConflict,
+            failed.DirectoryClassification!.State
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.RequestedTopDirectoryPath
+            )
+        );
+
+        JournalCheckpoint[] afterSecondRun =
+            fixture.CaptureJournalCheckpoints(
+                manifest
+            );
+
+        Assert.Equal(
+            beforeSecondRun,
+            afterSecondRun
+        );
+    }
+
     private sealed record JournalCheckpoint(
         Guid JournalId,
         int Revision
