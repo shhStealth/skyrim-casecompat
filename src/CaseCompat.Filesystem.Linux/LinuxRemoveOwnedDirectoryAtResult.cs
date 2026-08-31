@@ -29,8 +29,8 @@ public enum LinuxRemoveOwnedDirectoryAtState
 public sealed record LinuxRemoveOwnedDirectoryAtResult(
     LinuxRemoveOwnedDirectoryAtState State,
     string ChildName,
-    LinuxFileIdentityResult ExpectedIdentity,
-    LinuxFileIdentityResult? ActualIdentity,
+    LinuxDirectoryIncarnationIdentity ExpectedIdentity,
+    LinuxDirectoryIncarnationIdentity? ActualIdentity,
     int? Errno,
     string? Error
 )

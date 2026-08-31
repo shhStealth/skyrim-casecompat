@@ -53,7 +53,7 @@ public static class LinuxRemoveOwnedDirectoryAt
     public static LinuxRemoveOwnedDirectoryAtResult Remove(
         LinuxNoFollowPathHandle parentDirectory,
         string childName,
-        LinuxFileIdentityResult expectedIdentity)
+        LinuxDirectoryIncarnationIdentity expectedIdentity)
     {
         ArgumentNullException.ThrowIfNull(
             parentDirectory
@@ -90,7 +90,7 @@ public static class LinuxRemoveOwnedDirectoryAt
             );
         }
 
-        if (!HasCompleteIdentity(expectedIdentity))
+        if (!expectedIdentity.Success)
         {
             return Result(
                 LinuxRemoveOwnedDirectoryAtState
@@ -99,8 +99,9 @@ public static class LinuxRemoveOwnedDirectoryAt
                 expectedIdentity,
                 error:
                     "Directory rollback requires a complete " +
-                    "descriptor-captured identity including " +
-                    "device, inode, and mount ID."
+                    "descriptor-captured incarnation identity " +
+                    "including device, inode, mount ID, and inode " +
+                    "generation."
             );
         }
 
@@ -167,48 +168,37 @@ public static class LinuxRemoveOwnedDirectoryAt
                 )
             );
 
-        LinuxOpenedDirectorySnapshotResult snapshot =
-            LinuxOpenedDirectorySnapshot.Capture(
+        LinuxOpenedDirectoryIncarnationResult incarnation =
+            LinuxOpenedDirectoryIncarnation.Capture(
                 child,
                 displayPath
             );
 
         if (
-            snapshot.State ==
-            LinuxOpenedDirectorySnapshotState
-                .NotDirectory)
+            incarnation.State ==
+            LinuxOpenedDirectoryIncarnationState.NotDirectory)
         {
             return Result(
                 LinuxRemoveOwnedDirectoryAtState
                     .ChildNotDirectory,
                 childName,
                 expectedIdentity,
+                actualIdentity:
+                    incarnation.Identity,
                 error:
-                    snapshot.Error ??
+                    incarnation.Error ??
                     "The current child is not a directory."
             );
         }
 
         /*
-         * FlagsUnavailable is acceptable here.
+         * Destructive directory authority requires the complete
+         * incarnation captured from this exact opened descriptor.
          *
-         * statx has already proved the opened target is a
-         * directory and captured its physical identity. Directory
-         * rollback does not depend on casefold/ioctl flags.
+         * There is deliberately no fallback to device/inode/mount
+         * identity when inode-generation capture is unavailable.
          */
-        bool identityUsable =
-            snapshot.Identity is not null &&
-            HasCompleteIdentity(
-                snapshot.Identity
-            ) &&
-            (
-                snapshot.State ==
-                LinuxOpenedDirectorySnapshotState.Captured ||
-                snapshot.State ==
-                LinuxOpenedDirectorySnapshotState.FlagsUnavailable
-            );
-
-        if (!identityUsable)
+        if (!incarnation.Success)
         {
             return Result(
                 LinuxRemoveOwnedDirectoryAtState
@@ -216,21 +206,18 @@ public static class LinuxRemoveOwnedDirectoryAt
                 childName,
                 expectedIdentity,
                 actualIdentity:
-                    snapshot.Identity,
-                errno:
-                    snapshot.Errno,
+                    incarnation.Identity,
                 error:
-                    snapshot.Error ??
-                    snapshot.State.ToString()
+                    incarnation.Error ??
+                    incarnation.State.ToString()
             );
         }
 
-        LinuxFileIdentityResult actualIdentity =
-            snapshot.Identity!;
+        LinuxDirectoryIncarnationIdentity actualIdentity =
+            incarnation.Identity!;
 
         if (
-            !SameDirectoryObject(
-                expectedIdentity,
+            !expectedIdentity.SameIncarnationAs(
                 actualIdentity
             ))
         {
@@ -242,9 +229,8 @@ public static class LinuxRemoveOwnedDirectoryAt
                 actualIdentity:
                     actualIdentity,
                 error:
-                    "The current child does not have the " +
-                    "physical identity of the directory " +
-                    "CaseCompat created."
+                    "The current child does not have the complete " +
+                    "directory incarnation CaseCompat created."
             );
         }
 
@@ -295,8 +281,9 @@ public static class LinuxRemoveOwnedDirectoryAt
              * We therefore:
              *
              * 1. open the exact direct child with O_NOFOLLOW;
-             * 2. prove from that descriptor that it is a directory;
-             * 3. verify its complete physical identity;
+             * 2. capture its physical identity and inode generation
+             *    from that exact descriptor;
+             * 3. verify the complete expected directory incarnation;
              * 4. perform exactly one unlinkat(AT_REMOVEDIR).
              *
              * The kernel itself is the final emptiness gate:
@@ -415,34 +402,6 @@ public static class LinuxRemoveOwnedDirectoryAt
         }
     }
 
-    private static bool SameDirectoryObject(
-        LinuxFileIdentityResult expected,
-        LinuxFileIdentityResult actual)
-    {
-        return
-            HasCompleteIdentity(expected) &&
-            HasCompleteIdentity(actual) &&
-            expected.DeviceMajor ==
-                actual.DeviceMajor &&
-            expected.DeviceMinor ==
-                actual.DeviceMinor &&
-            expected.Inode ==
-                actual.Inode &&
-            expected.MountId ==
-                actual.MountId;
-    }
-
-    private static bool HasCompleteIdentity(
-        LinuxFileIdentityResult identity)
-    {
-        return
-            identity.Success &&
-            identity.DeviceMajor is not null &&
-            identity.DeviceMinor is not null &&
-            identity.Inode is not null &&
-            identity.MountId is not null;
-    }
-
     private static bool IsValidChildName(
         string? childName)
     {
@@ -464,8 +423,8 @@ public static class LinuxRemoveOwnedDirectoryAt
     private static LinuxRemoveOwnedDirectoryAtResult Result(
         LinuxRemoveOwnedDirectoryAtState state,
         string? childName,
-        LinuxFileIdentityResult expectedIdentity,
-        LinuxFileIdentityResult? actualIdentity = null,
+        LinuxDirectoryIncarnationIdentity expectedIdentity,
+        LinuxDirectoryIncarnationIdentity? actualIdentity = null,
         int? errno = null,
         string? error = null)
     {

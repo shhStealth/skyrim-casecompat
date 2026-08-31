@@ -20,7 +20,7 @@ public sealed class LinuxRemoveOwnedDirectoryAtTests
             "Owned"
         );
 
-        LinuxFileIdentityResult identity =
+        LinuxDirectoryIncarnationIdentity identity =
             fixture.CaptureDirectoryIdentity(
                 "Owned"
             );
@@ -47,23 +47,23 @@ public sealed class LinuxRemoveOwnedDirectoryAtTests
         );
 
         Assert.Equal(
-            identity.DeviceMajor,
-            result.ActualIdentity!.DeviceMajor
+            identity.PhysicalIdentity.DeviceMajor,
+            result.ActualIdentity!.PhysicalIdentity.DeviceMajor
         );
 
         Assert.Equal(
-            identity.DeviceMinor,
-            result.ActualIdentity.DeviceMinor
+            identity.PhysicalIdentity.DeviceMinor,
+            result.ActualIdentity.PhysicalIdentity.DeviceMinor
         );
 
         Assert.Equal(
-            identity.Inode,
-            result.ActualIdentity.Inode
+            identity.PhysicalIdentity.Inode,
+            result.ActualIdentity.PhysicalIdentity.Inode
         );
 
         Assert.Equal(
-            identity.MountId,
-            result.ActualIdentity.MountId
+            identity.PhysicalIdentity.MountId,
+            result.ActualIdentity.PhysicalIdentity.MountId
         );
 
         Assert.False(
@@ -90,18 +90,23 @@ public sealed class LinuxRemoveOwnedDirectoryAtTests
             "Owned"
         );
 
-        LinuxFileIdentityResult identity =
+        LinuxDirectoryIncarnationIdentity identity =
             fixture.CaptureDirectoryIdentity(
                 "Owned"
             );
 
-        LinuxFileIdentityResult wrong =
+        LinuxDirectoryIncarnationIdentity wrong =
             identity with
             {
-                Inode =
-                    checked(
-                        identity.Inode!.Value + 1UL
-                    )
+                PhysicalIdentity =
+                    identity.PhysicalIdentity with
+                    {
+                        Inode =
+                            checked(
+                                identity.PhysicalIdentity
+                                    .Inode!.Value + 1UL
+                            )
+                    }
             };
 
         LinuxRemoveOwnedDirectoryAtResult result =
@@ -130,6 +135,208 @@ public sealed class LinuxRemoveOwnedDirectoryAtTests
     }
 
     [Fact]
+    public void Remove_WrongGeneration_DoesNotRemoveDirectory()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        fixture.CreateDirectory(
+            "Owned"
+        );
+
+        LinuxDirectoryIncarnationIdentity identity =
+            fixture.CaptureDirectoryIdentity(
+                "Owned"
+            );
+
+        LinuxDirectoryIncarnationIdentity wrong =
+            identity with
+            {
+                InodeGeneration =
+                    unchecked(
+                        identity.InodeGeneration + 1U
+                    )
+            };
+
+        LinuxRemoveOwnedDirectoryAtResult result =
+            LinuxRemoveOwnedDirectoryAt.Remove(
+                fixture.Parent,
+                "Owned",
+                wrong
+            );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            LinuxRemoveOwnedDirectoryAtState.IdentityMismatch,
+            result.State
+        );
+
+        Assert.NotNull(
+            result.ActualIdentity
+        );
+
+        Assert.Equal(
+            identity.PhysicalIdentity,
+            result.ActualIdentity!.PhysicalIdentity
+        );
+
+        Assert.NotEqual(
+            wrong.InodeGeneration,
+            result.ActualIdentity.InodeGeneration
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.PathFor(
+                    "Owned"
+                )
+            )
+        );
+    }
+
+    [Fact]
+    public void Remove_RecreatedDirectoryWithReusedInode_IsRejected()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        fixture.CreateDirectory(
+            "Owned"
+        );
+
+        LinuxDirectoryIncarnationIdentity expected =
+            fixture.CaptureDirectoryIdentity(
+                "Owned"
+            );
+
+        Directory.Delete(
+            fixture.PathFor(
+                "Owned"
+            )
+        );
+
+        LinuxDirectoryIncarnationIdentity? replacement =
+            null;
+
+        for (int attempt = 0; attempt < 128; attempt++)
+        {
+            fixture.CreateDirectory(
+                "Owned"
+            );
+
+            LinuxDirectoryIncarnationIdentity candidate =
+                fixture.CaptureDirectoryIdentity(
+                    "Owned"
+                );
+
+            bool samePhysicalIdentity =
+                expected.PhysicalIdentity.DeviceMajor ==
+                    candidate.PhysicalIdentity.DeviceMajor &&
+                expected.PhysicalIdentity.DeviceMinor ==
+                    candidate.PhysicalIdentity.DeviceMinor &&
+                expected.PhysicalIdentity.Inode ==
+                    candidate.PhysicalIdentity.Inode &&
+                expected.PhysicalIdentity.MountId ==
+                    candidate.PhysicalIdentity.MountId;
+
+            if (samePhysicalIdentity)
+            {
+                replacement =
+                    candidate;
+
+                break;
+            }
+
+            Directory.Delete(
+                fixture.PathFor(
+                    "Owned"
+                )
+            );
+        }
+
+        /*
+         * Not every Linux filesystem immediately reuses inode
+         * numbers. The deterministic WrongGeneration test above
+         * remains the portable proof of the generation gate.
+         */
+        if (replacement is null)
+        {
+            return;
+        }
+
+        Assert.NotEqual(
+            expected.InodeGeneration,
+            replacement.InodeGeneration
+        );
+
+        LinuxRemoveOwnedDirectoryAtResult result =
+            LinuxRemoveOwnedDirectoryAt.Remove(
+                fixture.Parent,
+                "Owned",
+                expected
+            );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            LinuxRemoveOwnedDirectoryAtState.IdentityMismatch,
+            result.State
+        );
+
+        Assert.NotNull(
+            result.ActualIdentity
+        );
+
+        Assert.Equal(
+            expected.PhysicalIdentity.DeviceMajor,
+            result.ActualIdentity!.PhysicalIdentity.DeviceMajor
+        );
+
+        Assert.Equal(
+            expected.PhysicalIdentity.DeviceMinor,
+            result.ActualIdentity.PhysicalIdentity.DeviceMinor
+        );
+
+        Assert.Equal(
+            expected.PhysicalIdentity.Inode,
+            result.ActualIdentity.PhysicalIdentity.Inode
+        );
+
+        Assert.Equal(
+            expected.PhysicalIdentity.MountId,
+            result.ActualIdentity.PhysicalIdentity.MountId
+        );
+
+        Assert.NotEqual(
+            expected.InodeGeneration,
+            result.ActualIdentity.InodeGeneration
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.PathFor(
+                    "Owned"
+                )
+            )
+        );
+    }
+
+    [Fact]
     public void Remove_MatchingNonEmptyDirectory_IsRefusedByKernel()
     {
         if (!OperatingSystem.IsLinux())
@@ -144,7 +351,7 @@ public sealed class LinuxRemoveOwnedDirectoryAtTests
             "Owned"
         );
 
-        LinuxFileIdentityResult identity =
+        LinuxDirectoryIncarnationIdentity identity =
             fixture.CaptureDirectoryIdentity(
                 "Owned"
             );
@@ -209,7 +416,7 @@ public sealed class LinuxRemoveOwnedDirectoryAtTests
             "Target"
         );
 
-        LinuxFileIdentityResult targetIdentity =
+        LinuxDirectoryIncarnationIdentity targetIdentity =
             fixture.CaptureDirectoryIdentity(
                 "Target"
             );
@@ -272,7 +479,7 @@ public sealed class LinuxRemoveOwnedDirectoryAtTests
             "Evidence"
         );
 
-        LinuxFileIdentityResult identity =
+        LinuxDirectoryIncarnationIdentity identity =
             fixture.CaptureDirectoryIdentity(
                 "Evidence"
             );
@@ -317,7 +524,7 @@ public sealed class LinuxRemoveOwnedDirectoryAtTests
             "Evidence"
         );
 
-        LinuxFileIdentityResult identity =
+        LinuxDirectoryIncarnationIdentity identity =
             fixture.CaptureDirectoryIdentity(
                 "Evidence"
             );
@@ -401,7 +608,7 @@ public sealed class LinuxRemoveOwnedDirectoryAtTests
             );
         }
 
-        public LinuxFileIdentityResult CaptureDirectoryIdentity(
+        public LinuxDirectoryIncarnationIdentity CaptureDirectoryIdentity(
             string childName)
         {
             LinuxOpenChildReadOnlyAtResult opened =
@@ -422,8 +629,8 @@ public sealed class LinuxRemoveOwnedDirectoryAtTests
                     opened.OpenedChild
                 );
 
-            LinuxOpenedDirectorySnapshotResult snapshot =
-                LinuxOpenedDirectorySnapshot.Capture(
+            LinuxOpenedDirectoryIncarnationResult incarnation =
+                LinuxOpenedDirectoryIncarnation.Capture(
                     child,
                     PathFor(
                         childName
@@ -431,31 +638,16 @@ public sealed class LinuxRemoveOwnedDirectoryAtTests
                 );
 
             Assert.True(
-                snapshot.Success,
-                snapshot.Error
+                incarnation.Success,
+                incarnation.Error ??
+                incarnation.State.ToString()
             );
 
-            Assert.NotNull(
-                snapshot.Identity
+            return Assert.IsType<
+                LinuxDirectoryIncarnationIdentity
+            >(
+                incarnation.Identity
             );
-
-            Assert.NotNull(
-                snapshot.Identity!.DeviceMajor
-            );
-
-            Assert.NotNull(
-                snapshot.Identity.DeviceMinor
-            );
-
-            Assert.NotNull(
-                snapshot.Identity.Inode
-            );
-
-            Assert.NotNull(
-                snapshot.Identity.MountId
-            );
-
-            return snapshot.Identity;
         }
 
         private static LinuxNoFollowPathHandle OpenRoot(

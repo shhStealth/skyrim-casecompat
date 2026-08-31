@@ -293,8 +293,8 @@ public static class
 
         /*
          * LinuxRemoveOwnedDirectoryAt performs another immediate
-         * exact-child O_NOFOLLOW open and complete mount-aware
-         * identity comparison before exactly one:
+         * exact-child O_NOFOLLOW open and complete generation-aware
+         * incarnation comparison before exactly one:
          *
          *     unlinkat(parentFd, childName, AT_REMOVEDIR)
          *
@@ -306,7 +306,7 @@ public static class
             LinuxRemoveOwnedDirectoryAt.Remove(
                 parent.OpenedPath,
                 finalChildName,
-                journal.PreparedDirectoryIdentity!
+                journal.PreparedDirectoryIncarnationIdentity!
             );
 
         if (!remove.Success)
