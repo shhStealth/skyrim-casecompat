@@ -377,25 +377,34 @@ public static class
         using LinuxOpenedChildHandle child =
             opened.OpenedChild!;
 
-        LinuxOpenedFileIdentityResult identity =
-            LinuxOpenedFileIdentity.Capture(
+        LinuxOpenedFileIncarnationResult incarnation =
+            LinuxOpenedFileIncarnation.Capture(
                 child
             );
 
-        if (!identity.Success)
+        if (
+            incarnation.State ==
+            LinuxOpenedFileIncarnationState.NotRegularFile)
         {
-            if (
-                identity.State ==
-                LinuxOpenedFileIdentityState.NotRegularFile)
-            {
-                return RevalidationResult.ChangedResult(
-                    "The destination is no longer a regular file."
-                );
-            }
+            return RevalidationResult.ChangedResult(
+                "The destination is no longer a regular file."
+            );
+        }
 
+        /*
+         * Destructive rollback requires the complete incarnation
+         * captured from this exact reopened destination descriptor.
+         *
+         * A usable physical identity without inode generation is
+         * deliberately insufficient here.
+         */
+        if (
+            !incarnation.Success ||
+            incarnation.Identity is null)
+        {
             return RevalidationResult.Failed(
-                identity.Error ??
-                identity.State.ToString()
+                incarnation.Error ??
+                incarnation.State.ToString()
             );
         }
 
@@ -413,11 +422,12 @@ public static class
             );
         }
 
-        bool identityMatches =
-            journal.PreparedFileIdentity is not null &&
-            journal.PreparedFileIdentity.SameObjectAs(
-                identity
-            );
+        bool incarnationMatches =
+            journal.PreparedFileIncarnationIdentity is not null &&
+            journal.PreparedFileIncarnationIdentity
+                .SameIncarnationAs(
+                    incarnation.Identity
+                );
 
         bool sizeMatches =
             snapshot.Size ==
@@ -431,13 +441,13 @@ public static class
             );
 
         if (
-            !identityMatches ||
+            !incarnationMatches ||
             !sizeMatches ||
             !hashMatches)
         {
             return RevalidationResult.ChangedResult(
                 "The destination no longer matches the " +
-                "Prepared identity, size, and SHA-256 evidence."
+                "Prepared file incarnation, size, and SHA-256 evidence."
             );
         }
 
