@@ -561,7 +561,9 @@ public sealed class
                 RequireRecord(
                     DataRelativePathRepairFileJournal.MarkPrepared(
                         current.Record!,
-                        preparedIdentity,
+                        SyntheticFileJournalIncarnation.FromPhysical(
+                            preparedIdentity
+                        ),
                         T0.AddSeconds(1)
                     )
                 );

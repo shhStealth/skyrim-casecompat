@@ -138,7 +138,8 @@ public sealed class DataRelativePathRepairFileJournalTests
         DataRelativePathRepairFileJournalTransitionResult result =
             DataRelativePathRepairFileJournal.MarkPrepared(
                 intent,
-                prepared,
+
+                SyntheticFileJournalIncarnation.FromPhysical(prepared),
                 T0.AddSeconds(1)
             );
 
@@ -185,7 +186,8 @@ public sealed class DataRelativePathRepairFileJournalTests
         DataRelativePathRepairFileJournalTransitionResult result =
             DataRelativePathRepairFileJournal.MarkPrepared(
                 intent,
-                linked,
+
+                SyntheticFileJournalIncarnation.FromPhysical(linked),
                 T0.AddSeconds(1)
             );
 
@@ -209,7 +211,8 @@ public sealed class DataRelativePathRepairFileJournalTests
                     RequireRecord(
                         CreateIntent()
                     ),
-                    PreparedIdentity(),
+
+                    SyntheticFileJournalIncarnation.FromPhysical(PreparedIdentity()),
                     T0.AddSeconds(1)
                 )
             );
@@ -231,7 +234,8 @@ public sealed class DataRelativePathRepairFileJournalTests
         DataRelativePathRepairFileJournalTransitionResult result =
             DataRelativePathRepairFileJournal.Reprepare(
                 prepared,
-                replacement,
+
+                SyntheticFileJournalIncarnation.FromPhysical(replacement),
                 T0.AddSeconds(2)
             );
 
@@ -295,7 +299,8 @@ public sealed class DataRelativePathRepairFileJournalTests
                     RequireRecord(
                         CreateIntent()
                     ),
-                    PreparedIdentity(),
+
+                    SyntheticFileJournalIncarnation.FromPhysical(PreparedIdentity()),
                     T0.AddSeconds(1)
                 )
             );
@@ -312,7 +317,8 @@ public sealed class DataRelativePathRepairFileJournalTests
         DataRelativePathRepairFileJournalTransitionResult result =
             DataRelativePathRepairFileJournal.Reprepare(
                 prepared,
-                linked,
+
+                SyntheticFileJournalIncarnation.FromPhysical(linked),
                 T0.AddSeconds(2)
             );
 
@@ -338,7 +344,8 @@ public sealed class DataRelativePathRepairFileJournalTests
         DataRelativePathRepairFileJournalTransitionResult result =
             DataRelativePathRepairFileJournal.Reprepare(
                 intent,
-                PreparedIdentity(),
+
+                SyntheticFileJournalIncarnation.FromPhysical(PreparedIdentity()),
                 T0.AddSeconds(1)
             );
 
@@ -362,7 +369,8 @@ public sealed class DataRelativePathRepairFileJournalTests
                     RequireRecord(
                         CreateIntent()
                     ),
-                    PreparedIdentity(),
+
+                    SyntheticFileJournalIncarnation.FromPhysical(PreparedIdentity()),
                     T0.AddSeconds(2)
                 )
             );
@@ -377,7 +385,8 @@ public sealed class DataRelativePathRepairFileJournalTests
         DataRelativePathRepairFileJournalTransitionResult result =
             DataRelativePathRepairFileJournal.Reprepare(
                 prepared,
-                replacement,
+
+                SyntheticFileJournalIncarnation.FromPhysical(replacement),
                 T0.AddSeconds(1)
             );
 
@@ -404,7 +413,8 @@ public sealed class DataRelativePathRepairFileJournalTests
             RequireRecord(
                 DataRelativePathRepairFileJournal.MarkPrepared(
                     intent,
-                    PreparedIdentity(),
+
+                    SyntheticFileJournalIncarnation.FromPhysical(PreparedIdentity()),
                     T0.AddSeconds(1)
                 )
             );
@@ -506,7 +516,8 @@ public sealed class DataRelativePathRepairFileJournalTests
                     RequireRecord(
                         CreateIntent()
                     ),
-                    PreparedIdentity(),
+
+                    SyntheticFileJournalIncarnation.FromPhysical(PreparedIdentity()),
                     T0.AddSeconds(1)
                 )
             );
@@ -563,7 +574,8 @@ public sealed class DataRelativePathRepairFileJournalTests
                     RequireRecord(
                         CreateIntent()
                     ),
-                    PreparedIdentity(),
+
+                    SyntheticFileJournalIncarnation.FromPhysical(PreparedIdentity()),
                     T0.AddSeconds(1)
                 )
             );
@@ -572,6 +584,16 @@ public sealed class DataRelativePathRepairFileJournalTests
             JsonSerializer.Serialize(
                 prepared
             );
+
+        Assert.Contains(
+            "\"PreparedFileIncarnationIdentity\"",
+            json
+        );
+
+        Assert.DoesNotContain(
+            "\"PreparedFileIdentity\"",
+            json
+        );
 
         DataRelativePathRepairFileJournalRecord? roundTrip =
             JsonSerializer.Deserialize<
@@ -598,6 +620,45 @@ public sealed class DataRelativePathRepairFileJournalTests
             )
         );
 
+        Assert.Equal(
+            DataRelativePathRepairFileJournalRecord
+                .CurrentSchemaVersion,
+            restored.SchemaVersion
+        );
+
+        Assert.NotNull(
+            prepared.PreparedFileIncarnationIdentity
+        );
+
+        Assert.NotNull(
+            restored.PreparedFileIncarnationIdentity
+        );
+
+        Assert.Equal(
+            prepared.PreparedFileIncarnationIdentity!
+                .InodeGeneration,
+            restored.PreparedFileIncarnationIdentity!
+                .InodeGeneration
+        );
+
+        Assert.Equal(
+            0U,
+            restored.PreparedFileIncarnationIdentity!
+                .PhysicalIdentity.LinkCount
+        );
+
+        Assert.True(
+            prepared.PreparedFileIncarnationIdentity!
+                .SameIncarnationAs(
+                    restored.PreparedFileIncarnationIdentity!
+                )
+        );
+
+        /*
+         * Compatibility projection must still expose the same
+         * physical authority to recovery code not yet migrated
+         * to generation-aware comparison.
+         */
         Assert.True(
             prepared.PreparedFileIdentity!
                 .SameObjectAs(

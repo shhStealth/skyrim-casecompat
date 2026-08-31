@@ -1,4 +1,5 @@
 using CaseCompat.Filesystem.Linux;
+using System.Text.Json.Serialization;
 
 namespace CaseCompat.Core.Repair;
 
@@ -34,12 +35,24 @@ public sealed record DataRelativePathRepairFileJournalRecord(
     DataRelativePathRepairSourceSnapshot SourceSnapshot,
     DataRelativePathRepairDestinationParentSnapshot
         DestinationParentSnapshot,
-    LinuxOpenedFileIdentityResult? PreparedFileIdentity,
+    LinuxFileIncarnationIdentity?
+        PreparedFileIncarnationIdentity,
     string? RecoveryConflictReason
 )
 {
     public const int CurrentSchemaVersion =
-        1;
+        2;
+
+    /*
+     * Compatibility view for recovery code that has not yet
+     * been migrated to generation-aware comparison.
+     *
+     * This property is deliberately not serialized. Schema v2
+     * persists only the strong prepared-file authority.
+     */
+    [JsonIgnore]
+    public LinuxOpenedFileIdentityResult? PreparedFileIdentity =>
+        PreparedFileIncarnationIdentity?.PhysicalIdentity;
 
     public bool IsTerminal =>
         State is
@@ -111,7 +124,7 @@ public static class DataRelativePathRepairFileJournal
                     sourceSnapshot,
                 DestinationParentSnapshot:
                     destinationParentSnapshot,
-                PreparedFileIdentity:
+                PreparedFileIncarnationIdentity:
                     null,
                 RecoveryConflictReason:
                     null
@@ -139,7 +152,7 @@ public static class DataRelativePathRepairFileJournal
     public static DataRelativePathRepairFileJournalTransitionResult
         MarkPrepared(
             DataRelativePathRepairFileJournalRecord record,
-            LinuxOpenedFileIdentityResult preparedFileIdentity,
+            LinuxFileIncarnationIdentity preparedFileIncarnationIdentity,
             DateTimeOffset nowUtc)
     {
         ArgumentNullException.ThrowIfNull(
@@ -147,7 +160,7 @@ public static class DataRelativePathRepairFileJournal
         );
 
         ArgumentNullException.ThrowIfNull(
-            preparedFileIdentity
+            preparedFileIncarnationIdentity
         );
 
         string? validationError =
@@ -178,7 +191,7 @@ public static class DataRelativePathRepairFileJournal
 
         if (
             !IsValidPreparedIdentity(
-                preparedFileIdentity
+                preparedFileIncarnationIdentity
             ))
         {
             return Failure(
@@ -195,15 +208,15 @@ public static class DataRelativePathRepairFileJournal
             nowUtc,
             DataRelativePathRepairFileJournalState
                 .Prepared,
-            preparedFileIdentity:
-                preparedFileIdentity
+            preparedFileIncarnationIdentity:
+                preparedFileIncarnationIdentity
         );
     }
 
     public static DataRelativePathRepairFileJournalTransitionResult
         Reprepare(
             DataRelativePathRepairFileJournalRecord record,
-            LinuxOpenedFileIdentityResult preparedFileIdentity,
+            LinuxFileIncarnationIdentity preparedFileIncarnationIdentity,
             DateTimeOffset nowUtc)
     {
         ArgumentNullException.ThrowIfNull(
@@ -211,7 +224,7 @@ public static class DataRelativePathRepairFileJournal
         );
 
         ArgumentNullException.ThrowIfNull(
-            preparedFileIdentity
+            preparedFileIncarnationIdentity
         );
 
         string? validationError =
@@ -242,7 +255,7 @@ public static class DataRelativePathRepairFileJournal
 
         if (
             !IsValidPreparedIdentity(
-                preparedFileIdentity
+                preparedFileIncarnationIdentity
             ))
         {
             return Failure(
@@ -259,8 +272,8 @@ public static class DataRelativePathRepairFileJournal
             nowUtc,
             DataRelativePathRepairFileJournalState
                 .Prepared,
-            preparedFileIdentity:
-                preparedFileIdentity
+            preparedFileIncarnationIdentity:
+                preparedFileIncarnationIdentity
         );
     }
 
@@ -534,7 +547,7 @@ public static class DataRelativePathRepairFileJournal
         if (
             requiresPreparedIdentity &&
             !IsValidPreparedIdentity(
-                record.PreparedFileIdentity
+                record.PreparedFileIncarnationIdentity
             ))
         {
             return
@@ -544,7 +557,7 @@ public static class DataRelativePathRepairFileJournal
 
         if (
             !requiresPreparedIdentity &&
-            record.PreparedFileIdentity is not null)
+            record.PreparedFileIncarnationIdentity is not null)
         {
             return
                 "IntentRecorded cannot already contain a " +
@@ -623,8 +636,8 @@ public static class DataRelativePathRepairFileJournal
             DataRelativePathRepairFileJournalRecord record,
             DateTimeOffset nowUtc,
             DataRelativePathRepairFileJournalState state,
-            LinuxOpenedFileIdentityResult?
-                preparedFileIdentity = null,
+            LinuxFileIncarnationIdentity?
+                preparedFileIncarnationIdentity = null,
             string? recoveryConflictReason = null)
     {
         if (nowUtc < record.UpdatedUtc)
@@ -647,9 +660,9 @@ public static class DataRelativePathRepairFileJournal
                     nowUtc,
                 State =
                     state,
-                PreparedFileIdentity =
-                    preparedFileIdentity ??
-                    record.PreparedFileIdentity,
+                PreparedFileIncarnationIdentity =
+                    preparedFileIncarnationIdentity ??
+                    record.PreparedFileIncarnationIdentity,
                 RecoveryConflictReason =
                     recoveryConflictReason
             };
@@ -888,12 +901,12 @@ public static class DataRelativePathRepairFileJournal
     }
 
     private static bool IsValidPreparedIdentity(
-        LinuxOpenedFileIdentityResult? identity)
+        LinuxFileIncarnationIdentity? identity)
     {
         return
             identity is not null &&
             identity.Success &&
-            identity.LinkCount == 0U;
+            identity.PhysicalIdentity.LinkCount == 0U;
     }
 
     private static bool IsSha256(

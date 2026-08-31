@@ -491,7 +491,9 @@ public sealed class
                     DataRelativePathRepairFileJournal
                         .MarkPrepared(
                             intent,
-                            preparedIdentity,
+                            SyntheticFileJournalIncarnation.FromPhysical(
+                                preparedIdentity
+                            ),
                             T0.AddSeconds(1)
                         )
                 );

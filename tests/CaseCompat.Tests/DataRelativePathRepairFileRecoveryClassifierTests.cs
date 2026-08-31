@@ -716,7 +716,9 @@ public sealed class
             return RequireRecord(
                 DataRelativePathRepairFileJournal.MarkPrepared(
                     Intent(),
-                    preparedIdentity,
+                    SyntheticFileJournalIncarnation.FromPhysical(
+                        preparedIdentity
+                    ),
                     T0.AddSeconds(1)
                 )
             );

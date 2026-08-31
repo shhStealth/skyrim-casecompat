@@ -301,12 +301,15 @@ public static class
             );
         }
 
-        LinuxOpenedFileIdentityResult preparedIdentity =
-            LinuxOpenedFileIdentity.Capture(
+        LinuxOpenedFileIncarnationResult preparedIncarnation =
+            LinuxOpenedFileIncarnation.Capture(
                 temporary
             );
 
-        if (!preparedIdentity.Success)
+        LinuxOpenedFileIdentityResult? preparedIdentity =
+            preparedIncarnation.PhysicalIdentity;
+
+        if (!preparedIncarnation.Success)
         {
             return Result(
                 DataRelativePathRepairFileForwardRecoveryState
@@ -332,8 +335,8 @@ public static class
                 preparedIdentity:
                     preparedIdentity,
                 error:
-                    preparedIdentity.Error ??
-                    preparedIdentity.State.ToString()
+                    preparedIncarnation.Error ??
+                    preparedIncarnation.State.ToString()
             );
         }
 
@@ -351,13 +354,13 @@ public static class
                     ? DataRelativePathRepairFileJournal
                         .MarkPrepared(
                             journal,
-                            preparedIdentity,
+                            preparedIncarnation.Identity!,
                             nowUtc
                         )
                     : DataRelativePathRepairFileJournal
                         .Reprepare(
                             journal,
-                            preparedIdentity,
+                            preparedIncarnation.Identity!,
                             nowUtc
                         );
 

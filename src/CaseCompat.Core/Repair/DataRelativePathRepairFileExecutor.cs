@@ -371,12 +371,15 @@ public static class DataRelativePathRepairFileExecutor
             );
         }
 
-        LinuxOpenedFileIdentityResult preparedIdentity =
-            LinuxOpenedFileIdentity.Capture(
+        LinuxOpenedFileIncarnationResult preparedIncarnation =
+            LinuxOpenedFileIncarnation.Capture(
                 temporary
             );
 
-        if (!preparedIdentity.Success)
+        LinuxOpenedFileIdentityResult? preparedIdentity =
+            preparedIncarnation.PhysicalIdentity;
+
+        if (!preparedIncarnation.Success)
         {
             return Result(
                 DataRelativePathRepairFileExecutionState
@@ -400,8 +403,8 @@ public static class DataRelativePathRepairFileExecutor
                 preparedIdentity:
                     preparedIdentity,
                 error:
-                    preparedIdentity.Error ??
-                    preparedIdentity.State.ToString()
+                    preparedIncarnation.Error ??
+                    preparedIncarnation.State.ToString()
             );
         }
 
@@ -415,7 +418,7 @@ public static class DataRelativePathRepairFileExecutor
                 DataRelativePathRepairFileJournal
                     .MarkPrepared(
                         intent,
-                        preparedIdentity,
+                        preparedIncarnation.Identity!,
                         nowUtc
                     );
 

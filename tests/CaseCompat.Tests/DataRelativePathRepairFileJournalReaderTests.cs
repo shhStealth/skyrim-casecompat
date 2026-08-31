@@ -139,7 +139,8 @@ public sealed class DataRelativePathRepairFileJournalReaderTests
                 DataRelativePathRepairFileJournal
                     .MarkPrepared(
                         intent,
-                        PreparedIdentity(),
+
+                        SyntheticFileJournalIncarnation.FromPhysical(PreparedIdentity()),
                         T0.AddSeconds(1)
                     )
             );

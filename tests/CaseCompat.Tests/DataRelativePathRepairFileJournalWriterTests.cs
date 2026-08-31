@@ -209,7 +209,8 @@ public sealed class DataRelativePathRepairFileJournalWriterTests
                 DataRelativePathRepairFileJournal
                     .MarkPrepared(
                         intent,
-                        PreparedIdentity(),
+
+                        SyntheticFileJournalIncarnation.FromPhysical(PreparedIdentity()),
                         T0.AddSeconds(1)
                     )
             );
@@ -344,7 +345,8 @@ public sealed class DataRelativePathRepairFileJournalWriterTests
                 DataRelativePathRepairFileJournal
                     .MarkPrepared(
                         intent,
-                        PreparedIdentity(),
+
+                        SyntheticFileJournalIncarnation.FromPhysical(PreparedIdentity()),
                         T0.AddSeconds(1)
                     )
             );
@@ -441,7 +443,8 @@ public sealed class DataRelativePathRepairFileJournalWriterTests
                 DataRelativePathRepairFileJournal
                     .MarkPrepared(
                         Intent(),
-                        PreparedIdentity(),
+
+                        SyntheticFileJournalIncarnation.FromPhysical(PreparedIdentity()),
                         T0.AddSeconds(1)
                     )
             );
@@ -604,7 +607,8 @@ public sealed class DataRelativePathRepairFileJournalWriterTests
                 DataRelativePathRepairFileJournal
                     .MarkPrepared(
                         intent,
-                        PreparedIdentity(),
+
+                        SyntheticFileJournalIncarnation.FromPhysical(PreparedIdentity()),
                         T0.AddSeconds(1)
                     )
             );

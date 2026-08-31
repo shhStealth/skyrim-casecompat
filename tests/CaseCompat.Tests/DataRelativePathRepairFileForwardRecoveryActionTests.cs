@@ -513,7 +513,9 @@ public sealed class
                     DataRelativePathRepairFileJournal
                         .MarkPrepared(
                             current.Record!,
-                            identity,
+                            SyntheticFileJournalIncarnation.FromPhysical(
+                                identity
+                            ),
                             T0.AddSeconds(1)
                         );
 
