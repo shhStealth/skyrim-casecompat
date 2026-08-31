@@ -286,17 +286,6 @@ public static class LinuxPrepareOwnedDirectoryAt
         );
     }
 
-    private static bool HasCompleteIdentity(
-        LinuxFileIdentityResult identity)
-    {
-        return
-            identity.Success &&
-            identity.DeviceMajor is not null &&
-            identity.DeviceMinor is not null &&
-            identity.Inode is not null &&
-            identity.MountId is not null;
-    }
-
     private static LinuxPrepareOwnedDirectoryAtResult Result(
         LinuxPrepareOwnedDirectoryAtState state,
         string? stagingChildName,
