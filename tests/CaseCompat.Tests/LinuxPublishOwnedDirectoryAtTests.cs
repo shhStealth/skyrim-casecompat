@@ -25,7 +25,7 @@ public sealed class LinuxPublishOwnedDirectoryAtTests
                 ".stage"
             );
 
-        LinuxFileIdentityResult preparedIdentity =
+        LinuxDirectoryIncarnationIdentity preparedIdentity =
             fixture.CaptureIdentity(
                 staging,
                 ".stage"
@@ -74,7 +74,7 @@ public sealed class LinuxPublishOwnedDirectoryAtTests
          * staging name remains attached to the same inode after
          * renameat2 publication.
          */
-        LinuxFileIdentityResult afterRename =
+        LinuxDirectoryIncarnationIdentity afterRename =
             fixture.CaptureIdentity(
                 staging,
                 "Final"
@@ -90,7 +90,7 @@ public sealed class LinuxPublishOwnedDirectoryAtTests
                 "Final"
             );
 
-        LinuxFileIdentityResult finalIdentity =
+        LinuxDirectoryIncarnationIdentity finalIdentity =
             fixture.CaptureIdentity(
                 final,
                 "Final"
@@ -139,7 +139,7 @@ public sealed class LinuxPublishOwnedDirectoryAtTests
                 ".stage"
             );
 
-        LinuxFileIdentityResult identity =
+        LinuxDirectoryIncarnationIdentity identity =
             fixture.CaptureIdentity(
                 staging,
                 ".stage"
@@ -216,18 +216,94 @@ public sealed class LinuxPublishOwnedDirectoryAtTests
                 ".stage"
             );
 
-        LinuxFileIdentityResult identity =
+        LinuxDirectoryIncarnationIdentity identity =
             fixture.CaptureIdentity(
                 staging,
                 ".stage"
             );
 
-        LinuxFileIdentityResult wrong =
+        LinuxDirectoryIncarnationIdentity wrong =
             identity with
             {
-                Inode =
-                    checked(
-                        identity.Inode!.Value + 1UL
+                PhysicalIdentity =
+                    identity.PhysicalIdentity with
+                    {
+                        Inode =
+                            checked(
+                                identity.PhysicalIdentity
+                                    .Inode!.Value + 1UL
+                            )
+                    }
+            };
+
+        LinuxPublishOwnedDirectoryAtResult result =
+            LinuxPublishOwnedDirectoryAt.Publish(
+                fixture.Parent,
+                ".stage",
+                "Final",
+                staging,
+                wrong
+            );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            LinuxPublishOwnedDirectoryAtState
+                .SourceIdentityMismatch,
+            result.State
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.PathFor(
+                    ".stage"
+                )
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.PathFor(
+                    "Final"
+                )
+            )
+        );
+    }
+
+    [Fact]
+    public void Publish_WrongExpectedGeneration_DoesNotRename()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        fixture.CreateDirectory(
+            ".stage"
+        );
+
+        using LinuxOpenedChildHandle staging =
+            fixture.OpenDirectory(
+                ".stage"
+            );
+
+        LinuxDirectoryIncarnationIdentity identity =
+            fixture.CaptureIdentity(
+                staging,
+                ".stage"
+            );
+
+        LinuxDirectoryIncarnationIdentity wrong =
+            identity with
+            {
+                InodeGeneration =
+                    unchecked(
+                        identity.InodeGeneration + 1U
                     )
             };
 
@@ -248,6 +324,189 @@ public sealed class LinuxPublishOwnedDirectoryAtTests
             LinuxPublishOwnedDirectoryAtState
                 .SourceIdentityMismatch,
             result.State
+        );
+
+        Assert.NotNull(
+            result.HandleIdentity
+        );
+
+        Assert.True(
+            identity.SameIncarnationAs(
+                result.HandleIdentity!
+            )
+        );
+
+        Assert.NotEqual(
+            wrong.InodeGeneration,
+            result.HandleIdentity!.InodeGeneration
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.PathFor(
+                    ".stage"
+                )
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.PathFor(
+                    "Final"
+                )
+            )
+        );
+    }
+
+    [Fact]
+    public void Publish_RecreatedSourceWithReusedInode_IsRejected()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        fixture.CreateDirectory(
+            ".stage"
+        );
+
+        LinuxDirectoryIncarnationIdentity expected;
+
+        using (
+            LinuxOpenedChildHandle original =
+                fixture.OpenDirectory(
+                    ".stage"
+                ))
+        {
+            expected =
+                fixture.CaptureIdentity(
+                    original,
+                    ".stage"
+                );
+        }
+
+        Directory.Delete(
+            fixture.PathFor(
+                ".stage"
+            )
+        );
+
+        LinuxDirectoryIncarnationIdentity? replacement =
+            null;
+
+        for (int attempt = 0; attempt < 128; attempt++)
+        {
+            fixture.CreateDirectory(
+                ".stage"
+            );
+
+            using LinuxOpenedChildHandle candidateHandle =
+                fixture.OpenDirectory(
+                    ".stage"
+                );
+
+            LinuxDirectoryIncarnationIdentity candidate =
+                fixture.CaptureIdentity(
+                    candidateHandle,
+                    ".stage"
+                );
+
+            bool samePhysicalIdentity =
+                expected.PhysicalIdentity.DeviceMajor ==
+                    candidate.PhysicalIdentity.DeviceMajor &&
+                expected.PhysicalIdentity.DeviceMinor ==
+                    candidate.PhysicalIdentity.DeviceMinor &&
+                expected.PhysicalIdentity.Inode ==
+                    candidate.PhysicalIdentity.Inode &&
+                expected.PhysicalIdentity.MountId ==
+                    candidate.PhysicalIdentity.MountId;
+
+            if (samePhysicalIdentity)
+            {
+                replacement =
+                    candidate;
+
+                break;
+            }
+
+            candidateHandle.Dispose();
+
+            Directory.Delete(
+                fixture.PathFor(
+                    ".stage"
+                )
+            );
+        }
+
+        /*
+         * Not every Linux filesystem immediately reuses inode
+         * numbers. WrongExpectedGeneration remains the portable
+         * deterministic proof of the generation gate.
+         */
+        if (replacement is null)
+        {
+            return;
+        }
+
+        Assert.NotEqual(
+            expected.InodeGeneration,
+            replacement.InodeGeneration
+        );
+
+        using LinuxOpenedChildHandle replacementHandle =
+            fixture.OpenDirectory(
+                ".stage"
+            );
+
+        LinuxPublishOwnedDirectoryAtResult result =
+            LinuxPublishOwnedDirectoryAt.Publish(
+                fixture.Parent,
+                ".stage",
+                "Final",
+                replacementHandle,
+                expected
+            );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            LinuxPublishOwnedDirectoryAtState
+                .SourceIdentityMismatch,
+            result.State
+        );
+
+        Assert.NotNull(
+            result.HandleIdentity
+        );
+
+        Assert.Equal(
+            expected.PhysicalIdentity.DeviceMajor,
+            result.HandleIdentity!.PhysicalIdentity.DeviceMajor
+        );
+
+        Assert.Equal(
+            expected.PhysicalIdentity.DeviceMinor,
+            result.HandleIdentity.PhysicalIdentity.DeviceMinor
+        );
+
+        Assert.Equal(
+            expected.PhysicalIdentity.Inode,
+            result.HandleIdentity.PhysicalIdentity.Inode
+        );
+
+        Assert.Equal(
+            expected.PhysicalIdentity.MountId,
+            result.HandleIdentity.PhysicalIdentity.MountId
+        );
+
+        Assert.NotEqual(
+            expected.InodeGeneration,
+            result.HandleIdentity.InodeGeneration
         );
 
         Assert.True(
@@ -291,7 +550,7 @@ public sealed class LinuxPublishOwnedDirectoryAtTests
                 ".stage"
             );
 
-        LinuxFileIdentityResult identity =
+        LinuxDirectoryIncarnationIdentity identity =
             fixture.CaptureIdentity(
                 staging,
                 ".stage"
@@ -368,7 +627,7 @@ public sealed class LinuxPublishOwnedDirectoryAtTests
                 ".stage"
             );
 
-        LinuxFileIdentityResult identity =
+        LinuxDirectoryIncarnationIdentity identity =
             fixture.CaptureIdentity(
                 staging,
                 ".stage"
@@ -424,8 +683,8 @@ public sealed class LinuxPublishOwnedDirectoryAtTests
     }
 
     private static void AssertSameIdentity(
-        LinuxFileIdentityResult expected,
-        LinuxFileIdentityResult actual)
+        LinuxDirectoryIncarnationIdentity expected,
+        LinuxDirectoryIncarnationIdentity actual)
     {
         Assert.True(
             expected.Success
@@ -436,23 +695,34 @@ public sealed class LinuxPublishOwnedDirectoryAtTests
         );
 
         Assert.Equal(
-            expected.DeviceMajor,
-            actual.DeviceMajor
+            expected.PhysicalIdentity.DeviceMajor,
+            actual.PhysicalIdentity.DeviceMajor
         );
 
         Assert.Equal(
-            expected.DeviceMinor,
-            actual.DeviceMinor
+            expected.PhysicalIdentity.DeviceMinor,
+            actual.PhysicalIdentity.DeviceMinor
         );
 
         Assert.Equal(
-            expected.Inode,
-            actual.Inode
+            expected.PhysicalIdentity.Inode,
+            actual.PhysicalIdentity.Inode
         );
 
         Assert.Equal(
-            expected.MountId,
-            actual.MountId
+            expected.PhysicalIdentity.MountId,
+            actual.PhysicalIdentity.MountId
+        );
+
+        Assert.Equal(
+            expected.InodeGeneration,
+            actual.InodeGeneration
+        );
+
+        Assert.True(
+            expected.SameIncarnationAs(
+                actual
+            )
         );
     }
 
@@ -543,12 +813,12 @@ public sealed class LinuxPublishOwnedDirectoryAtTests
             return child;
         }
 
-        public LinuxFileIdentityResult CaptureIdentity(
+        public LinuxDirectoryIncarnationIdentity CaptureIdentity(
             ILinuxOpenedHandle handle,
             string displayName)
         {
-            LinuxOpenedDirectorySnapshotResult snapshot =
-                LinuxOpenedDirectorySnapshot.Capture(
+            LinuxOpenedDirectoryIncarnationResult incarnation =
+                LinuxOpenedDirectoryIncarnation.Capture(
                     handle,
                     PathFor(
                         displayName
@@ -556,31 +826,16 @@ public sealed class LinuxPublishOwnedDirectoryAtTests
                 );
 
             Assert.True(
-                snapshot.Success,
-                snapshot.Error
+                incarnation.Success,
+                incarnation.Error ??
+                incarnation.State.ToString()
             );
 
-            Assert.NotNull(
-                snapshot.Identity
+            return Assert.IsType<
+                LinuxDirectoryIncarnationIdentity
+            >(
+                incarnation.Identity
             );
-
-            Assert.NotNull(
-                snapshot.Identity!.DeviceMajor
-            );
-
-            Assert.NotNull(
-                snapshot.Identity.DeviceMinor
-            );
-
-            Assert.NotNull(
-                snapshot.Identity.Inode
-            );
-
-            Assert.NotNull(
-                snapshot.Identity.MountId
-            );
-
-            return snapshot.Identity;
         }
 
         private static LinuxNoFollowPathHandle OpenRoot(

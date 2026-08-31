@@ -32,9 +32,9 @@ public sealed record LinuxPublishOwnedDirectoryAtResult(
     LinuxPublishOwnedDirectoryAtState State,
     string SourceChildName,
     string DestinationChildName,
-    LinuxFileIdentityResult ExpectedIdentity,
-    LinuxFileIdentityResult? HandleIdentity,
-    LinuxFileIdentityResult? NamedSourceIdentity,
+    LinuxDirectoryIncarnationIdentity ExpectedIdentity,
+    LinuxDirectoryIncarnationIdentity? HandleIdentity,
+    LinuxDirectoryIncarnationIdentity? NamedSourceIdentity,
     int? Errno,
     string? Error
 )

@@ -434,7 +434,7 @@ public static class
                 stagingChildName,
                 finalChildName,
                 staging,
-                expectedDirectoryIdentity
+                journal.PreparedDirectoryIncarnationIdentity!
             );
 
         if (!publication.Success)

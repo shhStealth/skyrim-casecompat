@@ -67,7 +67,7 @@ public static class LinuxPublishOwnedDirectoryAt
         string sourceChildName,
         string destinationChildName,
         LinuxOpenedChildHandle sourceDirectory,
-        LinuxFileIdentityResult expectedIdentity)
+        LinuxDirectoryIncarnationIdentity expectedIdentity)
     {
         ArgumentNullException.ThrowIfNull(
             parentDirectory
@@ -127,7 +127,7 @@ public static class LinuxPublishOwnedDirectoryAt
             );
         }
 
-        if (!HasCompleteIdentity(expectedIdentity))
+        if (!expectedIdentity.Success)
         {
             return Result(
                 LinuxPublishOwnedDirectoryAtState
@@ -137,8 +137,9 @@ public static class LinuxPublishOwnedDirectoryAt
                 expectedIdentity,
                 error:
                     "Directory publication requires a complete " +
-                    "descriptor-captured identity including " +
-                    "device, inode, and mount ID."
+                    "descriptor-captured incarnation identity " +
+                    "including device, inode, mount ID, and inode " +
+                    "generation."
             );
         }
 
@@ -147,41 +148,41 @@ public static class LinuxPublishOwnedDirectoryAt
          * the caller is the directory whose identity was recorded
          * during preparation.
          */
-        LinuxOpenedDirectorySnapshotResult handleSnapshot =
-            LinuxOpenedDirectorySnapshot.Capture(
+        LinuxOpenedDirectoryIncarnationResult handleIncarnation =
+            LinuxOpenedDirectoryIncarnation.Capture(
                 sourceDirectory,
                 sourceChildName
             );
 
         if (
-            handleSnapshot.State ==
-            LinuxOpenedDirectorySnapshotState.NotDirectory)
+            handleIncarnation.State ==
+            LinuxOpenedDirectoryIncarnationState.NotDirectory)
         {
             return Result(
                 LinuxPublishOwnedDirectoryAtState.SourceNotDirectory,
                 sourceChildName,
                 destinationChildName,
                 expectedIdentity,
+                handleIdentity:
+                    handleIncarnation.Identity,
                 error:
-                    handleSnapshot.Error ??
+                    handleIncarnation.Error ??
                     "The prepared source descriptor is not a " +
                     "directory."
             );
         }
 
-        bool handleIdentityUsable =
-            handleSnapshot.Identity is not null &&
-            HasCompleteIdentity(
-                handleSnapshot.Identity
-            ) &&
-            (
-                handleSnapshot.State ==
-                    LinuxOpenedDirectorySnapshotState.Captured ||
-                handleSnapshot.State ==
-                    LinuxOpenedDirectorySnapshotState.FlagsUnavailable
-            );
-
-        if (!handleIdentityUsable)
+        /*
+         * Publication authority requires a complete incarnation
+         * captured from the caller's retained prepared-directory
+         * descriptor.
+         *
+         * There is deliberately no fallback to device/inode/mount
+         * identity when inode-generation capture is unavailable.
+         */
+        if (
+            !handleIncarnation.Success ||
+            handleIncarnation.Identity is null)
         {
             return Result(
                 LinuxPublishOwnedDirectoryAtState
@@ -190,21 +191,18 @@ public static class LinuxPublishOwnedDirectoryAt
                 destinationChildName,
                 expectedIdentity,
                 handleIdentity:
-                    handleSnapshot.Identity,
-                errno:
-                    handleSnapshot.Errno,
+                    handleIncarnation.Identity,
                 error:
-                    handleSnapshot.Error ??
-                    handleSnapshot.State.ToString()
+                    handleIncarnation.Error ??
+                    handleIncarnation.State.ToString()
             );
         }
 
-        LinuxFileIdentityResult handleIdentity =
-            handleSnapshot.Identity!;
+        LinuxDirectoryIncarnationIdentity handleIdentity =
+            handleIncarnation.Identity;
 
         if (
-            !SameDirectoryObject(
-                expectedIdentity,
+            !expectedIdentity.SameIncarnationAs(
                 handleIdentity
             ))
         {
@@ -219,7 +217,7 @@ public static class LinuxPublishOwnedDirectoryAt
                 error:
                     "The prepared source descriptor no longer " +
                     "matches the expected CaseCompat-owned " +
-                    "directory identity."
+                    "directory incarnation."
             );
         }
 
@@ -288,15 +286,15 @@ public static class LinuxPublishOwnedDirectoryAt
         using LinuxOpenedChildHandle namedSource =
             namedOpen.OpenedChild!;
 
-        LinuxOpenedDirectorySnapshotResult namedSnapshot =
-            LinuxOpenedDirectorySnapshot.Capture(
+        LinuxOpenedDirectoryIncarnationResult namedIncarnation =
+            LinuxOpenedDirectoryIncarnation.Capture(
                 namedSource,
                 sourceChildName
             );
 
         if (
-            namedSnapshot.State ==
-            LinuxOpenedDirectorySnapshotState.NotDirectory)
+            namedIncarnation.State ==
+            LinuxOpenedDirectoryIncarnationState.NotDirectory)
         {
             return Result(
                 LinuxPublishOwnedDirectoryAtState.SourceNotDirectory,
@@ -305,26 +303,23 @@ public static class LinuxPublishOwnedDirectoryAt
                 expectedIdentity,
                 handleIdentity:
                     handleIdentity,
+                namedSourceIdentity:
+                    namedIncarnation.Identity,
                 error:
-                    namedSnapshot.Error ??
+                    namedIncarnation.Error ??
                     "The named staging source is no longer a " +
                     "directory."
             );
         }
 
-        bool namedIdentityUsable =
-            namedSnapshot.Identity is not null &&
-            HasCompleteIdentity(
-                namedSnapshot.Identity
-            ) &&
-            (
-                namedSnapshot.State ==
-                    LinuxOpenedDirectorySnapshotState.Captured ||
-                namedSnapshot.State ==
-                    LinuxOpenedDirectorySnapshotState.FlagsUnavailable
-            );
-
-        if (!namedIdentityUsable)
+        /*
+         * renameat2 selects the source by name, so the exact
+         * O_NOFOLLOW-reopened name must provide complete incarnation
+         * identity immediately before publication.
+         */
+        if (
+            !namedIncarnation.Success ||
+            namedIncarnation.Identity is null)
         {
             return Result(
                 LinuxPublishOwnedDirectoryAtState
@@ -335,25 +330,21 @@ public static class LinuxPublishOwnedDirectoryAt
                 handleIdentity:
                     handleIdentity,
                 namedSourceIdentity:
-                    namedSnapshot.Identity,
-                errno:
-                    namedSnapshot.Errno,
+                    namedIncarnation.Identity,
                 error:
-                    namedSnapshot.Error ??
-                    namedSnapshot.State.ToString()
+                    namedIncarnation.Error ??
+                    namedIncarnation.State.ToString()
             );
         }
 
-        LinuxFileIdentityResult namedIdentity =
-            namedSnapshot.Identity!;
+        LinuxDirectoryIncarnationIdentity namedIdentity =
+            namedIncarnation.Identity;
 
         if (
-            !SameDirectoryObject(
-                expectedIdentity,
+            !expectedIdentity.SameIncarnationAs(
                 namedIdentity
             ) ||
-            !SameDirectoryObject(
-                handleIdentity,
+            !handleIdentity.SameIncarnationAs(
                 namedIdentity
             ))
         {
@@ -369,7 +360,7 @@ public static class LinuxPublishOwnedDirectoryAt
                     namedIdentity,
                 error:
                     "The staging name no longer identifies the " +
-                    "prepared CaseCompat-owned directory."
+                    "prepared CaseCompat-owned directory incarnation."
             );
         }
 
@@ -420,7 +411,7 @@ public static class LinuxPublishOwnedDirectoryAt
              * operation must never overwrite or merge with an
              * existing Skyrim-visible destination.
              *
-             * The source name was identity-checked immediately
+             * The source name was incarnation-checked immediately
              * above, but renameat2 still selects it by name.
              * Therefore a narrow final source-name race remains.
              *
@@ -578,34 +569,6 @@ public static class LinuxPublishOwnedDirectoryAt
         }
     }
 
-    private static bool SameDirectoryObject(
-        LinuxFileIdentityResult left,
-        LinuxFileIdentityResult right)
-    {
-        return
-            HasCompleteIdentity(left) &&
-            HasCompleteIdentity(right) &&
-            left.DeviceMajor ==
-                right.DeviceMajor &&
-            left.DeviceMinor ==
-                right.DeviceMinor &&
-            left.Inode ==
-                right.Inode &&
-            left.MountId ==
-                right.MountId;
-    }
-
-    private static bool HasCompleteIdentity(
-        LinuxFileIdentityResult identity)
-    {
-        return
-            identity.Success &&
-            identity.DeviceMajor is not null &&
-            identity.DeviceMinor is not null &&
-            identity.Inode is not null &&
-            identity.MountId is not null;
-    }
-
     private static bool IsValidChildName(
         string? childName)
     {
@@ -628,9 +591,9 @@ public static class LinuxPublishOwnedDirectoryAt
         LinuxPublishOwnedDirectoryAtState state,
         string? sourceChildName,
         string? destinationChildName,
-        LinuxFileIdentityResult expectedIdentity,
-        LinuxFileIdentityResult? handleIdentity = null,
-        LinuxFileIdentityResult? namedSourceIdentity = null,
+        LinuxDirectoryIncarnationIdentity expectedIdentity,
+        LinuxDirectoryIncarnationIdentity? handleIdentity = null,
+        LinuxDirectoryIncarnationIdentity? namedSourceIdentity = null,
         int? errno = null,
         string? error = null)
     {

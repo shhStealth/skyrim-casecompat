@@ -292,7 +292,7 @@ public sealed class LinuxPrepareOwnedDirectoryAtTests
                 ".stage",
                 "Final",
                 lease.OpenedDirectory,
-                lease.Identity
+                lease.IncarnationIdentity!
             );
 
         if (
