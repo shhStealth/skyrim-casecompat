@@ -120,6 +120,222 @@ public sealed class LinuxPublishUnnamedFileAtTests
     }
 
     [Fact]
+    public void Publish_AlreadyPublishedSource_IsRejectedWithoutSecondLink()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var temp =
+            new TemporaryDirectory();
+
+        using LinuxNoFollowPathHandle parent =
+            OpenRoot(
+                temp.RootPath
+            );
+
+        using LinuxUnnamedFileHandle source =
+            CreateUnnamedOrReturn(
+                parent
+            );
+
+        if (source is null)
+        {
+            return;
+        }
+
+        RandomAccess.Write(
+            source.Handle,
+            "one-shot"u8,
+            0
+        );
+
+        LinuxPublishUnnamedFileAtResult first =
+            LinuxPublishUnnamedFileAt.Publish(
+                source,
+                parent,
+                "First.nif"
+            );
+
+        Assert.True(
+            first.Success
+        );
+
+        LinuxOpenedFileIdentityResult afterFirst =
+            LinuxOpenedFileIdentity.Capture(
+                source
+            );
+
+        Assert.True(
+            afterFirst.Success
+        );
+
+        Assert.Equal(
+            1U,
+            afterFirst.LinkCount
+        );
+
+        LinuxPublishUnnamedFileAtResult second =
+            LinuxPublishUnnamedFileAt.Publish(
+                source,
+                parent,
+                "Second.nif"
+            );
+
+        Assert.False(
+            second.Success
+        );
+
+        Assert.Equal(
+            LinuxPublishUnnamedFileAtState
+                .SourceAlreadyPublished,
+            second.State
+        );
+
+        Assert.True(
+            File.Exists(
+                Path.Combine(
+                    temp.RootPath,
+                    "First.nif"
+                )
+            )
+        );
+
+        Assert.False(
+            File.Exists(
+                Path.Combine(
+                    temp.RootPath,
+                    "Second.nif"
+                )
+            )
+        );
+
+        LinuxOpenedFileIdentityResult afterSecond =
+            LinuxOpenedFileIdentity.Capture(
+                source
+            );
+
+        Assert.True(
+            afterSecond.Success
+        );
+
+        Assert.Equal(
+            1U,
+            afterSecond.LinkCount
+        );
+    }
+
+    [Fact]
+    public void Publish_DestinationConflict_DoesNotConsumeUnnamedSource()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var temp =
+            new TemporaryDirectory();
+
+        string existing =
+            Path.Combine(
+                temp.RootPath,
+                "Existing.nif"
+            );
+
+        File.WriteAllText(
+            existing,
+            "existing"
+        );
+
+        using LinuxNoFollowPathHandle parent =
+            OpenRoot(
+                temp.RootPath
+            );
+
+        using LinuxUnnamedFileHandle source =
+            CreateUnnamedOrReturn(
+                parent
+            );
+
+        if (source is null)
+        {
+            return;
+        }
+
+        RandomAccess.Write(
+            source.Handle,
+            "new"u8,
+            0
+        );
+
+        LinuxPublishUnnamedFileAtResult conflict =
+            LinuxPublishUnnamedFileAt.Publish(
+                source,
+                parent,
+                "Existing.nif"
+            );
+
+        Assert.False(
+            conflict.Success
+        );
+
+        Assert.Equal(
+            LinuxPublishUnnamedFileAtState
+                .DestinationExists,
+            conflict.State
+        );
+
+        LinuxOpenedFileIdentityResult afterConflict =
+            LinuxOpenedFileIdentity.Capture(
+                source
+            );
+
+        Assert.True(
+            afterConflict.Success
+        );
+
+        Assert.Equal(
+            0U,
+            afterConflict.LinkCount
+        );
+
+        LinuxPublishUnnamedFileAtResult retry =
+            LinuxPublishUnnamedFileAt.Publish(
+                source,
+                parent,
+                "Final.nif"
+            );
+
+        Assert.True(
+            retry.Success
+        );
+
+        Assert.Equal(
+            LinuxPublishUnnamedFileAtState
+                .Published,
+            retry.State
+        );
+
+        Assert.Equal(
+            "existing",
+            File.ReadAllText(
+                existing
+            )
+        );
+
+        Assert.Equal(
+            "new",
+            File.ReadAllText(
+                Path.Combine(
+                    temp.RootPath,
+                    "Final.nif"
+                )
+            )
+        );
+    }
+
+    [Fact]
     public void Publish_ExistingFile_IsConflictAndExistingFileIsUntouched()
     {
         if (!OperatingSystem.IsLinux())

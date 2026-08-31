@@ -9,6 +9,9 @@ public enum LinuxPublishUnnamedFileAtState
     InvalidSourceHandle,
     InvalidParentHandle,
 
+    SourceIdentityUnavailable,
+    SourceAlreadyPublished,
+
     DestinationExists,
     DifferentFilesystem,
     ParentNotDirectory,

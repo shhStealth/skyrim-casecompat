@@ -14,6 +14,9 @@ public sealed class LinuxUnnamedFileHandle
 
     public SafeFileHandle Handle { get; }
 
+    internal object PublicationGate { get; } =
+        new();
+
     public void Dispose()
     {
         Handle.Dispose();

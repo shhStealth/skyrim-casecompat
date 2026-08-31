@@ -183,14 +183,80 @@ public static class LinuxPublishUnnamedFileAt
             string sourcePath =
                 $"/proc/self/fd/{sourceFd}";
 
-            if (
-                LinkAt(
-                    AtFdcwd,
-                    sourcePath,
-                    parentFd,
-                    childName,
-                    AtSymlinkFollow
-                ) == 0)
+            int linkResult;
+
+            int? linkErrno =
+                null;
+
+            lock (source.PublicationGate)
+            {
+                /*
+                 * Publication is a one-shot transition from an
+                 * anonymous inode to one named filesystem entry.
+                 *
+                 * Read the link count from the exact retained
+                 * source descriptor. Do not rely on mutable managed
+                 * bookkeeping as the source of truth.
+                 *
+                 * The publication gate serializes calls made
+                 * through this same handle instance so a second
+                 * CaseCompat publication cannot race the first
+                 * between this check and linkat().
+                 */
+                LinuxOpenedFileIdentityResult sourceIdentity =
+                    LinuxOpenedFileIdentity.Capture(
+                        source
+                    );
+
+                if (
+                    !sourceIdentity.Success ||
+                    sourceIdentity.LinkCount is null)
+                {
+                    return Result(
+                        LinuxPublishUnnamedFileAtState
+                            .SourceIdentityUnavailable,
+                        childName,
+                        errno:
+                            sourceIdentity.Errno,
+                        error:
+                            sourceIdentity.Error ??
+                            "The unnamed source link count could " +
+                            "not be captured."
+                    );
+                }
+
+                if (sourceIdentity.LinkCount != 0U)
+                {
+                    return Result(
+                        LinuxPublishUnnamedFileAtState
+                            .SourceAlreadyPublished,
+                        childName,
+                        error:
+                            "The source descriptor is no longer " +
+                            "unnamed and cannot be published again."
+                    );
+                }
+
+                linkResult =
+                    LinkAt(
+                        AtFdcwd,
+                        sourcePath,
+                        parentFd,
+                        childName,
+                        AtSymlinkFollow
+                    );
+
+                if (linkResult != 0)
+                {
+                    /*
+                     * Capture errno immediately after linkat().
+                     */
+                    linkErrno =
+                        Marshal.GetLastPInvokeError();
+                }
+            }
+
+            if (linkResult == 0)
             {
                 return Result(
                     LinuxPublishUnnamedFileAtState
@@ -200,7 +266,7 @@ public static class LinuxPublishUnnamedFileAt
             }
 
             int errno =
-                Marshal.GetLastPInvokeError();
+                linkErrno!.Value;
 
             LinuxPublishUnnamedFileAtState state =
                 errno switch
