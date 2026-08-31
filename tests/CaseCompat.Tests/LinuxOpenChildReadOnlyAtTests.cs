@@ -302,6 +302,7 @@ public sealed class LinuxOpenChildReadOnlyAtTests
     [InlineData("child/file.nif")]
     [InlineData(@"child\file.nif")]
     [InlineData("")]
+    [InlineData("\0")]
     public void Open_InvalidChildName_IsRejected(
         string childName)
     {

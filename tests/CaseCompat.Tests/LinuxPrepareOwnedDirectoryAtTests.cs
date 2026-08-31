@@ -336,6 +336,62 @@ public sealed class LinuxPrepareOwnedDirectoryAtTests
         );
     }
 
+    [Theory]
+    [InlineData(".")]
+    [InlineData("..")]
+    [InlineData("../escape")]
+    [InlineData("child/grandchild")]
+    [InlineData(@"child\grandchild")]
+    [InlineData("")]
+    [InlineData("\0")]
+    public void Prepare_InvalidStagingChildName_IsRejectedWithoutCreatingAnything(
+        string stagingChildName)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        LinuxPrepareOwnedDirectoryAtResult result =
+            LinuxPrepareOwnedDirectoryAt.Prepare(
+                fixture.Parent,
+                stagingChildName,
+                fixture.PathFor(
+                    "diagnostic-only"
+                )
+            );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            LinuxPrepareOwnedDirectoryAtState.InvalidName,
+            result.State
+        );
+
+        Assert.False(
+            result.StagingEntryChanged
+        );
+
+        Assert.False(
+            result.StagingEntryMayRemain
+        );
+
+        Assert.Null(
+            result.Lease
+        );
+
+        Assert.Empty(
+            Directory.EnumerateFileSystemEntries(
+                fixture.RootPath
+            )
+        );
+    }
+
     private static void AssertSameIdentity(
         LinuxFileIdentityResult expected,
         LinuxFileIdentityResult actual)

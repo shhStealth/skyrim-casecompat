@@ -819,6 +819,7 @@ public sealed class LinuxRemoveOwnedFileAtTests
     [InlineData("child/file.nif")]
     [InlineData(@"child\file.nif")]
     [InlineData("")]
+    [InlineData("\0")]
     public void Remove_InvalidChildName_IsRejectedWithoutDeleting(
         string childName)
     {

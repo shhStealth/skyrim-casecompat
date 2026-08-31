@@ -530,6 +530,100 @@ public sealed class
         );
     }
 
+    [Theory]
+    [InlineData(".")]
+    [InlineData("..")]
+    [InlineData("../journal.json")]
+    [InlineData("child/journal.json")]
+    [InlineData(@"child\journal.json")]
+    [InlineData("")]
+    [InlineData("\0")]
+    public void Read_InvalidJournalName_IsRejected(
+        string journalChildName)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        DataRelativePathRepairDirectoryJournalReaderResult result =
+            DataRelativePathRepairDirectoryJournalReader.Read(
+                fixture.JournalDirectory,
+                journalChildName
+            );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryJournalReadState
+                .InvalidJournalName,
+            result.State
+        );
+
+        Assert.Empty(
+            Directory.EnumerateFileSystemEntries(
+                fixture.JournalDirectoryPath
+            )
+        );
+    }
+
+    [Theory]
+    [InlineData(".")]
+    [InlineData("..")]
+    [InlineData("../journal.json")]
+    [InlineData("child/journal.json")]
+    [InlineData(@"child\journal.json")]
+    [InlineData("")]
+    [InlineData("\0")]
+    public void CreateInitial_InvalidJournalName_PerformsNoFilesystemMutation(
+        string journalChildName)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        DataRelativePathRepairDirectoryJournalWriterResult result =
+            DataRelativePathRepairDirectoryJournalWriter
+                .CreateInitial(
+                    fixture.JournalDirectory,
+                    journalChildName,
+                    fixture.CreateIntent()
+                );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryJournalWriteState
+                .InvalidJournalName,
+            result.State
+        );
+
+        Assert.False(
+            result.JournalEntryChanged
+        );
+
+        Assert.False(
+            result.StagingEntryMayRemain
+        );
+
+        Assert.Empty(
+            Directory.EnumerateFileSystemEntries(
+                fixture.JournalDirectoryPath
+            )
+        );
+    }
+
     private static LinuxFileIdentityResult DirectoryIdentity()
     {
         return new(

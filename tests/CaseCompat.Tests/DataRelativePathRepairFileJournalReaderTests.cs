@@ -580,6 +580,7 @@ public sealed class DataRelativePathRepairFileJournalReaderTests
     [InlineData("child/journal.json")]
     [InlineData(@"child\journal.json")]
     [InlineData("")]
+    [InlineData("\0")]
     public void Read_InvalidJournalName_IsRejected(
         string journalChildName)
     {

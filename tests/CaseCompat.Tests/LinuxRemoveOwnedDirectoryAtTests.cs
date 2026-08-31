@@ -563,6 +563,59 @@ public sealed class LinuxRemoveOwnedDirectoryAtTests
         );
     }
 
+    [Theory]
+    [InlineData(".")]
+    [InlineData("..")]
+    [InlineData("../escape")]
+    [InlineData("child/grandchild")]
+    [InlineData(@"child\grandchild")]
+    [InlineData("")]
+    [InlineData("\0")]
+    public void Remove_InvalidChildName_IsRejectedWithoutDeleting(
+        string childName)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        fixture.CreateDirectory(
+            "Owned"
+        );
+
+        LinuxDirectoryIncarnationIdentity identity =
+            fixture.CaptureDirectoryIdentity(
+                "Owned"
+            );
+
+        LinuxRemoveOwnedDirectoryAtResult result =
+            LinuxRemoveOwnedDirectoryAt.Remove(
+                fixture.Parent,
+                childName,
+                identity
+            );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            LinuxRemoveOwnedDirectoryAtState.InvalidName,
+            result.State
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.PathFor(
+                    "Owned"
+                )
+            )
+        );
+    }
+
     private sealed class Fixture
         : IDisposable
     {

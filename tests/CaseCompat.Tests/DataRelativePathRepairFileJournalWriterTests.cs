@@ -723,6 +723,63 @@ public sealed class DataRelativePathRepairFileJournalWriterTests
         );
     }
 
+    [Theory]
+    [InlineData(".")]
+    [InlineData("..")]
+    [InlineData("../journal.json")]
+    [InlineData("child/journal.json")]
+    [InlineData(@"child\journal.json")]
+    [InlineData("")]
+    [InlineData("\0")]
+    public void CreateInitial_InvalidJournalName_PerformsNoFilesystemMutation(
+        string journalChildName)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var temp =
+            new TemporaryDirectory();
+
+        using LinuxNoFollowPathHandle directory =
+            OpenRoot(
+                temp.RootPath
+            );
+
+        DataRelativePathRepairFileJournalWriterResult result =
+            DataRelativePathRepairFileJournalWriter
+                .CreateInitial(
+                    directory,
+                    journalChildName,
+                    Intent()
+                );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairFileJournalWriteState
+                .InvalidJournalName,
+            result.State
+        );
+
+        Assert.False(
+            result.JournalEntryChanged
+        );
+
+        Assert.False(
+            result.StagingEntryMayRemain
+        );
+
+        Assert.Empty(
+            Directory.EnumerateFileSystemEntries(
+                temp.RootPath
+            )
+        );
+    }
+
     private static LinuxFileIncarnationIdentity
         RequireJournalIncarnation(
             LinuxNoFollowPathHandle directory,

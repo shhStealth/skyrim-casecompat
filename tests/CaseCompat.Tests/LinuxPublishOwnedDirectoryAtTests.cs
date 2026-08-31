@@ -682,6 +682,144 @@ public sealed class LinuxPublishOwnedDirectoryAtTests
         );
     }
 
+    [Theory]
+    [InlineData(".")]
+    [InlineData("..")]
+    [InlineData("../escape")]
+    [InlineData("child/grandchild")]
+    [InlineData(@"child\grandchild")]
+    [InlineData("")]
+    [InlineData("\0")]
+    public void Publish_InvalidSourceChildName_IsRejectedWithoutRenaming(
+        string sourceChildName)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        fixture.CreateDirectory(
+            ".stage"
+        );
+
+        using LinuxOpenedChildHandle staging =
+            fixture.OpenDirectory(
+                ".stage"
+            );
+
+        LinuxDirectoryIncarnationIdentity identity =
+            fixture.CaptureIdentity(
+                staging,
+                ".stage"
+            );
+
+        LinuxPublishOwnedDirectoryAtResult result =
+            LinuxPublishOwnedDirectoryAt.Publish(
+                fixture.Parent,
+                sourceChildName,
+                "Final",
+                staging,
+                identity
+            );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            LinuxPublishOwnedDirectoryAtState.InvalidName,
+            result.State
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.PathFor(
+                    ".stage"
+                )
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.PathFor(
+                    "Final"
+                )
+            )
+        );
+    }
+
+    [Theory]
+    [InlineData(".")]
+    [InlineData("..")]
+    [InlineData("../escape")]
+    [InlineData("child/grandchild")]
+    [InlineData(@"child\grandchild")]
+    [InlineData("")]
+    [InlineData("\0")]
+    public void Publish_InvalidDestinationChildName_IsRejectedWithoutRenaming(
+        string destinationChildName)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        fixture.CreateDirectory(
+            ".stage"
+        );
+
+        using LinuxOpenedChildHandle staging =
+            fixture.OpenDirectory(
+                ".stage"
+            );
+
+        LinuxDirectoryIncarnationIdentity identity =
+            fixture.CaptureIdentity(
+                staging,
+                ".stage"
+            );
+
+        LinuxPublishOwnedDirectoryAtResult result =
+            LinuxPublishOwnedDirectoryAt.Publish(
+                fixture.Parent,
+                ".stage",
+                destinationChildName,
+                staging,
+                identity
+            );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            LinuxPublishOwnedDirectoryAtState.InvalidName,
+            result.State
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.PathFor(
+                    ".stage"
+                )
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.PathFor(
+                    "Final"
+                )
+            )
+        );
+    }
+
     private static void AssertSameIdentity(
         LinuxDirectoryIncarnationIdentity expected,
         LinuxDirectoryIncarnationIdentity actual)

@@ -709,6 +709,7 @@ public sealed class LinuxReplaceOwnedFileAtTests
     [InlineData("child/file")]
     [InlineData(@"child\file")]
     [InlineData("")]
+    [InlineData("\0")]
     public void Replace_InvalidSourceName_IsRejected(
         string sourceName)
     {

@@ -602,6 +602,7 @@ public sealed class LinuxCreateFileAtExclusiveTests
     [InlineData("child/file.nif")]
     [InlineData(@"child\file.nif")]
     [InlineData("")]
+    [InlineData("\0")]
     public void Create_InvalidChildName_IsRejectedWithoutCreatingAnything(
         string childName)
     {

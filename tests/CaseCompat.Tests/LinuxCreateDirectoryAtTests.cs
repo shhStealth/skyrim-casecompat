@@ -415,6 +415,7 @@ public sealed class LinuxCreateDirectoryAtTests
     [InlineData("child/grandchild")]
     [InlineData(@"child\\grandchild")]
     [InlineData("")]
+    [InlineData("\0")]
     public void Create_InvalidChildName_IsRejectedWithoutCreatingAnything(
         string childName)
     {

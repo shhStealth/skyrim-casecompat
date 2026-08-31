@@ -760,6 +760,7 @@ public sealed class LinuxPublishUnnamedFileAtTests
     [InlineData("child/file.nif")]
     [InlineData(@"child\file.nif")]
     [InlineData("")]
+    [InlineData("\0")]
     public void Publish_InvalidChildName_IsRejectedWithoutCreatingAnything(
         string childName)
     {
