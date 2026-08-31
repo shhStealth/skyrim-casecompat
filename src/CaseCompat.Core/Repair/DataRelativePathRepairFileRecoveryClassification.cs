@@ -37,6 +37,7 @@ public sealed record
             ParentValidation,
         LinuxOpenChildReadOnlyAtState? DestinationOpenState,
         LinuxOpenedFileIdentityResult? DestinationIdentity,
+        LinuxOpenedFileSnapshotResult? DestinationSnapshot,
         string? Error
     )
 {
@@ -54,5 +55,16 @@ public sealed record
         DestinationIdentity is not null &&
         Journal.PreparedFileIdentity.SameObjectAs(
             DestinationIdentity
+        );
+
+    public bool DestinationContentMatchesSourceSnapshot =>
+        DestinationSnapshot is not null &&
+        DestinationSnapshot.Success &&
+        DestinationSnapshot.Size ==
+            Journal.SourceSnapshot.Size &&
+        string.Equals(
+            DestinationSnapshot.Sha256,
+            Journal.SourceSnapshot.Sha256,
+            StringComparison.OrdinalIgnoreCase
         );
 }

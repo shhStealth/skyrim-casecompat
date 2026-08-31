@@ -244,10 +244,77 @@ public static class DataRelativePathRepairFileRecoveryClassifier
         LinuxOpenedFileIdentityResult preparedIdentity =
             journal.PreparedFileIdentity!;
 
-        bool matches =
+        LinuxOpenedFileSnapshotResult destinationSnapshot =
+            LinuxOpenedFileSnapshot.Capture(
+                destination,
+                journal.Operation.DestinationPath
+            );
+
+        if (!destinationSnapshot.Success)
+        {
+            return Result(
+                DataRelativePathRepairFileRecoveryState
+                    .DestinationInspectionFailed,
+                journal,
+                parentValidation:
+                    parentAcquisition.Validation,
+                destinationOpenState:
+                    opened.State,
+                destinationIdentity:
+                    destinationIdentity,
+                destinationSnapshot:
+                    destinationSnapshot,
+                error:
+                    destinationSnapshot.Error ??
+                    destinationSnapshot.State.ToString()
+            );
+        }
+
+        bool identityMatches =
             preparedIdentity.SameObjectAs(
                 destinationIdentity
             );
+
+        bool sizeMatches =
+            destinationSnapshot.Size ==
+            journal.SourceSnapshot.Size;
+
+        bool hashMatches =
+            string.Equals(
+                destinationSnapshot.Sha256,
+                journal.SourceSnapshot.Sha256,
+                StringComparison.OrdinalIgnoreCase
+            );
+
+        bool matches =
+            identityMatches &&
+            sizeMatches &&
+            hashMatches;
+
+        string? mismatchReason =
+            null;
+
+        if (!identityMatches)
+        {
+            mismatchReason =
+                "The destination inode does not match the " +
+                "inode recorded while the repair file was " +
+                "Prepared.";
+        }
+        else if (!sizeMatches)
+        {
+            mismatchReason =
+                "The destination inode matches the Prepared " +
+                "inode, but its size does not match the " +
+                "journal source snapshot.";
+        }
+        else if (!hashMatches)
+        {
+            mismatchReason =
+                "The destination inode and size match the " +
+                "Prepared evidence, but its SHA-256 does not " +
+                "match the journal source snapshot.";
+        }
 
         return Result(
             matches
@@ -264,12 +331,10 @@ public static class DataRelativePathRepairFileRecoveryClassifier
                 opened.State,
             destinationIdentity:
                 destinationIdentity,
+            destinationSnapshot:
+                destinationSnapshot,
             error:
-                matches
-                    ? null
-                    : "The destination inode does not match " +
-                      "the inode recorded while the repair " +
-                      "file was Prepared."
+                mismatchReason
         );
     }
 
@@ -389,6 +454,8 @@ public static class DataRelativePathRepairFileRecoveryClassifier
                 destinationOpenState = null,
             LinuxOpenedFileIdentityResult?
                 destinationIdentity = null,
+            LinuxOpenedFileSnapshotResult?
+                destinationSnapshot = null,
             string? error = null)
     {
         return new
@@ -403,6 +470,8 @@ public static class DataRelativePathRepairFileRecoveryClassifier
                     destinationOpenState,
                 DestinationIdentity:
                     destinationIdentity,
+                DestinationSnapshot:
+                    destinationSnapshot,
                 Error:
                     error
             );

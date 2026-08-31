@@ -1,5 +1,7 @@
 using CaseCompat.Core.Repair;
 using CaseCompat.Filesystem.Linux;
+using System.Security.Cryptography;
+using System.Text;
 using Xunit;
 
 namespace CaseCompat.Tests;
@@ -92,7 +94,7 @@ public sealed class
             new();
 
         fixture.WriteDestination(
-            "owned"
+            "source"
         );
 
         LinuxOpenedFileIdentityResult preparedIdentity =
@@ -155,13 +157,128 @@ public sealed class
     }
 
     [Fact]
+    public void Prepared_SameInodeSameSizeDifferentContent_IsConflict()
+    {
+        using Fixture fixture =
+            new();
+
+        fixture.WriteDestination(
+            "source"
+        );
+
+        LinuxOpenedFileIdentityResult preparedIdentity =
+            fixture.PreparedIdentityFromDestination();
+
+        fixture.OverwriteDestinationInPlace(
+            "mutant"
+        );
+
+        DataRelativePathRepairFileRecoveryClassification result =
+            DataRelativePathRepairFileRecoveryClassifier.Classify(
+                fixture.Prepared(
+                    preparedIdentity
+                )
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairFileRecoveryState
+                .PreparedDestinationConflict,
+            result.State
+        );
+
+        Assert.True(
+            result.DestinationMatchesPreparedIdentity
+        );
+
+        Assert.False(
+            result.DestinationContentMatchesSourceSnapshot
+        );
+
+        Assert.NotNull(
+            result.DestinationSnapshot
+        );
+
+        Assert.True(
+            result.DestinationSnapshot!.Success
+        );
+
+        Assert.Equal(
+            fixture.SourceLength,
+            result.DestinationSnapshot.Size
+        );
+
+        Assert.Contains(
+            "SHA-256",
+            result.Error
+        );
+    }
+
+    [Fact]
+    public void Prepared_SameInodeDifferentSize_IsConflict()
+    {
+        using Fixture fixture =
+            new();
+
+        fixture.WriteDestination(
+            "source"
+        );
+
+        LinuxOpenedFileIdentityResult preparedIdentity =
+            fixture.PreparedIdentityFromDestination();
+
+        fixture.OverwriteDestinationInPlace(
+            "source!"
+        );
+
+        DataRelativePathRepairFileRecoveryClassification result =
+            DataRelativePathRepairFileRecoveryClassifier.Classify(
+                fixture.Prepared(
+                    preparedIdentity
+                )
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairFileRecoveryState
+                .PreparedDestinationConflict,
+            result.State
+        );
+
+        Assert.True(
+            result.DestinationMatchesPreparedIdentity
+        );
+
+        Assert.False(
+            result.DestinationContentMatchesSourceSnapshot
+        );
+
+        Assert.NotNull(
+            result.DestinationSnapshot
+        );
+
+        Assert.True(
+            result.DestinationSnapshot!.Success
+        );
+
+        Assert.NotEqual(
+            fixture.SourceLength,
+            result.DestinationSnapshot.Size
+        );
+
+        Assert.Contains(
+            "size",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase
+        );
+    }
+
+    [Fact]
     public void Applied_MatchingDestination_IsConsistent()
     {
         using Fixture fixture =
             new();
 
         fixture.WriteDestination(
-            "owned"
+            "source"
         );
 
         LinuxOpenedFileIdentityResult preparedIdentity =
@@ -224,7 +341,7 @@ public sealed class
             new();
 
         fixture.WriteDestination(
-            "owned"
+            "source"
         );
 
         LinuxOpenedFileIdentityResult preparedIdentity =
@@ -530,6 +647,11 @@ public sealed class
 
         public string DestinationPath { get; }
 
+        public long SourceLength =>
+            Encoding.UTF8.GetByteCount(
+                "source"
+            );
+
         public DataRelativePathRepairDestinationParentSnapshot
             ParentSnapshot { get; }
 
@@ -555,9 +677,12 @@ public sealed class
                         Size:
                             6,
                         Sha256:
-                            new string(
-                                'A',
-                                64
+                            Convert.ToHexString(
+                                SHA256.HashData(
+                                    Encoding.UTF8.GetBytes(
+                                        "source"
+                                    )
+                                )
                             ),
                         Identity:
                             new LinuxFileIdentityResult(
@@ -629,6 +754,39 @@ public sealed class
             File.WriteAllText(
                 DestinationPath,
                 text
+            );
+        }
+
+        public void OverwriteDestinationInPlace(
+            string text)
+        {
+            byte[] bytes =
+                Encoding.UTF8.GetBytes(
+                    text
+                );
+
+            using FileStream stream =
+                new(
+                    DestinationPath,
+                    FileMode.Open,
+                    FileAccess.Write,
+                    FileShare.None
+                );
+
+            stream.SetLength(
+                bytes.LongLength
+            );
+
+            stream.Position =
+                0;
+
+            stream.Write(
+                bytes
+            );
+
+            stream.Flush(
+                flushToDisk:
+                    true
             );
         }
 
