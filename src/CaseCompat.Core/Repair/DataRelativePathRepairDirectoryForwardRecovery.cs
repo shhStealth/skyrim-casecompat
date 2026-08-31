@@ -8,6 +8,8 @@ public enum DataRelativePathRepairDirectoryForwardRecoveryState
 
     LockUnavailable,
     JournalReadFailed,
+    InvalidExpectedJournalIdentity,
+    JournalIncarnationChanged,
     RecoveryStateNotEligible,
 
     DestinationParentValidationFailed,

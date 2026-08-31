@@ -368,7 +368,8 @@ public static class DataRelativePathRepairPlanForwardExecutor
                                 journalDirectory,
                                 entry.JournalChildName,
                                 trustedDataRoot,
-                                nowUtc
+                                nowUtc,
+                                read.JournalIncarnationIdentity!
                             );
 
                     if (!intentRecovery.Success)
@@ -410,7 +411,8 @@ public static class DataRelativePathRepairPlanForwardExecutor
                                 journalDirectory,
                                 entry.JournalChildName,
                                 trustedDataRoot,
-                                nowUtc
+                                nowUtc,
+                                read.JournalIncarnationIdentity!
                             );
 
                     if (!reprepareRecovery.Success)
@@ -452,7 +454,8 @@ public static class DataRelativePathRepairPlanForwardExecutor
                                 journalDirectory,
                                 entry.JournalChildName,
                                 trustedDataRoot,
-                                nowUtc
+                                nowUtc,
+                                read.JournalIncarnationIdentity!
                             );
 
                     if (!forwardRecovery.Success)
@@ -843,7 +846,8 @@ public static class DataRelativePathRepairPlanForwardExecutor
                                 journalDirectory,
                                 entry.JournalChildName,
                                 trustedDataRoot,
-                                nowUtc
+                                nowUtc,
+                                read.JournalIncarnationIdentity!
                             );
 
                     if (!forwardRecovery.Success)

@@ -9,11 +9,27 @@ public static class
         LinuxNoFollowPathHandle journalDirectory,
         string journalChildName,
         string trustedDataRoot,
-        DateTimeOffset nowUtc)
+        DateTimeOffset nowUtc,
+        LinuxFileIncarnationIdentity?
+            expectedCurrentJournalIncarnation = null)
     {
         ArgumentNullException.ThrowIfNull(
             journalDirectory
         );
+
+        if (
+            expectedCurrentJournalIncarnation is not null &&
+            !expectedCurrentJournalIncarnation.Success)
+        {
+            return Result(
+                DataRelativePathRepairFileForwardRecoveryState
+                    .InvalidExpectedJournalIdentity,
+                error:
+                    "File forward recovery requires a usable generation-aware " +
+                    "identity when the caller binds recovery to an " +
+                    "earlier journal read."
+            );
+        }
 
         /*
          * Lock before reading the journal so cooperating
@@ -59,6 +75,30 @@ public static class
                 error:
                     read.Error ??
                     read.State.ToString()
+            );
+        }
+
+        if (
+            expectedCurrentJournalIncarnation is not null &&
+            (
+                read.JournalIncarnationIdentity is null ||
+                !expectedCurrentJournalIncarnation
+                    .SameIncarnationAs(
+                        read.JournalIncarnationIdentity
+                    )
+            ))
+        {
+            return Result(
+                DataRelativePathRepairFileForwardRecoveryState
+                    .JournalIncarnationChanged,
+                lockState:
+                    lockResult.State,
+                journalRead:
+                    read,
+                error:
+                    "The recovery journal changed after the caller " +
+                    "read and bound it. Recovery is refused before " +
+                    "classification or filesystem mutation."
             );
         }
 

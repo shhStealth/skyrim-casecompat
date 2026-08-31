@@ -9,11 +9,27 @@ public static class
         LinuxNoFollowPathHandle journalDirectory,
         string journalChildName,
         string trustedDataRoot,
-        DateTimeOffset nowUtc)
+        DateTimeOffset nowUtc,
+        LinuxFileIncarnationIdentity?
+            expectedCurrentJournalIncarnation = null)
     {
         ArgumentNullException.ThrowIfNull(
             journalDirectory
         );
+
+        if (
+            expectedCurrentJournalIncarnation is not null &&
+            !expectedCurrentJournalIncarnation.Success)
+        {
+            return Result(
+                DataRelativePathRepairDirectoryReprepareRecoveryState
+                    .InvalidExpectedJournalIdentity,
+                error:
+                    "Directory re-preparation requires a usable generation-aware " +
+                    "identity when the caller binds recovery to an " +
+                    "earlier journal read."
+            );
+        }
 
         LinuxExclusiveDirectoryLockResult lockResult =
             LinuxExclusiveDirectoryLock.Acquire(
@@ -54,6 +70,30 @@ public static class
                 error:
                     read.Error ??
                     read.State.ToString()
+            );
+        }
+
+        if (
+            expectedCurrentJournalIncarnation is not null &&
+            (
+                read.JournalIncarnationIdentity is null ||
+                !expectedCurrentJournalIncarnation
+                    .SameIncarnationAs(
+                        read.JournalIncarnationIdentity
+                    )
+            ))
+        {
+            return Result(
+                DataRelativePathRepairDirectoryReprepareRecoveryState
+                    .JournalIncarnationChanged,
+                lockState:
+                    lockResult.State,
+                journalRead:
+                    read,
+                error:
+                    "The recovery journal changed after the caller " +
+                    "read and bound it. Recovery is refused before " +
+                    "classification or filesystem mutation."
             );
         }
 

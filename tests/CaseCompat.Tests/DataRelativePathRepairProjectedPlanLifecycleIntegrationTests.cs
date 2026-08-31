@@ -528,6 +528,408 @@ public sealed class
         );
     }
 
+    [Fact]
+    public void
+        GuardedRecoveryActions_DifferentJournalIncarnation_IsRejected()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathResolution resolution =
+            fixture.ResolveRequestedPath();
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector.Project(
+                resolution
+            );
+
+        Assert.True(
+            projection.HasPlan,
+            projection.Error
+        );
+
+        DataRelativePathRepairPlanManifestRecord manifest =
+            fixture.PersistManifest(
+                resolution,
+                projection
+            );
+
+        DataRelativePathRepairPlanForwardExecution execution =
+            DataRelativePathRepairPlanForwardExecutor.Execute(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot,
+                T0.AddSeconds(10)
+            );
+
+        if (NoReplaceUnsupported(execution))
+        {
+            return;
+        }
+
+        Assert.True(
+            execution.Success,
+            execution.Error
+        );
+
+        DataRelativePathRepairPlanManifestOperation outerEntry =
+            manifest.Operations[0];
+
+        DataRelativePathRepairPlanManifestOperation innerEntry =
+            manifest.Operations[1];
+
+        DataRelativePathRepairPlanManifestOperation fileEntry =
+            manifest.Operations[2];
+
+        DataRelativePathRepairDirectoryJournalReaderResult outerRead =
+            DataRelativePathRepairDirectoryJournalReader.Read(
+                fixture.JournalDirectory,
+                outerEntry.JournalChildName
+            );
+
+        DataRelativePathRepairDirectoryJournalReaderResult innerRead =
+            DataRelativePathRepairDirectoryJournalReader.Read(
+                fixture.JournalDirectory,
+                innerEntry.JournalChildName
+            );
+
+        DataRelativePathRepairFileJournalReaderResult fileRead =
+            DataRelativePathRepairFileJournalReader.Read(
+                fixture.JournalDirectory,
+                fileEntry.JournalChildName
+            );
+
+        Assert.True(
+            outerRead.Success,
+            outerRead.Error
+        );
+
+        Assert.True(
+            innerRead.Success,
+            innerRead.Error
+        );
+
+        Assert.True(
+            fileRead.Success,
+            fileRead.Error
+        );
+
+        LinuxFileIncarnationIdentity outerJournalIdentity =
+            outerRead.JournalIncarnationIdentity!;
+
+        LinuxFileIncarnationIdentity innerJournalIdentity =
+            innerRead.JournalIncarnationIdentity!;
+
+        LinuxFileIncarnationIdentity fileJournalIdentity =
+            fileRead.JournalIncarnationIdentity!;
+
+        Assert.False(
+            outerJournalIdentity.SameIncarnationAs(
+                innerJournalIdentity
+            )
+        );
+
+        Assert.False(
+            outerJournalIdentity.SameIncarnationAs(
+                fileJournalIdentity
+            )
+        );
+
+        JournalCheckpoint[] before =
+            fixture.CaptureJournalCheckpoints(
+                manifest
+            );
+
+        DataRelativePathRepairDirectoryIntentRecovery intent =
+            DataRelativePathRepairDirectoryIntentRecoveryAction.Recover(
+                fixture.JournalDirectory,
+                outerEntry.JournalChildName,
+                fixture.DataRoot,
+                T0.AddSeconds(20),
+                innerJournalIdentity
+            );
+
+        Assert.False(
+            intent.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryIntentRecoveryState
+                .JournalIncarnationChanged,
+            intent.State
+        );
+
+        Assert.Null(
+            intent.Classification
+        );
+
+        DataRelativePathRepairDirectoryReprepareRecovery reprepare =
+            DataRelativePathRepairDirectoryReprepareRecoveryAction.Recover(
+                fixture.JournalDirectory,
+                outerEntry.JournalChildName,
+                fixture.DataRoot,
+                T0.AddSeconds(21),
+                innerJournalIdentity
+            );
+
+        Assert.False(
+            reprepare.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryReprepareRecoveryState
+                .JournalIncarnationChanged,
+            reprepare.State
+        );
+
+        Assert.Null(
+            reprepare.Classification
+        );
+
+        DataRelativePathRepairDirectoryForwardRecovery directoryForward =
+            DataRelativePathRepairDirectoryForwardRecoveryAction.Recover(
+                fixture.JournalDirectory,
+                outerEntry.JournalChildName,
+                fixture.DataRoot,
+                T0.AddSeconds(22),
+                innerJournalIdentity
+            );
+
+        Assert.False(
+            directoryForward.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryForwardRecoveryState
+                .JournalIncarnationChanged,
+            directoryForward.State
+        );
+
+        Assert.Null(
+            directoryForward.Classification
+        );
+
+        DataRelativePathRepairFileForwardRecovery fileForward =
+            DataRelativePathRepairFileForwardRecoveryAction.Recover(
+                fixture.JournalDirectory,
+                fileEntry.JournalChildName,
+                fixture.DataRoot,
+                T0.AddSeconds(23),
+                outerJournalIdentity
+            );
+
+        Assert.False(
+            fileForward.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairFileForwardRecoveryState
+                .JournalIncarnationChanged,
+            fileForward.State
+        );
+
+        Assert.Null(
+            fileForward.Classification
+        );
+
+        JournalCheckpoint[] after =
+            fixture.CaptureJournalCheckpoints(
+                manifest
+            );
+
+        Assert.Equal(
+            before,
+            after
+        );
+
+        fixture.AssertAllOperationJournalsApplied(
+            manifest
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.DestinationPath
+            )
+        );
+    }
+
+    [Fact]
+    public void
+        GuardedRecoveryActions_InvalidExpectedJournalIncarnation_IsRejected()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        var invalidExpected =
+            new LinuxFileIncarnationIdentity(
+                PhysicalIdentity:
+                    new LinuxOpenedFileIdentityResult(
+                        State:
+                            LinuxOpenedFileIdentityState
+                                .MetadataUnavailable,
+                        DeviceMajor:
+                            null,
+                        DeviceMinor:
+                            null,
+                        Inode:
+                            null,
+                        LinkCount:
+                            null,
+                        MountId:
+                            null,
+                        Errno:
+                            null,
+                        Error:
+                            "fixture"
+                    ),
+                InodeGeneration:
+                    0U
+            );
+
+        Assert.False(
+            invalidExpected.Success
+        );
+
+        DataRelativePathRepairDirectoryIntentRecovery intent =
+            DataRelativePathRepairDirectoryIntentRecoveryAction.Recover(
+                fixture.JournalDirectory,
+                "missing-intent.json",
+                fixture.DataRoot,
+                T0.AddSeconds(30),
+                invalidExpected
+            );
+
+        Assert.False(
+            intent.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryIntentRecoveryState
+                .InvalidExpectedJournalIdentity,
+            intent.State
+        );
+
+        Assert.Null(
+            intent.LockState
+        );
+
+        Assert.Null(
+            intent.JournalRead
+        );
+
+        Assert.Null(
+            intent.Classification
+        );
+
+        DataRelativePathRepairDirectoryReprepareRecovery reprepare =
+            DataRelativePathRepairDirectoryReprepareRecoveryAction.Recover(
+                fixture.JournalDirectory,
+                "missing-reprepare.json",
+                fixture.DataRoot,
+                T0.AddSeconds(31),
+                invalidExpected
+            );
+
+        Assert.False(
+            reprepare.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryReprepareRecoveryState
+                .InvalidExpectedJournalIdentity,
+            reprepare.State
+        );
+
+        Assert.Null(
+            reprepare.LockState
+        );
+
+        Assert.Null(
+            reprepare.JournalRead
+        );
+
+        Assert.Null(
+            reprepare.Classification
+        );
+
+        DataRelativePathRepairDirectoryForwardRecovery directoryForward =
+            DataRelativePathRepairDirectoryForwardRecoveryAction.Recover(
+                fixture.JournalDirectory,
+                "missing-directory-forward.json",
+                fixture.DataRoot,
+                T0.AddSeconds(32),
+                invalidExpected
+            );
+
+        Assert.False(
+            directoryForward.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryForwardRecoveryState
+                .InvalidExpectedJournalIdentity,
+            directoryForward.State
+        );
+
+        Assert.Null(
+            directoryForward.LockState
+        );
+
+        Assert.Null(
+            directoryForward.JournalRead
+        );
+
+        Assert.Null(
+            directoryForward.Classification
+        );
+
+        DataRelativePathRepairFileForwardRecovery fileForward =
+            DataRelativePathRepairFileForwardRecoveryAction.Recover(
+                fixture.JournalDirectory,
+                "missing-file-forward.json",
+                fixture.DataRoot,
+                T0.AddSeconds(33),
+                invalidExpected
+            );
+
+        Assert.False(
+            fileForward.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairFileForwardRecoveryState
+                .InvalidExpectedJournalIdentity,
+            fileForward.State
+        );
+
+        Assert.Null(
+            fileForward.LockState
+        );
+
+        Assert.Null(
+            fileForward.JournalRead
+        );
+
+        Assert.Null(
+            fileForward.Classification
+        );
+    }
+
     private static bool NoReplaceUnsupported(
         DataRelativePathRepairPlanForwardExecution execution)
     {
