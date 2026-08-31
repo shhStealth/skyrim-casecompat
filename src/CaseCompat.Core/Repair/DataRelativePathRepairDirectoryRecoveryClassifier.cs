@@ -17,6 +17,7 @@ public static class
         ChildObservationState State,
         LinuxOpenChildReadOnlyAtState? OpenState,
         LinuxOpenedDirectorySnapshotResult? Snapshot,
+        LinuxOpenedDirectoryIncarnationResult? Incarnation,
         string? Error
     );
 
@@ -91,29 +92,40 @@ public static class
                 parentAcquisition.Lease!;
 
         /*
-         * Directory journals deliberately require MountId in
-         * their ownership evidence.
+         * The shared destination-parent lease is also used by file
+         * repair, so inode-generation capture remains optional at
+         * that shared layer.
          *
-         * The shared destination-parent validator predates that
-         * stronger requirement and its LinuxFileIdentityResult
-         * SameObjectAs() comparison does not include MountId.
-         *
-         * Do not change the proven file-repair validator here.
-         * Instead add the stronger directory-specific check after
-         * successful lease acquisition.
+         * Directory-journal recovery is stronger: persisted ownership
+         * authority requires the exact directory incarnation captured
+         * from the retained parent descriptor.
          */
-        LinuxFileIdentityResult expectedParentIdentity =
-            journal.DestinationParentSnapshot.Identity;
-
-        LinuxFileIdentityResult? actualParentIdentity =
-            parent.ActualSnapshot.Identity;
+        if (
+            !parent.ActualIncarnation.Success ||
+            parent.IncarnationIdentity is null)
+        {
+            return Result(
+                DataRelativePathRepairDirectoryRecoveryState
+                    .DestinationParentValidationFailed,
+                journal,
+                parentValidation:
+                    parentAcquisition.Validation,
+                error:
+                    "The destination parent could not provide " +
+                    "generation-aware incarnation identity from the " +
+                    "retained directory descriptor: " +
+                    (
+                        parent.ActualIncarnation.Error ??
+                        parent.ActualIncarnation.State.ToString()
+                    )
+            );
+        }
 
         if (
-            actualParentIdentity is null ||
-            !SameDirectoryObject(
-                expectedParentIdentity,
-                actualParentIdentity
-            ))
+            !journal.DestinationParentIncarnationIdentity
+                .SameIncarnationAs(
+                    parent.IncarnationIdentity
+                ))
         {
             return Result(
                 DataRelativePathRepairDirectoryRecoveryState
@@ -123,8 +135,8 @@ public static class
                     parentAcquisition.Validation,
                 error:
                     "The destination parent does not match the " +
-                    "complete mount-aware physical identity " +
-                    "recorded by the directory journal."
+                    "generation-aware directory incarnation recorded " +
+                    "by the durable journal."
             );
         }
 
@@ -160,6 +172,8 @@ public static class
                     final.OpenState,
                 finalSnapshot:
                     final.Snapshot,
+                finalIncarnation:
+                    final.Incarnation,
                 error:
                     final.Error
             );
@@ -188,6 +202,8 @@ public static class
                     final.OpenState,
                 finalSnapshot:
                     final.Snapshot,
+                finalIncarnation:
+                    final.Incarnation,
                 error:
                     final.State ==
                     ChildObservationState.Missing
@@ -226,34 +242,36 @@ public static class
                     staging.OpenState,
                 stagingSnapshot:
                     staging.Snapshot,
+                stagingIncarnation:
+                    staging.Incarnation,
                 finalOpenState:
                     final.OpenState,
                 finalSnapshot:
                     final.Snapshot,
+                finalIncarnation:
+                    final.Incarnation,
                 error:
                     staging.Error
             );
         }
 
-        LinuxFileIdentityResult preparedIdentity =
-            journal.PreparedDirectoryIdentity!;
+        LinuxDirectoryIncarnationIdentity preparedIdentity =
+            journal.PreparedDirectoryIncarnationIdentity!;
 
         bool stagingMatches =
             staging.State ==
                 ChildObservationState.Directory &&
-            staging.Snapshot?.Identity is not null &&
-            SameDirectoryObject(
-                preparedIdentity,
-                staging.Snapshot.Identity
+            staging.Incarnation?.Identity is not null &&
+            preparedIdentity.SameIncarnationAs(
+                staging.Incarnation.Identity
             );
 
         bool finalMatches =
             final.State ==
                 ChildObservationState.Directory &&
-            final.Snapshot?.Identity is not null &&
-            SameDirectoryObject(
-                preparedIdentity,
-                final.Snapshot.Identity
+            final.Incarnation?.Identity is not null &&
+            preparedIdentity.SameIncarnationAs(
+                final.Incarnation.Identity
             );
 
         return journal.State switch
@@ -357,6 +375,8 @@ public static class
                     staging.OpenState,
                 stagingSnapshot:
                     staging.Snapshot,
+                stagingIncarnation:
+                    staging.Incarnation,
                 finalOpenState:
                     final.OpenState
             );
@@ -378,7 +398,9 @@ public static class
                 finalOpenState:
                     final.OpenState,
                 finalSnapshot:
-                    final.Snapshot
+                    final.Snapshot,
+                finalIncarnation:
+                    final.Incarnation
             );
         }
 
@@ -392,10 +414,14 @@ public static class
                 staging.OpenState,
             stagingSnapshot:
                 staging.Snapshot,
+            stagingIncarnation:
+                staging.Incarnation,
             finalOpenState:
                 final.OpenState,
             finalSnapshot:
                 final.Snapshot,
+            finalIncarnation:
+                final.Incarnation,
             error:
                 PreparedConflictReason(
                     staging,
@@ -451,7 +477,9 @@ public static class
                 finalOpenState:
                     final.OpenState,
                 finalSnapshot:
-                    final.Snapshot
+                    final.Snapshot,
+                finalIncarnation:
+                    final.Incarnation
             );
         }
 
@@ -465,14 +493,18 @@ public static class
                 staging.OpenState,
             stagingSnapshot:
                 staging.Snapshot,
+            stagingIncarnation:
+                staging.Incarnation,
             finalOpenState:
                 final.OpenState,
             finalSnapshot:
                 final.Snapshot,
+            finalIncarnation:
+                final.Incarnation,
             error:
                 "Applied state requires the recorded staging name " +
                 "to be absent and the final destination to identify " +
-                "the prepared directory inode."
+                "the prepared directory incarnation."
         );
     }
 
@@ -521,7 +553,9 @@ public static class
                 finalOpenState:
                     final.OpenState,
                 finalSnapshot:
-                    final.Snapshot
+                    final.Snapshot,
+                finalIncarnation:
+                    final.Incarnation
             );
         }
 
@@ -535,10 +569,14 @@ public static class
                 staging.OpenState,
             stagingSnapshot:
                 staging.Snapshot,
+            stagingIncarnation:
+                staging.Incarnation,
             finalOpenState:
                 final.OpenState,
             finalSnapshot:
                 final.Snapshot,
+            finalIncarnation:
+                final.Incarnation,
             error:
                 "RollbackRequested requires the staging name to " +
                 "be absent and the final destination either to be " +
@@ -584,10 +622,14 @@ public static class
                 staging.OpenState,
             stagingSnapshot:
                 staging.Snapshot,
+            stagingIncarnation:
+                staging.Incarnation,
             finalOpenState:
                 final.OpenState,
             finalSnapshot:
                 final.Snapshot,
+            finalIncarnation:
+                final.Incarnation,
             error:
                 "RolledBack requires both the recorded staging " +
                 "name and final destination name to be absent."
@@ -618,6 +660,8 @@ public static class
                         opened.State,
                     Snapshot:
                         null,
+                    Incarnation:
+                        null,
                     Error:
                         null
                 );
@@ -635,6 +679,8 @@ public static class
                         opened.State,
                     Snapshot:
                         null,
+                    Incarnation:
+                        null,
                     Error:
                         "The namespace entry is occupied by a " +
                         "symbolic link."
@@ -648,6 +694,8 @@ public static class
                     opened.State,
                 Snapshot:
                     null,
+                Incarnation:
+                    null,
                 Error:
                     opened.Error ??
                     opened.State.ToString()
@@ -657,15 +705,15 @@ public static class
         using LinuxOpenedChildHandle child =
             opened.OpenedChild!;
 
-        LinuxOpenedDirectorySnapshotResult snapshot =
-            LinuxOpenedDirectorySnapshot.Capture(
+        LinuxOpenedDirectoryIncarnationResult incarnation =
+            LinuxOpenedDirectoryIncarnation.Capture(
                 child,
                 displayPath
             );
 
         if (
-            snapshot.State ==
-            LinuxOpenedDirectorySnapshotState.NotDirectory)
+            incarnation.State ==
+            LinuxOpenedDirectoryIncarnationState.NotDirectory)
         {
             return new(
                 State:
@@ -673,26 +721,16 @@ public static class
                 OpenState:
                     opened.State,
                 Snapshot:
-                    snapshot,
+                    incarnation.Snapshot,
+                Incarnation:
+                    incarnation,
                 Error:
                     "The namespace entry is occupied by a " +
                     "non-directory object."
             );
         }
 
-        bool usableDirectoryIdentity =
-            snapshot.Identity is not null &&
-            HasCompleteIdentity(
-                snapshot.Identity
-            ) &&
-            (
-                snapshot.State ==
-                    LinuxOpenedDirectorySnapshotState.Captured ||
-                snapshot.State ==
-                    LinuxOpenedDirectorySnapshotState.FlagsUnavailable
-            );
-
-        if (!usableDirectoryIdentity)
+        if (!incarnation.Success)
         {
             return new(
                 State:
@@ -700,10 +738,12 @@ public static class
                 OpenState:
                     opened.State,
                 Snapshot:
-                    snapshot,
+                    incarnation.Snapshot,
+                Incarnation:
+                    incarnation,
                 Error:
-                    snapshot.Error ??
-                    snapshot.State.ToString()
+                    incarnation.Error ??
+                    incarnation.State.ToString()
             );
         }
 
@@ -713,7 +753,9 @@ public static class
             OpenState:
                 opened.State,
             Snapshot:
-                snapshot,
+                incarnation.Snapshot,
+            Incarnation:
+                incarnation,
             Error:
                 null
         );
@@ -753,7 +795,7 @@ public static class
         {
             return
                 "The final destination identifies a directory " +
-                "other than the inode recorded while Prepared.";
+                "other than the directory incarnation recorded while Prepared.";
         }
 
         return
@@ -761,34 +803,6 @@ public static class
             final.Error ??
             "The live namespace does not match a valid Prepared " +
             "directory transaction state.";
-    }
-
-    private static bool SameDirectoryObject(
-        LinuxFileIdentityResult left,
-        LinuxFileIdentityResult right)
-    {
-        return
-            HasCompleteIdentity(left) &&
-            HasCompleteIdentity(right) &&
-            left.DeviceMajor ==
-                right.DeviceMajor &&
-            left.DeviceMinor ==
-                right.DeviceMinor &&
-            left.Inode ==
-                right.Inode &&
-            left.MountId ==
-                right.MountId;
-    }
-
-    private static bool HasCompleteIdentity(
-        LinuxFileIdentityResult identity)
-    {
-        return
-            identity.Success &&
-            identity.DeviceMajor is not null &&
-            identity.DeviceMinor is not null &&
-            identity.Inode is not null &&
-            identity.MountId is not null;
     }
 
     private static
@@ -802,10 +816,14 @@ public static class
                 stagingOpenState = null,
             LinuxOpenedDirectorySnapshotResult?
                 stagingSnapshot = null,
+            LinuxOpenedDirectoryIncarnationResult?
+                stagingIncarnation = null,
             LinuxOpenChildReadOnlyAtState?
                 finalOpenState = null,
             LinuxOpenedDirectorySnapshotResult?
                 finalSnapshot = null,
+            LinuxOpenedDirectoryIncarnationResult?
+                finalIncarnation = null,
             string? error = null)
     {
         return new
@@ -826,6 +844,12 @@ public static class
                     finalSnapshot,
                 Error:
                     error
-            );
+            )
+            {
+                StagingIncarnation =
+                    stagingIncarnation,
+                FinalIncarnation =
+                    finalIncarnation
+            };
     }
 }

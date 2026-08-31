@@ -47,6 +47,12 @@ public sealed record
         string? Error
     )
 {
+    public LinuxOpenedDirectoryIncarnationResult?
+        StagingIncarnation { get; init; }
+
+    public LinuxOpenedDirectoryIncarnationResult?
+        FinalIncarnation { get; init; }
+
     public bool ClassificationAvailable =>
         State is not
             DataRelativePathRepairDirectoryRecoveryState
@@ -56,53 +62,37 @@ public sealed record
             DataRelativePathRepairDirectoryRecoveryState
                 .DestinationInspectionFailed;
 
+    /*
+     * Compatibility views for callers that still need physical
+     * statx identity. Ownership matching itself is generation-aware.
+     */
     public LinuxFileIdentityResult? StagingIdentity =>
         StagingSnapshot?.Identity;
 
     public LinuxFileIdentityResult? FinalIdentity =>
         FinalSnapshot?.Identity;
 
+    public LinuxDirectoryIncarnationIdentity?
+        StagingIncarnationIdentity =>
+            StagingIncarnation?.Identity;
+
+    public LinuxDirectoryIncarnationIdentity?
+        FinalIncarnationIdentity =>
+            FinalIncarnation?.Identity;
+
     public bool StagingMatchesPreparedIdentity =>
-        Journal.PreparedDirectoryIdentity is not null &&
-        StagingIdentity is not null &&
-        SameDirectoryObject(
-            Journal.PreparedDirectoryIdentity,
-            StagingIdentity
-        );
+        Journal.PreparedDirectoryIncarnationIdentity is not null &&
+        StagingIncarnationIdentity is not null &&
+        Journal.PreparedDirectoryIncarnationIdentity
+            .SameIncarnationAs(
+                StagingIncarnationIdentity
+            );
 
     public bool FinalMatchesPreparedIdentity =>
-        Journal.PreparedDirectoryIdentity is not null &&
-        FinalIdentity is not null &&
-        SameDirectoryObject(
-            Journal.PreparedDirectoryIdentity,
-            FinalIdentity
-        );
-
-    private static bool SameDirectoryObject(
-        LinuxFileIdentityResult left,
-        LinuxFileIdentityResult right)
-    {
-        return
-            HasCompleteIdentity(left) &&
-            HasCompleteIdentity(right) &&
-            left.DeviceMajor ==
-                right.DeviceMajor &&
-            left.DeviceMinor ==
-                right.DeviceMinor &&
-            left.Inode ==
-                right.Inode &&
-            left.MountId ==
-                right.MountId;
-    }
-
-    private static bool HasCompleteIdentity(
-        LinuxFileIdentityResult identity)
-    {
-        return
-            identity.Success &&
-            identity.DeviceMajor is not null &&
-            identity.DeviceMinor is not null &&
-            identity.Inode is not null &&
-            identity.MountId is not null;
-    }
+        Journal.PreparedDirectoryIncarnationIdentity is not null &&
+        FinalIncarnationIdentity is not null &&
+        Journal.PreparedDirectoryIncarnationIdentity
+            .SameIncarnationAs(
+                FinalIncarnationIdentity
+            );
 }
