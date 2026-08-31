@@ -41,7 +41,7 @@ public static class LinuxRemoveOwnedFileAt
     public static LinuxRemoveOwnedFileAtResult Remove(
         LinuxNoFollowPathHandle parentDirectory,
         string childName,
-        LinuxOpenedFileIdentityResult expectedIdentity)
+        LinuxFileIncarnationIdentity expectedIdentity)
     {
         ArgumentNullException.ThrowIfNull(
             parentDirectory
@@ -86,8 +86,9 @@ public static class LinuxRemoveOwnedFileAt
                 childName,
                 expectedIdentity,
                 error:
-                    "Rollback requires a successfully captured " +
-                    "identity for the file CaseCompat published."
+                    "Rollback requires a complete descriptor-captured " +
+                    "file incarnation including device, inode, mount " +
+                    "ID, and inode generation."
             );
         }
 
@@ -146,37 +147,61 @@ public static class LinuxRemoveOwnedFileAt
         using LinuxOpenedChildHandle child =
             opened.OpenedChild!;
 
-        LinuxOpenedFileIdentityResult actualIdentity =
-            LinuxOpenedFileIdentity.Capture(
+        LinuxOpenedFileIncarnationResult incarnation =
+            LinuxOpenedFileIncarnation.Capture(
                 child
             );
 
-        if (!actualIdentity.Success)
+        if (
+            incarnation.State ==
+            LinuxOpenedFileIncarnationState
+                .NotRegularFile)
         {
-            LinuxRemoveOwnedFileAtState state =
-                actualIdentity.State ==
-                LinuxOpenedFileIdentityState
-                    .NotRegularFile
-                    ? LinuxRemoveOwnedFileAtState
-                        .ChildNotRegularFile
-                    : LinuxRemoveOwnedFileAtState
-                        .ChildIdentityUnavailable;
-
             return Result(
-                state,
+                LinuxRemoveOwnedFileAtState
+                    .ChildNotRegularFile,
                 childName,
                 expectedIdentity,
                 actualIdentity:
-                    actualIdentity,
+                    incarnation.Identity,
                 errno:
-                    actualIdentity.Errno,
+                    incarnation.PhysicalIdentity?.Errno,
                 error:
-                    actualIdentity.Error
+                    incarnation.Error ??
+                    "The current child is not a regular file."
             );
         }
 
+        /*
+         * Destructive file authority requires the complete
+         * incarnation captured from this exact opened descriptor.
+         *
+         * There is deliberately no fallback to device/inode/mount
+         * identity when inode-generation capture is unavailable.
+         */
+        if (!incarnation.Success)
+        {
+            return Result(
+                LinuxRemoveOwnedFileAtState
+                    .ChildIdentityUnavailable,
+                childName,
+                expectedIdentity,
+                actualIdentity:
+                    incarnation.Identity,
+                errno:
+                    incarnation.PhysicalIdentity?.Errno ??
+                    incarnation.GenerationCapture?.Errno,
+                error:
+                    incarnation.Error ??
+                    incarnation.State.ToString()
+            );
+        }
+
+        LinuxFileIncarnationIdentity actualIdentity =
+            incarnation.Identity!;
+
         if (
-            !expectedIdentity.SameObjectAs(
+            !expectedIdentity.SameIncarnationAs(
                 actualIdentity
             ))
         {
@@ -188,8 +213,8 @@ public static class LinuxRemoveOwnedFileAt
                 actualIdentity:
                     actualIdentity,
                 error:
-                    "The current child does not have the " +
-                    "identity of the file CaseCompat published."
+                    "The current child does not have the complete " +
+                    "file incarnation CaseCompat published."
             );
         }
 
@@ -240,12 +265,14 @@ public static class LinuxRemoveOwnedFileAt
              *
              * 1. open the direct child beneath the already-open
              *    parent with O_NOFOLLOW;
-             * 2. verify its descriptor identity;
-             * 3. perform exactly one unlinkat() immediately.
+             * 2. capture physical identity and inode generation
+             *    from that exact descriptor;
+             * 3. verify the complete expected file incarnation;
+             * 4. perform exactly one unlinkat() immediately.
              *
              * There remains a narrow race in which another
              * process with sufficient access could replace the
-             * directory entry between steps 2 and 3.
+             * directory entry between steps 3 and 4.
              *
              * Do not retry an unlink failure here.
              */
@@ -366,8 +393,8 @@ public static class LinuxRemoveOwnedFileAt
     private static LinuxRemoveOwnedFileAtResult Result(
         LinuxRemoveOwnedFileAtState state,
         string? childName,
-        LinuxOpenedFileIdentityResult expectedIdentity,
-        LinuxOpenedFileIdentityResult? actualIdentity = null,
+        LinuxFileIncarnationIdentity expectedIdentity,
+        LinuxFileIncarnationIdentity? actualIdentity = null,
         int? errno = null,
         string? error = null)
     {

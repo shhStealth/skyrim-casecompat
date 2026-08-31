@@ -330,6 +330,7 @@ public sealed class
         Assert.True(
             preparedIdentity.SameObjectAs(
                 recovery.RemoveResult.ActualIdentity!
+                    .PhysicalIdentity
             )
         );
 

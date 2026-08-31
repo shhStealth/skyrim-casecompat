@@ -59,14 +59,10 @@ public sealed class LinuxRemoveOwnedFileAtTests
             ).Success
         );
 
-        LinuxOpenedFileIdentityResult expected =
-            LinuxOpenedFileIdentity.Capture(
+        LinuxFileIncarnationIdentity expected =
+            CaptureIdentity(
                 unnamed
             );
-
-        Assert.True(
-            expected.Success
-        );
 
         Assert.True(
             LinuxPublishUnnamedFileAt.Publish(
@@ -138,7 +134,7 @@ public sealed class LinuxRemoveOwnedFileAtTests
             );
 
         Assert.True(
-            expected.SameObjectAs(
+            expected.PhysicalIdentity.SameObjectAs(
                 after
             )
         );
@@ -153,6 +149,96 @@ public sealed class LinuxRemoveOwnedFileAtTests
             LinuxFsync.Sync(
                 parent
             ).Success
+        );
+    }
+
+    [Fact]
+    public void Remove_SamePhysicalIdentityDifferentGeneration_RefusesFile()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var temp =
+            new TemporaryDirectory();
+
+        string finalPath =
+            Path.Combine(
+                temp.RootPath,
+                "Final.nif"
+            );
+
+        File.WriteAllText(
+            finalPath,
+            "owned"
+        );
+
+        using LinuxNoFollowPathHandle parent =
+            OpenRoot(
+                temp.RootPath
+            );
+
+        LinuxFileIncarnationIdentity actual =
+            CaptureIdentity(
+                parent,
+                "Final.nif"
+            );
+
+        LinuxFileIncarnationIdentity wrongGeneration =
+            actual with
+            {
+                InodeGeneration =
+                    actual.InodeGeneration ==
+                        uint.MaxValue
+                        ? 0U
+                        : actual.InodeGeneration + 1U
+            };
+
+        Assert.True(
+            wrongGeneration.PhysicalIdentity
+                .SameObjectAs(
+                    actual.PhysicalIdentity
+                )
+        );
+
+        Assert.False(
+            wrongGeneration.SameIncarnationAs(
+                actual
+            )
+        );
+
+        LinuxRemoveOwnedFileAtResult remove =
+            LinuxRemoveOwnedFileAt.Remove(
+                parent,
+                "Final.nif",
+                wrongGeneration
+            );
+
+        Assert.False(
+            remove.Success
+        );
+
+        Assert.Equal(
+            LinuxRemoveOwnedFileAtState.IdentityMismatch,
+            remove.State
+        );
+
+        Assert.NotNull(
+            remove.ActualIdentity
+        );
+
+        Assert.True(
+            actual.SameIncarnationAs(
+                remove.ActualIdentity!
+            )
+        );
+
+        Assert.Equal(
+            "owned",
+            File.ReadAllText(
+                finalPath
+            )
         );
     }
 
@@ -183,7 +269,7 @@ public sealed class LinuxRemoveOwnedFileAtTests
                 temp.RootPath
             );
 
-        LinuxOpenedFileIdentityResult expected =
+        LinuxFileIncarnationIdentity expected =
             CaptureIdentity(
                 parent,
                 "Final.nif"
@@ -283,7 +369,7 @@ public sealed class LinuxRemoveOwnedFileAtTests
                 temp.RootPath
             );
 
-        LinuxOpenedFileIdentityResult expected =
+        LinuxFileIncarnationIdentity expected =
             CaptureIdentity(
                 parent,
                 "owned.nif"
@@ -352,7 +438,7 @@ public sealed class LinuxRemoveOwnedFileAtTests
                 temp.RootPath
             );
 
-        LinuxOpenedFileIdentityResult expected =
+        LinuxFileIncarnationIdentity expected =
             CaptureIdentity(
                 parent,
                 "owned.nif"
@@ -409,7 +495,7 @@ public sealed class LinuxRemoveOwnedFileAtTests
                 temp.RootPath
             );
 
-        LinuxOpenedFileIdentityResult expected =
+        LinuxFileIncarnationIdentity expected =
             CaptureIdentity(
                 parent,
                 "owned.nif"
@@ -473,7 +559,7 @@ public sealed class LinuxRemoveOwnedFileAtTests
                 parentOpen.OpenedPath
             );
 
-        LinuxOpenedFileIdentityResult expected =
+        LinuxFileIncarnationIdentity expected =
             CaptureIdentity(
                 parent,
                 "Final.nif"
@@ -561,24 +647,29 @@ public sealed class LinuxRemoveOwnedFileAtTests
             );
 
         var invalidExpected =
-            new LinuxOpenedFileIdentityResult(
-                State:
-                    LinuxOpenedFileIdentityState
-                        .MetadataUnavailable,
-                DeviceMajor:
-                    null,
-                DeviceMinor:
-                    null,
-                Inode:
-                    null,
-                LinkCount:
-                    null,
-                MountId:
-                    null,
-                Errno:
-                    null,
-                Error:
-                    "fixture"
+            new LinuxFileIncarnationIdentity(
+                PhysicalIdentity:
+                    new LinuxOpenedFileIdentityResult(
+                        State:
+                            LinuxOpenedFileIdentityState
+                                .MetadataUnavailable,
+                        DeviceMajor:
+                            null,
+                        DeviceMinor:
+                            null,
+                        Inode:
+                            null,
+                        LinkCount:
+                            null,
+                        MountId:
+                            null,
+                        Errno:
+                            null,
+                        Error:
+                            "fixture"
+                    ),
+                InodeGeneration:
+                    0U
             );
 
         LinuxRemoveOwnedFileAtResult remove =
@@ -633,7 +724,7 @@ public sealed class LinuxRemoveOwnedFileAtTests
                 temp.RootPath
             );
 
-        LinuxOpenedFileIdentityResult expected =
+        LinuxFileIncarnationIdentity expected =
             CaptureIdentity(
                 parent,
                 "Final.nif"
@@ -698,14 +789,10 @@ public sealed class LinuxRemoveOwnedFileAtTests
                 parentOpen.OpenedPath
             );
 
-        LinuxOpenedFileIdentityResult expected =
-            LinuxOpenedFileIdentity.Capture(
+        LinuxFileIncarnationIdentity expected =
+            CaptureIdentity(
                 notDirectory
             );
-
-        Assert.True(
-            expected.Success
-        );
 
         LinuxRemoveOwnedFileAtResult remove =
             LinuxRemoveOwnedFileAt.Remove(
@@ -759,7 +846,7 @@ public sealed class LinuxRemoveOwnedFileAtTests
                 temp.RootPath
             );
 
-        LinuxOpenedFileIdentityResult expected =
+        LinuxFileIncarnationIdentity expected =
             CaptureIdentity(
                 parent,
                 "owned.nif"
@@ -790,7 +877,7 @@ public sealed class LinuxRemoveOwnedFileAtTests
         );
     }
 
-    private static LinuxOpenedFileIdentityResult CaptureIdentity(
+    private static LinuxFileIncarnationIdentity CaptureIdentity(
         LinuxNoFollowPathHandle parent,
         string childName)
     {
@@ -801,7 +888,8 @@ public sealed class LinuxRemoveOwnedFileAtTests
             );
 
         Assert.True(
-            opened.Success
+            opened.Success,
+            opened.Error
         );
 
         using LinuxOpenedChildHandle child =
@@ -811,16 +899,29 @@ public sealed class LinuxRemoveOwnedFileAtTests
                 opened.OpenedChild
             );
 
-        LinuxOpenedFileIdentityResult identity =
-            LinuxOpenedFileIdentity.Capture(
-                child
+        return CaptureIdentity(
+            child
+        );
+    }
+
+    private static LinuxFileIncarnationIdentity CaptureIdentity(
+        ILinuxOpenedHandle openedFile)
+    {
+        LinuxOpenedFileIncarnationResult capture =
+            LinuxOpenedFileIncarnation.Capture(
+                openedFile
             );
 
         Assert.True(
-            identity.Success
+            capture.Success,
+            capture.Error
         );
 
-        return identity;
+        return Assert.IsType<
+            LinuxFileIncarnationIdentity
+        >(
+            capture.Identity
+        );
     }
 
     private static LinuxNoFollowPathHandle OpenRoot(

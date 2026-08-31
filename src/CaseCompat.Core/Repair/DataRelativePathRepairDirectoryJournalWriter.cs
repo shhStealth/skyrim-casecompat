@@ -488,7 +488,7 @@ public static class DataRelativePathRepairDirectoryJournalWriter
                 CleanupStaging(
                     journalDirectory,
                     stagingName,
-                    temporaryIdentity
+                    temporary
                 );
 
             return Result(
@@ -523,7 +523,7 @@ public static class DataRelativePathRepairDirectoryJournalWriter
                 CleanupStaging(
                     journalDirectory,
                     stagingName,
-                    stagedIdentity
+                    temporary
                 );
 
             return Result(
@@ -651,13 +651,29 @@ public static class DataRelativePathRepairDirectoryJournalWriter
     private static bool CleanupStaging(
         LinuxNoFollowPathHandle journalDirectory,
         string stagingName,
-        LinuxOpenedFileIdentityResult expectedIdentity)
+        ILinuxOpenedHandle stagingFile)
     {
+        LinuxOpenedFileIncarnationResult incarnation =
+            LinuxOpenedFileIncarnation.Capture(
+                stagingFile
+            );
+
+        /*
+         * Cleanup is destructive. If generation-aware authority
+         * cannot be captured from the retained staging descriptor,
+         * leave the namespace entry in place rather than fall back
+         * to weak identity.
+         */
+        if (!incarnation.Success)
+        {
+            return false;
+        }
+
         LinuxRemoveOwnedFileAtResult remove =
             LinuxRemoveOwnedFileAt.Remove(
                 journalDirectory,
                 stagingName,
-                expectedIdentity
+                incarnation.Identity!
             );
 
         if (

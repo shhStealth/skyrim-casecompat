@@ -27,8 +27,8 @@ public enum LinuxRemoveOwnedFileAtState
 public sealed record LinuxRemoveOwnedFileAtResult(
     LinuxRemoveOwnedFileAtState State,
     string ChildName,
-    LinuxOpenedFileIdentityResult ExpectedIdentity,
-    LinuxOpenedFileIdentityResult? ActualIdentity,
+    LinuxFileIncarnationIdentity ExpectedIdentity,
+    LinuxFileIncarnationIdentity? ActualIdentity,
     int? Errno,
     string? Error
 )

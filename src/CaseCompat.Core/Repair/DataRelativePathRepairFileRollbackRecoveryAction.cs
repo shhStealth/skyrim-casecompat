@@ -208,17 +208,17 @@ public static class
 
         /*
          * LinuxRemoveOwnedFileAt performs its own immediate
-         * O_NOFOLLOW direct-child open and identity check before
-         * exactly one unlinkat().
+         * O_NOFOLLOW direct-child open and generation-aware
+         * incarnation check before exactly one unlinkat().
          *
          * There remains the documented narrow name race between
-         * that final identity check and unlinkat(). Do not retry.
+         * that final incarnation check and unlinkat(). Do not retry.
          */
         LinuxRemoveOwnedFileAtResult remove =
             LinuxRemoveOwnedFileAt.Remove(
                 parent.OpenedPath,
                 childName,
-                journal.PreparedFileIdentity!
+                journal.PreparedFileIncarnationIdentity!
             );
 
         if (!remove.Success)
