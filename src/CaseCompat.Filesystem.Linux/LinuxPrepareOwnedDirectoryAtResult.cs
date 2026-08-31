@@ -18,6 +18,7 @@ public enum LinuxPrepareOwnedDirectoryAtState
 
     StagingNotDirectory,
     StagingSnapshotFailed,
+    StagingGenerationUnavailable,
 
     ParentSyncFailed
 }
@@ -28,6 +29,7 @@ public sealed record LinuxPrepareOwnedDirectoryAtResult(
     LinuxCreateDirectoryAtResult? CreateResult,
     LinuxOpenChildReadOnlyAtResult? OpenResult,
     LinuxOpenedDirectorySnapshotResult? Snapshot,
+    LinuxOpenedDirectoryIncarnationResult? Incarnation,
     LinuxFsyncResult? ParentSync,
     LinuxPreparedOwnedDirectoryLease? Lease,
     bool StagingEntryChanged,
@@ -38,5 +40,7 @@ public sealed record LinuxPrepareOwnedDirectoryAtResult(
     public bool Success =>
         State ==
             LinuxPrepareOwnedDirectoryAtState.PreparedDurably &&
-        Lease is not null;
+        Lease is not null &&
+        Incarnation is not null &&
+        Incarnation.Success;
 }

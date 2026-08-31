@@ -5,14 +5,14 @@ public sealed class LinuxPreparedOwnedDirectoryLease
 {
     internal LinuxPreparedOwnedDirectoryLease(
         string stagingChildName,
-        LinuxFileIdentityResult identity,
+        LinuxDirectoryIncarnationIdentity incarnationIdentity,
         LinuxOpenedChildHandle openedDirectory)
     {
         StagingChildName =
             stagingChildName;
 
-        Identity =
-            identity;
+        IncarnationIdentity =
+            incarnationIdentity;
 
         OpenedDirectory =
             openedDirectory;
@@ -20,7 +20,16 @@ public sealed class LinuxPreparedOwnedDirectoryLease
 
     public string StagingChildName { get; }
 
-    public LinuxFileIdentityResult Identity { get; }
+    /*
+     * Compatibility view for code that still needs the traditional
+     * physical identity while directory-journal authority is being
+     * upgraded to incarnation-aware evidence.
+     */
+    public LinuxFileIdentityResult Identity =>
+        IncarnationIdentity.PhysicalIdentity;
+
+    public LinuxDirectoryIncarnationIdentity
+        IncarnationIdentity { get; }
 
     public LinuxOpenedChildHandle OpenedDirectory { get; }
 

@@ -149,23 +149,55 @@ public static class LinuxPrepareOwnedDirectoryAt
          * Keep the exact opened directory descriptor. On success
          * ownership transfers into LinuxPreparedOwnedDirectoryLease.
          */
-        LinuxOpenedDirectorySnapshotResult snapshot =
-            LinuxOpenedDirectorySnapshot.Capture(
+        /*
+         * Capture ownership evidence from the exact opened staging
+         * descriptor.
+         *
+         * Physical identity alone is insufficient because ext4 may
+         * immediately reuse an inode number after deletion.
+         *
+         * Incarnation identity therefore binds:
+         *
+         *   device
+         *   inode
+         *   mount ID
+         *   inode generation
+         */
+        LinuxOpenedDirectoryIncarnationResult incarnation =
+            LinuxOpenedDirectoryIncarnation.Capture(
                 staging,
                 displayPath
             );
 
-        if (!snapshot.Success)
+        LinuxOpenedDirectorySnapshotResult? snapshot =
+            incarnation.Snapshot;
+
+        if (!incarnation.Success)
         {
             staging.Dispose();
 
             LinuxPrepareOwnedDirectoryAtState state =
-                snapshot.State ==
-                LinuxOpenedDirectorySnapshotState.NotDirectory
-                    ? LinuxPrepareOwnedDirectoryAtState
-                        .StagingNotDirectory
-                    : LinuxPrepareOwnedDirectoryAtState
-                        .StagingSnapshotFailed;
+                incarnation.State switch
+                {
+                    LinuxOpenedDirectoryIncarnationState
+                        .UnsupportedPlatform =>
+                            LinuxPrepareOwnedDirectoryAtState
+                                .UnsupportedPlatform,
+
+                    LinuxOpenedDirectoryIncarnationState
+                        .NotDirectory =>
+                            LinuxPrepareOwnedDirectoryAtState
+                                .StagingNotDirectory,
+
+                    LinuxOpenedDirectoryIncarnationState
+                        .GenerationUnavailable =>
+                            LinuxPrepareOwnedDirectoryAtState
+                                .StagingGenerationUnavailable,
+
+                    _ =>
+                        LinuxPrepareOwnedDirectoryAtState
+                            .StagingSnapshotFailed
+                };
 
             return Result(
                 state,
@@ -176,43 +208,20 @@ public static class LinuxPrepareOwnedDirectoryAt
                     opened,
                 snapshot:
                     snapshot,
+                incarnation:
+                    incarnation,
                 stagingEntryChanged:
                     true,
                 stagingEntryMayRemain:
                     true,
                 error:
-                    snapshot.Error ??
-                    snapshot.State.ToString()
+                    incarnation.Error ??
+                    incarnation.State.ToString()
             );
         }
 
-        LinuxFileIdentityResult identity =
-            snapshot.Identity!;
-
-        if (!HasCompleteIdentity(identity))
-        {
-            staging.Dispose();
-
-            return Result(
-                LinuxPrepareOwnedDirectoryAtState
-                    .StagingSnapshotFailed,
-                stagingChildName,
-                createResult:
-                    create,
-                openResult:
-                    opened,
-                snapshot:
-                    snapshot,
-                stagingEntryChanged:
-                    true,
-                stagingEntryMayRemain:
-                    true,
-                error:
-                    "The prepared staging directory did not " +
-                    "produce a complete physical identity " +
-                    "including device, inode, and mount ID."
-            );
-        }
+        LinuxDirectoryIncarnationIdentity incarnationIdentity =
+            incarnation.Identity!;
 
         LinuxFsyncResult parentSync =
             LinuxFsync.Sync(
@@ -233,6 +242,8 @@ public static class LinuxPrepareOwnedDirectoryAt
                     opened,
                 snapshot:
                     snapshot,
+                incarnation:
+                    incarnation,
                 parentSync:
                     parentSync,
                 stagingEntryChanged:
@@ -248,7 +259,7 @@ public static class LinuxPrepareOwnedDirectoryAt
         var lease =
             new LinuxPreparedOwnedDirectoryLease(
                 stagingChildName,
-                identity,
+                incarnationIdentity,
                 staging
             );
 
@@ -262,6 +273,8 @@ public static class LinuxPrepareOwnedDirectoryAt
                 opened,
             snapshot:
                 snapshot,
+            incarnation:
+                incarnation,
             parentSync:
                 parentSync,
             lease:
@@ -290,6 +303,7 @@ public static class LinuxPrepareOwnedDirectoryAt
         LinuxCreateDirectoryAtResult? createResult = null,
         LinuxOpenChildReadOnlyAtResult? openResult = null,
         LinuxOpenedDirectorySnapshotResult? snapshot = null,
+        LinuxOpenedDirectoryIncarnationResult? incarnation = null,
         LinuxFsyncResult? parentSync = null,
         LinuxPreparedOwnedDirectoryLease? lease = null,
         bool stagingEntryChanged = false,
@@ -307,6 +321,8 @@ public static class LinuxPrepareOwnedDirectoryAt
                 openResult,
             Snapshot:
                 snapshot,
+            Incarnation:
+                incarnation,
             ParentSync:
                 parentSync,
             Lease:
