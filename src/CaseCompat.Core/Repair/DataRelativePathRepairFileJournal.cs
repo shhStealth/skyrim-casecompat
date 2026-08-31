@@ -201,6 +201,70 @@ public static class DataRelativePathRepairFileJournal
     }
 
     public static DataRelativePathRepairFileJournalTransitionResult
+        Reprepare(
+            DataRelativePathRepairFileJournalRecord record,
+            LinuxOpenedFileIdentityResult preparedFileIdentity,
+            DateTimeOffset nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(
+            record
+        );
+
+        ArgumentNullException.ThrowIfNull(
+            preparedFileIdentity
+        );
+
+        string? validationError =
+            Validate(
+                record
+            );
+
+        if (validationError is not null)
+        {
+            return Failure(
+                DataRelativePathRepairFileJournalTransitionState
+                    .InvalidRecord,
+                validationError
+            );
+        }
+
+        if (
+            record.State !=
+            DataRelativePathRepairFileJournalState
+                .Prepared)
+        {
+            return InvalidTransition(
+                record,
+                DataRelativePathRepairFileJournalState
+                    .Prepared
+            );
+        }
+
+        if (
+            !IsValidPreparedIdentity(
+                preparedFileIdentity
+            ))
+        {
+            return Failure(
+                DataRelativePathRepairFileJournalTransitionState
+                    .InvalidPreparedIdentity,
+                "Re-prepared state requires the successfully " +
+                "captured identity of a new unnamed regular file " +
+                "whose link count is zero."
+            );
+        }
+
+        return Transition(
+            record,
+            nowUtc,
+            DataRelativePathRepairFileJournalState
+                .Prepared,
+            preparedFileIdentity:
+                preparedFileIdentity
+        );
+    }
+
+    public static DataRelativePathRepairFileJournalTransitionResult
         MarkApplied(
             DataRelativePathRepairFileJournalRecord record,
             DateTimeOffset nowUtc)

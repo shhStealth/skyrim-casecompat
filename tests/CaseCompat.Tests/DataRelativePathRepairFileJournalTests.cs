@@ -201,6 +201,198 @@ public sealed class DataRelativePathRepairFileJournalTests
     }
 
     [Fact]
+    public void Reprepare_PreparedRecord_ReplacesPreparedIdentity()
+    {
+        DataRelativePathRepairFileJournalRecord prepared =
+            RequireRecord(
+                DataRelativePathRepairFileJournal.MarkPrepared(
+                    RequireRecord(
+                        CreateIntent()
+                    ),
+                    PreparedIdentity(),
+                    T0.AddSeconds(1)
+                )
+            );
+
+        LinuxOpenedFileIdentityResult replacement =
+            PreparedIdentity() with
+            {
+                Inode =
+                    987654UL
+            };
+
+        Assert.False(
+            prepared.PreparedFileIdentity!
+                .SameObjectAs(
+                    replacement
+                )
+        );
+
+        DataRelativePathRepairFileJournalTransitionResult result =
+            DataRelativePathRepairFileJournal.Reprepare(
+                prepared,
+                replacement,
+                T0.AddSeconds(2)
+            );
+
+        Assert.True(
+            result.Success,
+            result.Error
+        );
+
+        DataRelativePathRepairFileJournalRecord reprepared =
+            RequireRecord(
+                result
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairFileJournalState.Prepared,
+            reprepared.State
+        );
+
+        Assert.Equal(
+            prepared.Revision + 1,
+            reprepared.Revision
+        );
+
+        Assert.Equal(
+            T0.AddSeconds(2),
+            reprepared.UpdatedUtc
+        );
+
+        Assert.Equal(
+            prepared.CreatedUtc,
+            reprepared.CreatedUtc
+        );
+
+        Assert.Same(
+            replacement,
+            reprepared.PreparedFileIdentity
+        );
+
+        Assert.Equal(
+            prepared.Operation,
+            reprepared.Operation
+        );
+
+        Assert.Equal(
+            prepared.SourceSnapshot,
+            reprepared.SourceSnapshot
+        );
+
+        Assert.Equal(
+            prepared.DestinationParentSnapshot,
+            reprepared.DestinationParentSnapshot
+        );
+    }
+
+    [Fact]
+    public void Reprepare_LinkedIdentity_IsRejected()
+    {
+        DataRelativePathRepairFileJournalRecord prepared =
+            RequireRecord(
+                DataRelativePathRepairFileJournal.MarkPrepared(
+                    RequireRecord(
+                        CreateIntent()
+                    ),
+                    PreparedIdentity(),
+                    T0.AddSeconds(1)
+                )
+            );
+
+        LinuxOpenedFileIdentityResult linked =
+            PreparedIdentity() with
+            {
+                Inode =
+                    987654UL,
+                LinkCount =
+                    1U
+            };
+
+        DataRelativePathRepairFileJournalTransitionResult result =
+            DataRelativePathRepairFileJournal.Reprepare(
+                prepared,
+                linked,
+                T0.AddSeconds(2)
+            );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairFileJournalTransitionState
+                .InvalidPreparedIdentity,
+            result.State
+        );
+    }
+
+    [Fact]
+    public void Reprepare_FromIntent_IsRejected()
+    {
+        DataRelativePathRepairFileJournalRecord intent =
+            RequireRecord(
+                CreateIntent()
+            );
+
+        DataRelativePathRepairFileJournalTransitionResult result =
+            DataRelativePathRepairFileJournal.Reprepare(
+                intent,
+                PreparedIdentity(),
+                T0.AddSeconds(1)
+            );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairFileJournalTransitionState
+                .InvalidTransition,
+            result.State
+        );
+    }
+
+    [Fact]
+    public void Reprepare_TimeMovingBackwards_IsRejected()
+    {
+        DataRelativePathRepairFileJournalRecord prepared =
+            RequireRecord(
+                DataRelativePathRepairFileJournal.MarkPrepared(
+                    RequireRecord(
+                        CreateIntent()
+                    ),
+                    PreparedIdentity(),
+                    T0.AddSeconds(2)
+                )
+            );
+
+        LinuxOpenedFileIdentityResult replacement =
+            PreparedIdentity() with
+            {
+                Inode =
+                    987654UL
+            };
+
+        DataRelativePathRepairFileJournalTransitionResult result =
+            DataRelativePathRepairFileJournal.Reprepare(
+                prepared,
+                replacement,
+                T0.AddSeconds(1)
+            );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairFileJournalTransitionState
+                .InvalidRecord,
+            result.State
+        );
+    }
+
+    [Fact]
     public void Lifecycle_ForwardAndRollbackTransitionsIncrementRevision()
     {
         DataRelativePathRepairFileJournalRecord intent =
