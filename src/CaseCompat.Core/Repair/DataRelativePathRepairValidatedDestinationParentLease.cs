@@ -12,6 +12,8 @@ public sealed class
                 expectedSnapshot,
             LinuxOpenedDirectorySnapshotResult
                 actualSnapshot,
+            LinuxOpenedDirectoryIncarnationResult
+                actualIncarnation,
             LinuxNoFollowPathHandle
                 openedPath)
     {
@@ -20,6 +22,9 @@ public sealed class
 
         ActualSnapshot =
             actualSnapshot;
+
+        ActualIncarnation =
+            actualIncarnation;
 
         OpenedPath =
             openedPath;
@@ -30,6 +35,23 @@ public sealed class
 
     public LinuxOpenedDirectorySnapshotResult
         ActualSnapshot { get; }
+
+    /*
+     * Strong directory-incarnation evidence captured from the exact
+     * descriptor retained by this lease.
+     *
+     * The lease itself remains usable when generation capture is
+     * unavailable because this shared parent validator is also used
+     * by file repair. Directory-journal v2 will explicitly require
+     * ActualIncarnation.Success before accepting destructive
+     * directory authority.
+     */
+    public LinuxOpenedDirectoryIncarnationResult
+        ActualIncarnation { get; }
+
+    public LinuxDirectoryIncarnationIdentity?
+        IncarnationIdentity =>
+            ActualIncarnation.Identity;
 
     public LinuxNoFollowPathHandle
         OpenedPath { get; }

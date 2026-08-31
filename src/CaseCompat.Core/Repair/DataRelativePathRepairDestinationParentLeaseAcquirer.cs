@@ -186,11 +186,30 @@ public static class
                 );
             }
 
+            /*
+             * Capture stronger directory-incarnation evidence from
+             * the exact descriptor that the validated lease will
+             * retain.
+             *
+             * This does not change the shared parent-validation
+             * contract: file repair may still use a valid parent
+             * lease when inode-generation capture is unavailable.
+             *
+             * Directory journal v2 will require this evidence
+             * explicitly before treating the parent as durable
+             * mutation authority.
+             */
+            LinuxOpenedDirectoryIncarnationResult actualIncarnation =
+                LinuxOpenedDirectoryIncarnation.Capture(
+                    openedPath
+                );
+
             var lease =
                 new
                     DataRelativePathRepairValidatedDestinationParentLease(
                         expectedSnapshot,
                         actualSnapshot,
+                        actualIncarnation,
                         openedPath
                     );
 
