@@ -297,23 +297,37 @@ public static class DataRelativePathRepairFileRecoveryReconciler
         using LinuxOpenedChildHandle child =
             opened.OpenedChild!;
 
-        LinuxOpenedFileIdentityResult identity =
-            LinuxOpenedFileIdentity.Capture(
+        LinuxOpenedFileIncarnationResult incarnation =
+            LinuxOpenedFileIncarnation.Capture(
                 child
             );
 
-        if (!identity.Success)
+        if (
+            incarnation.State ==
+            LinuxOpenedFileIncarnationState.NotRegularFile)
         {
-            return identity.State ==
-                LinuxOpenedFileIdentityState.NotRegularFile
-                    ? RevalidationResult.ChangedResult(
-                        "The destination is no longer a " +
-                        "regular file."
-                    )
-                    : RevalidationResult.Failed(
-                        identity.Error ??
-                        identity.State.ToString()
-                    );
+            return RevalidationResult.ChangedResult(
+                "The destination is no longer a regular file."
+            );
+        }
+
+        /*
+         * PreparedDestinationMatches may advance the durable journal
+         * to Applied only when the exact reopened destination still
+         * proves the generation-aware file incarnation recorded while
+         * Prepared.
+         *
+         * A usable physical identity without inode generation is
+         * deliberately insufficient.
+         */
+        if (
+            !incarnation.Success ||
+            incarnation.Identity is null)
+        {
+            return RevalidationResult.Failed(
+                incarnation.Error ??
+                incarnation.State.ToString()
+            );
         }
 
         LinuxOpenedFileSnapshotResult snapshot =
@@ -330,11 +344,12 @@ public static class DataRelativePathRepairFileRecoveryReconciler
             );
         }
 
-        bool identityMatches =
-            journal.PreparedFileIdentity is not null &&
-            journal.PreparedFileIdentity.SameObjectAs(
-                identity
-            );
+        bool incarnationMatches =
+            journal.PreparedFileIncarnationIdentity is not null &&
+            journal.PreparedFileIncarnationIdentity
+                .SameIncarnationAs(
+                    incarnation.Identity
+                );
 
         bool sizeMatches =
             snapshot.Size ==
@@ -348,13 +363,13 @@ public static class DataRelativePathRepairFileRecoveryReconciler
             );
 
         if (
-            !identityMatches ||
+            !incarnationMatches ||
             !sizeMatches ||
             !hashMatches)
         {
             return RevalidationResult.ChangedResult(
                 "The destination no longer matches the " +
-                "Prepared identity, size, and SHA-256 evidence."
+                "Prepared file incarnation, size, and SHA-256 evidence."
             );
         }
 
