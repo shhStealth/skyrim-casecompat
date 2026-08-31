@@ -506,7 +506,11 @@ public sealed class
                     DataRelativePathRepairDirectoryJournal.MarkPrepared(
                         intent,
                         ".stage",
-                        SyntheticIdentity(),
+                        SyntheticDirectoryJournalIncarnation.FromPhysical(
+
+                            SyntheticIdentity()
+
+                        ),
                         T0.AddSeconds(1)
                     )
                 );
@@ -575,7 +579,7 @@ public sealed class
                 )
             );
 
-            LinuxFileIdentityResult identity =
+            LinuxDirectoryIncarnationIdentity identity =
                 CaptureDirectoryIdentity(
                     ".stage"
                 );
@@ -653,7 +657,10 @@ public sealed class
                             null
                     ),
                     parentSnapshot
-                );
+                ,
+                    LiveDirectoryJournalIncarnation.Capture(
+                        Parent
+                    ));
 
             return RequireRecord(
                 result
@@ -680,7 +687,10 @@ public sealed class
                             null
                     ),
                     CaptureParentSnapshot()
-                );
+                ,
+                    LiveDirectoryJournalIncarnation.Capture(
+                        Parent
+                    ));
 
             return RequireRecord(
                 result
@@ -712,7 +722,7 @@ public sealed class
             );
         }
 
-        private LinuxFileIdentityResult CaptureDirectoryIdentity(
+        private LinuxDirectoryIncarnationIdentity CaptureDirectoryIdentity(
             string childName)
         {
             LinuxOpenChildReadOnlyAtResult opened =
@@ -754,7 +764,17 @@ public sealed class
                 snapshot.Identity!.MountId
             );
 
-            return snapshot.Identity;
+            return LiveDirectoryJournalIncarnation.Capture(
+
+                child,
+
+                PathFor(
+
+                    childName
+
+                )
+
+            );
         }
 
         private

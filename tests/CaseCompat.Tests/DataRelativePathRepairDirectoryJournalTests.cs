@@ -84,7 +84,10 @@ public sealed class DataRelativePathRepairDirectoryJournalTests
                 "/game/Data",
                 operation,
                 ParentSnapshot()
-            );
+            ,
+                SyntheticDirectoryJournalIncarnation.FromPhysical(
+                    (ParentSnapshot()).Identity
+                ));
 
         Assert.False(
             result.Success
@@ -114,7 +117,10 @@ public sealed class DataRelativePathRepairDirectoryJournalTests
                 "/game/Data",
                 operation,
                 ParentSnapshot()
-            );
+            ,
+                SyntheticDirectoryJournalIncarnation.FromPhysical(
+                    (ParentSnapshot()).Identity
+                ));
 
         Assert.False(
             result.Success
@@ -144,7 +150,10 @@ public sealed class DataRelativePathRepairDirectoryJournalTests
                 "/game/Data",
                 Operation(),
                 parent
-            );
+            ,
+                SyntheticDirectoryJournalIncarnation.FromPhysical(
+                    (parent).Identity
+                ));
 
         Assert.False(
             result.Success
@@ -174,7 +183,10 @@ public sealed class DataRelativePathRepairDirectoryJournalTests
                 "/game/Data",
                 Operation(),
                 parent
-            );
+            ,
+                SyntheticDirectoryJournalIncarnation.FromPhysical(
+                    (parent).Identity
+                ));
 
         Assert.False(
             result.Success
@@ -202,7 +214,11 @@ public sealed class DataRelativePathRepairDirectoryJournalTests
             DataRelativePathRepairDirectoryJournal.MarkPrepared(
                 intent,
                 ".casecompat-stage-1",
-                identity,
+                SyntheticDirectoryJournalIncarnation.FromPhysical(
+
+                    identity
+
+                ),
                 T0.AddSeconds(1)
             );
 
@@ -256,7 +272,11 @@ public sealed class DataRelativePathRepairDirectoryJournalTests
             DataRelativePathRepairDirectoryJournal.MarkPrepared(
                 intent,
                 ".casecompat-stage-1",
-                incomplete,
+                SyntheticDirectoryJournalIncarnation.FromPhysical(
+
+                    incomplete
+
+                ),
                 T0.AddSeconds(1)
             );
 
@@ -283,7 +303,11 @@ public sealed class DataRelativePathRepairDirectoryJournalTests
             DataRelativePathRepairDirectoryJournal.MarkPrepared(
                 intent,
                 "Final",
-                DirectoryIdentity(),
+                SyntheticDirectoryJournalIncarnation.FromPhysical(
+
+                    DirectoryIdentity()
+
+                ),
                 T0.AddSeconds(1)
             );
 
@@ -308,7 +332,11 @@ public sealed class DataRelativePathRepairDirectoryJournalTests
                         CreateIntent()
                     ),
                     ".casecompat-stage-1",
-                    DirectoryIdentity(),
+                    SyntheticDirectoryJournalIncarnation.FromPhysical(
+
+                        DirectoryIdentity()
+
+                    ),
                     T0.AddSeconds(1)
                 )
             );
@@ -324,7 +352,11 @@ public sealed class DataRelativePathRepairDirectoryJournalTests
             DataRelativePathRepairDirectoryJournal.Reprepare(
                 prepared,
                 ".casecompat-stage-2",
-                replacement,
+                SyntheticDirectoryJournalIncarnation.FromPhysical(
+
+                    replacement
+
+                ),
                 T0.AddSeconds(2)
             );
 
@@ -386,7 +418,11 @@ public sealed class DataRelativePathRepairDirectoryJournalTests
             DataRelativePathRepairDirectoryJournal.Reprepare(
                 intent,
                 ".casecompat-stage-2",
-                DirectoryIdentity(),
+                SyntheticDirectoryJournalIncarnation.FromPhysical(
+
+                    DirectoryIdentity()
+
+                ),
                 T0.AddSeconds(1)
             );
 
@@ -414,7 +450,11 @@ public sealed class DataRelativePathRepairDirectoryJournalTests
                 DataRelativePathRepairDirectoryJournal.MarkPrepared(
                     intent,
                     ".casecompat-stage-1",
-                    DirectoryIdentity(),
+                    SyntheticDirectoryJournalIncarnation.FromPhysical(
+
+                        DirectoryIdentity()
+
+                    ),
                     T0.AddSeconds(1)
                 )
             );
@@ -502,7 +542,10 @@ public sealed class DataRelativePathRepairDirectoryJournalTests
                 "/game/Data",
                 Operation(),
                 ParentSnapshot()
-            );
+            ,
+                SyntheticDirectoryJournalIncarnation.FromPhysical(
+                    (ParentSnapshot()).Identity
+                ));
     }
 
     private static DataRelativePathRepairPlanOperation Operation()

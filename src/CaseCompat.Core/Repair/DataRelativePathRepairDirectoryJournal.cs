@@ -1,4 +1,5 @@
 using CaseCompat.Filesystem.Linux;
+using System.Text.Json.Serialization;
 
 namespace CaseCompat.Core.Repair;
 
@@ -34,13 +35,27 @@ public sealed record DataRelativePathRepairDirectoryJournalRecord(
     DataRelativePathRepairPlanOperation Operation,
     DataRelativePathRepairDestinationParentSnapshot
         DestinationParentSnapshot,
+    LinuxDirectoryIncarnationIdentity
+        DestinationParentIncarnationIdentity,
     string? PreparedStagingChildName,
-    LinuxFileIdentityResult? PreparedDirectoryIdentity,
+    LinuxDirectoryIncarnationIdentity?
+        PreparedDirectoryIncarnationIdentity,
     string? RecoveryConflictReason
 )
 {
     public const int CurrentSchemaVersion =
-        1;
+        2;
+
+    /*
+     * Compatibility view for recovery code that has not yet been
+     * migrated to generation-aware comparison.
+     *
+     * This property is deliberately not serialized. Schema v2
+     * persists only the strong prepared-directory authority.
+     */
+    [JsonIgnore]
+    public LinuxFileIdentityResult? PreparedDirectoryIdentity =>
+        PreparedDirectoryIncarnationIdentity?.PhysicalIdentity;
 
     public bool IsTerminal =>
         State is
@@ -74,7 +89,9 @@ public static class DataRelativePathRepairDirectoryJournal
             string dataRoot,
             DataRelativePathRepairPlanOperation operation,
             DataRelativePathRepairDestinationParentSnapshot
-                destinationParentSnapshot)
+                destinationParentSnapshot,
+            LinuxDirectoryIncarnationIdentity
+                destinationParentIncarnationIdentity)
     {
         ArgumentNullException.ThrowIfNull(
             operation
@@ -82,6 +99,10 @@ public static class DataRelativePathRepairDirectoryJournal
 
         ArgumentNullException.ThrowIfNull(
             destinationParentSnapshot
+        );
+
+        ArgumentNullException.ThrowIfNull(
+            destinationParentIncarnationIdentity
         );
 
         var record =
@@ -106,9 +127,11 @@ public static class DataRelativePathRepairDirectoryJournal
                     operation,
                 DestinationParentSnapshot:
                     destinationParentSnapshot,
+                DestinationParentIncarnationIdentity:
+                    destinationParentIncarnationIdentity,
                 PreparedStagingChildName:
                     null,
-                PreparedDirectoryIdentity:
+                PreparedDirectoryIncarnationIdentity:
                     null,
                 RecoveryConflictReason:
                     null
@@ -138,7 +161,7 @@ public static class DataRelativePathRepairDirectoryJournal
         MarkPrepared(
             DataRelativePathRepairDirectoryJournalRecord record,
             string stagingChildName,
-            LinuxFileIdentityResult preparedDirectoryIdentity,
+            LinuxDirectoryIncarnationIdentity preparedDirectoryIdentity,
             DateTimeOffset nowUtc)
     {
         ArgumentNullException.ThrowIfNull(
@@ -191,7 +214,7 @@ public static class DataRelativePathRepairDirectoryJournal
         }
 
         if (
-            !HasCompleteDirectoryIdentity(
+            !HasCompleteDirectoryIncarnationIdentity(
                 preparedDirectoryIdentity
             ))
         {
@@ -199,7 +222,8 @@ public static class DataRelativePathRepairDirectoryJournal
                 DataRelativePathRepairDirectoryJournalTransitionState
                     .InvalidPreparedIdentity,
                 "Prepared state requires a complete directory " +
-                "identity including device, inode, and mount ID."
+                "incarnation identity including device, inode, mount ID, " +
+                "and inode generation."
             );
         }
 
@@ -220,7 +244,7 @@ public static class DataRelativePathRepairDirectoryJournal
         Reprepare(
             DataRelativePathRepairDirectoryJournalRecord record,
             string stagingChildName,
-            LinuxFileIdentityResult preparedDirectoryIdentity,
+            LinuxDirectoryIncarnationIdentity preparedDirectoryIdentity,
             DateTimeOffset nowUtc)
     {
         ArgumentNullException.ThrowIfNull(
@@ -273,7 +297,7 @@ public static class DataRelativePathRepairDirectoryJournal
         }
 
         if (
-            !HasCompleteDirectoryIdentity(
+            !HasCompleteDirectoryIncarnationIdentity(
                 preparedDirectoryIdentity
             ))
         {
@@ -281,7 +305,8 @@ public static class DataRelativePathRepairDirectoryJournal
                 DataRelativePathRepairDirectoryJournalTransitionState
                     .InvalidPreparedIdentity,
                 "Re-prepared state requires a complete directory " +
-                "identity including device, inode, and mount ID."
+                "incarnation identity including device, inode, mount ID, " +
+                "and inode generation."
             );
         }
 
@@ -520,6 +545,31 @@ public static class DataRelativePathRepairDirectoryJournal
         }
 
         if (
+            record.DestinationParentIncarnationIdentity is null ||
+            !HasCompleteDirectoryIncarnationIdentity(
+                record.DestinationParentIncarnationIdentity
+            ))
+        {
+            return
+                "The directory journal requires strong " +
+                "destination-parent incarnation identity including " +
+                "device, inode, mount ID, and inode generation.";
+        }
+
+        if (
+            !SameDirectoryPhysicalIdentity(
+                record.DestinationParentSnapshot.Identity,
+                record.DestinationParentIncarnationIdentity
+                    .PhysicalIdentity
+            ))
+        {
+            return
+                "The destination-parent snapshot and durable " +
+                "incarnation identity describe different physical " +
+                "directories.";
+        }
+
+        if (
             record.DestinationParentSnapshot
                 .CasefoldEnabled)
         {
@@ -547,21 +597,22 @@ public static class DataRelativePathRepairDirectoryJournal
             }
 
             if (
-                record.PreparedDirectoryIdentity is null ||
-                !HasCompleteDirectoryIdentity(
-                    record.PreparedDirectoryIdentity
+                record.PreparedDirectoryIncarnationIdentity is null ||
+                !HasCompleteDirectoryIncarnationIdentity(
+                    record.PreparedDirectoryIncarnationIdentity
                 ))
             {
                 return
-                    "This journal state requires the complete " +
-                    "prepared-directory identity.";
+                    "This journal state requires strong prepared-" +
+                    "directory incarnation identity including inode " +
+                    "generation.";
             }
         }
         else
         {
             if (
                 record.PreparedStagingChildName is not null ||
-                record.PreparedDirectoryIdentity is not null)
+                record.PreparedDirectoryIncarnationIdentity is not null)
             {
                 return
                     "IntentRecorded cannot already contain prepared " +
@@ -642,7 +693,7 @@ public static class DataRelativePathRepairDirectoryJournal
             DateTimeOffset nowUtc,
             DataRelativePathRepairDirectoryJournalState state,
             string? preparedStagingChildName = null,
-            LinuxFileIdentityResult?
+            LinuxDirectoryIncarnationIdentity?
                 preparedDirectoryIdentity = null,
             string? recoveryConflictReason = null)
     {
@@ -670,9 +721,9 @@ public static class DataRelativePathRepairDirectoryJournal
                 PreparedStagingChildName =
                     preparedStagingChildName ??
                     record.PreparedStagingChildName,
-                PreparedDirectoryIdentity =
+                PreparedDirectoryIncarnationIdentity =
                     preparedDirectoryIdentity ??
-                    record.PreparedDirectoryIdentity,
+                    record.PreparedDirectoryIncarnationIdentity,
                 RecoveryConflictReason =
                     recoveryConflictReason
             };
@@ -823,6 +874,34 @@ public static class DataRelativePathRepairDirectoryJournal
                 finalChildName,
                 StringComparison.Ordinal
             );
+    }
+
+    private static bool
+        HasCompleteDirectoryIncarnationIdentity(
+            LinuxDirectoryIncarnationIdentity identity)
+    {
+        return
+            identity.Success &&
+            HasCompleteDirectoryIdentity(
+                identity.PhysicalIdentity
+            );
+    }
+
+    private static bool SameDirectoryPhysicalIdentity(
+        LinuxFileIdentityResult left,
+        LinuxFileIdentityResult right)
+    {
+        return
+            HasCompleteDirectoryIdentity(left) &&
+            HasCompleteDirectoryIdentity(right) &&
+            left.DeviceMajor ==
+                right.DeviceMajor &&
+            left.DeviceMinor ==
+                right.DeviceMinor &&
+            left.Inode ==
+                right.Inode &&
+            left.MountId ==
+                right.MountId;
     }
 
     private static bool HasCompleteDirectoryIdentity(

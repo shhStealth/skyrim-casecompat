@@ -105,7 +105,7 @@ public sealed class
         LinuxFileIdentityResult actual =
             fixture.CaptureDirectoryIdentity(
                 result.FreshStagingChildName!
-            );
+            ).PhysicalIdentity;
 
         AssertSameIdentity(
             after.Record.PreparedDirectoryIdentity!,
@@ -431,12 +431,14 @@ public sealed class
         public void PersistMissingPrepared()
         {
             PersistPrepared(
-                SyntheticIdentity()
+                SyntheticDirectoryJournalIncarnation.FromPhysical(
+                    SyntheticIdentity()
+                )
             );
         }
 
         public void PersistPrepared(
-            LinuxFileIdentityResult identity)
+            LinuxDirectoryIncarnationIdentity identity)
         {
             DataRelativePathRepairDirectoryJournalRecord intent =
                 CreateIntent();
@@ -518,7 +520,7 @@ public sealed class
             );
         }
 
-        public LinuxFileIdentityResult CaptureDirectoryIdentity(
+        public LinuxDirectoryIncarnationIdentity CaptureDirectoryIdentity(
             string childName)
         {
             LinuxOpenChildReadOnlyAtResult opened =
@@ -556,7 +558,17 @@ public sealed class
                 snapshot.Identity
             );
 
-            return snapshot.Identity!;
+            return LiveDirectoryJournalIncarnation.Capture(
+
+                child,
+
+                PathFor(
+
+                    childName
+
+                )
+
+            );
         }
 
         public DataRelativePathRepairDirectoryJournalRecord
@@ -580,7 +592,10 @@ public sealed class
                                 null
                         ),
                         CaptureParentSnapshot()
-                    );
+                    ,
+                        LiveDirectoryJournalIncarnation.Capture(
+                            Parent
+                        ));
 
             Assert.True(
                 result.Success,

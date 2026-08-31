@@ -182,7 +182,11 @@ public sealed class
                 DataRelativePathRepairDirectoryJournal.MarkPrepared(
                     intent,
                     ".casecompat-stage-1",
-                    DirectoryIdentity(),
+                    SyntheticDirectoryJournalIncarnation.FromPhysical(
+
+                        DirectoryIdentity()
+
+                    ),
                     T0.AddSeconds(1)
                 )
             );
@@ -265,7 +269,11 @@ public sealed class
                 DataRelativePathRepairDirectoryJournal.MarkPrepared(
                     intent,
                     ".casecompat-stage-1",
-                    DirectoryIdentity(),
+                    SyntheticDirectoryJournalIncarnation.FromPhysical(
+
+                        DirectoryIdentity()
+
+                    ),
                     T0.AddSeconds(1)
                 )
             );
@@ -581,7 +589,35 @@ public sealed class
                                 RawFlags:
                                     0
                             )
-                    );
+                    ,
+                        SyntheticDirectoryJournalIncarnation.FromPhysical(
+                            (new
+                            DataRelativePathRepairDestinationParentSnapshot(
+                                PhysicalPath:
+                                    "/game/Data/Meshes",
+                                Identity:
+                                    new LinuxFileIdentityResult(
+                                        FullPath:
+                                            "/game/Data/Meshes",
+                                        DeviceMajor:
+                                            8U,
+                                        DeviceMinor:
+                                            1U,
+                                        Inode:
+                                            100UL,
+                                        LinkCount:
+                                            2U,
+                                        MountId:
+                                            55UL,
+                                        Error:
+                                            null
+                                    ),
+                                CasefoldEnabled:
+                                    false,
+                                RawFlags:
+                                    0
+                            )).Identity
+                        ));
 
             return RequireRecord(
                 result

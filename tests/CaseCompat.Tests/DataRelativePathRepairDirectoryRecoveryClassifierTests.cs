@@ -83,7 +83,7 @@ public sealed class
             ".stage"
         );
 
-        LinuxFileIdentityResult identity =
+        LinuxDirectoryIncarnationIdentity identity =
             fixture.CaptureIdentity(
                 ".stage"
             );
@@ -120,7 +120,9 @@ public sealed class
         var result =
             DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
                 fixture.Prepared(
-                    fixture.SyntheticIdentity()
+                    SyntheticDirectoryJournalIncarnation.FromPhysical(
+                        fixture.SyntheticIdentity()
+                    )
                 )
             );
 
@@ -146,7 +148,7 @@ public sealed class
             ".stage"
         );
 
-        LinuxFileIdentityResult identity =
+        LinuxDirectoryIncarnationIdentity identity =
             fixture.CaptureIdentity(
                 ".stage"
             );
@@ -193,7 +195,7 @@ public sealed class
             ".stage"
         );
 
-        LinuxFileIdentityResult identity =
+        LinuxDirectoryIncarnationIdentity identity =
             fixture.CaptureIdentity(
                 ".stage"
             );
@@ -234,7 +236,9 @@ public sealed class
         var result =
             DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
                 fixture.Prepared(
-                    fixture.SyntheticIdentity()
+                    SyntheticDirectoryJournalIncarnation.FromPhysical(
+                        fixture.SyntheticIdentity()
+                    )
                 )
             );
 
@@ -272,7 +276,9 @@ public sealed class
         var result =
             DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
                 fixture.Prepared(
-                    fixture.SyntheticIdentity()
+                    SyntheticDirectoryJournalIncarnation.FromPhysical(
+                        fixture.SyntheticIdentity()
+                    )
                 )
             );
 
@@ -326,7 +332,9 @@ public sealed class
 
         DataRelativePathRepairDirectoryJournalRecord prepared =
             fixture.Prepared(
-                fixture.SyntheticIdentity()
+                SyntheticDirectoryJournalIncarnation.FromPhysical(
+                    fixture.SyntheticIdentity()
+                )
             );
 
         DataRelativePathRepairDirectoryJournalRecord applied =
@@ -364,7 +372,7 @@ public sealed class
             ".stage"
         );
 
-        LinuxFileIdentityResult identity =
+        LinuxDirectoryIncarnationIdentity identity =
             fixture.CaptureIdentity(
                 ".stage"
             );
@@ -438,7 +446,9 @@ public sealed class
 
         DataRelativePathRepairDirectoryJournalRecord prepared =
             fixture.Prepared(
-                fixture.SyntheticIdentity()
+                SyntheticDirectoryJournalIncarnation.FromPhysical(
+                    fixture.SyntheticIdentity()
+                )
             );
 
         DataRelativePathRepairDirectoryJournalRecord applied =
@@ -482,7 +492,9 @@ public sealed class
 
         DataRelativePathRepairDirectoryJournalRecord prepared =
             fixture.Prepared(
-                fixture.SyntheticIdentity()
+                SyntheticDirectoryJournalIncarnation.FromPhysical(
+                    fixture.SyntheticIdentity()
+                )
             );
 
         DataRelativePathRepairDirectoryJournalRecord applied =
@@ -534,7 +546,9 @@ public sealed class
 
         DataRelativePathRepairDirectoryJournalRecord prepared =
             fixture.Prepared(
-                fixture.SyntheticIdentity()
+                SyntheticDirectoryJournalIncarnation.FromPhysical(
+                    fixture.SyntheticIdentity()
+                )
             );
 
         DataRelativePathRepairDirectoryJournalRecord conflict =
@@ -594,6 +608,14 @@ public sealed class
             identity.MountId
         );
 
+        ulong mismatchedMountId =
+            checked(
+                identity.MountId!.Value + 1UL
+            );
+
+        LinuxDirectoryIncarnationIdentity parentIncarnation =
+            intent.DestinationParentIncarnationIdentity;
+
         DataRelativePathRepairDirectoryJournalRecord mismatched =
             intent with
             {
@@ -604,9 +626,17 @@ public sealed class
                             identity with
                             {
                                 MountId =
-                                    checked(
-                                        identity.MountId!.Value + 1UL
-                                    )
+                                    mismatchedMountId
+                            }
+                    },
+                DestinationParentIncarnationIdentity =
+                    parentIncarnation with
+                    {
+                        PhysicalIdentity =
+                            parentIncarnation.PhysicalIdentity with
+                            {
+                                MountId =
+                                    mismatchedMountId
                             }
                     }
             };
@@ -730,7 +760,10 @@ public sealed class
                                 null
                         ),
                         CaptureParentSnapshot()
-                    );
+                    ,
+                        LiveDirectoryJournalIncarnation.Capture(
+                            Parent
+                        ));
 
             return RequireRecord(
                 result
@@ -738,7 +771,7 @@ public sealed class
         }
 
         public DataRelativePathRepairDirectoryJournalRecord Prepared(
-            LinuxFileIdentityResult identity)
+            LinuxDirectoryIncarnationIdentity identity)
         {
             return RequireRecord(
                 DataRelativePathRepairDirectoryJournal.MarkPrepared(
@@ -757,7 +790,7 @@ public sealed class
                 ".stage"
             );
 
-            LinuxFileIdentityResult identity =
+            LinuxDirectoryIncarnationIdentity identity =
                 CaptureIdentity(
                     ".stage"
                 );
@@ -809,7 +842,7 @@ public sealed class
             );
         }
 
-        public LinuxFileIdentityResult CaptureIdentity(
+        public LinuxDirectoryIncarnationIdentity CaptureIdentity(
             string childName)
         {
             LinuxOpenChildReadOnlyAtResult opened =
@@ -851,7 +884,17 @@ public sealed class
                 snapshot.Identity!.MountId
             );
 
-            return snapshot.Identity;
+            return LiveDirectoryJournalIncarnation.Capture(
+
+                child,
+
+                PathFor(
+
+                    childName
+
+                )
+
+            );
         }
 
         public void DisposeParent()

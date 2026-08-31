@@ -274,7 +274,7 @@ public static class
                 DataRelativePathRepairDirectoryJournal.Reprepare(
                     journal,
                     freshStagingChildName,
-                    prepared.Identity,
+                    prepared.IncarnationIdentity,
                     nowUtc
                 );
 

@@ -38,7 +38,7 @@ public sealed class
             ".stage"
         );
 
-        LinuxFileIdentityResult identity =
+        LinuxDirectoryIncarnationIdentity identity =
             fixture.CaptureDirectoryIdentity(
                 ".stage"
             );
@@ -151,7 +151,11 @@ public sealed class
                 DataRelativePathRepairDirectoryJournal.MarkPrepared(
                     intent,
                     ".stage",
-                    fixture.SyntheticIdentity(),
+                    SyntheticDirectoryJournalIncarnation.FromPhysical(
+
+                        fixture.SyntheticIdentity()
+
+                    ),
                     T0.AddSeconds(1)
                 )
             );
@@ -246,7 +250,7 @@ public sealed class
             ".stage"
         );
 
-        LinuxFileIdentityResult identity =
+        LinuxDirectoryIncarnationIdentity identity =
             fixture.CaptureDirectoryIdentity(
                 ".stage"
             );
@@ -345,7 +349,7 @@ public sealed class
             ".stage"
         );
 
-        LinuxFileIdentityResult identity =
+        LinuxDirectoryIncarnationIdentity identity =
             fixture.CaptureDirectoryIdentity(
                 ".stage"
             );
@@ -470,7 +474,7 @@ public sealed class
             ".stage"
         );
 
-        LinuxFileIdentityResult identity =
+        LinuxDirectoryIncarnationIdentity identity =
             fixture.CaptureDirectoryIdentity(
                 ".stage"
             );
@@ -686,7 +690,7 @@ public sealed class
             );
         }
 
-        public LinuxFileIdentityResult CaptureDirectoryIdentity(
+        public LinuxDirectoryIncarnationIdentity CaptureDirectoryIdentity(
             string childName)
         {
             LinuxOpenChildReadOnlyAtResult opened =
@@ -728,7 +732,17 @@ public sealed class
                 snapshot.Identity!.MountId
             );
 
-            return snapshot.Identity;
+            return LiveDirectoryJournalIncarnation.Capture(
+
+                child,
+
+                PathFor(
+
+                    childName
+
+                )
+
+            );
         }
 
         public LinuxFileIdentityResult SyntheticIdentity()
@@ -777,7 +791,10 @@ public sealed class
                                 null
                         ),
                         CaptureParentSnapshot()
-                    );
+                    ,
+                        LiveDirectoryJournalIncarnation.Capture(
+                            Parent
+                        ));
 
             return RequireRecord(
                 result
