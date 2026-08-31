@@ -364,6 +364,185 @@ public sealed class
         );
     }
 
+    [Fact]
+    public void
+        ExpectedJournalIncarnationGuards_RejectBeforeDirectoryRollbackRequest()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        var invalidExpected =
+            new LinuxFileIncarnationIdentity(
+                PhysicalIdentity:
+                    new LinuxOpenedFileIdentityResult(
+                        State:
+                            LinuxOpenedFileIdentityState
+                                .MetadataUnavailable,
+                        DeviceMajor:
+                            null,
+                        DeviceMinor:
+                            null,
+                        Inode:
+                            null,
+                        LinkCount:
+                            null,
+                        MountId:
+                            null,
+                        Errno:
+                            null,
+                        Error:
+                            "fixture"
+                    ),
+                InodeGeneration:
+                    0U
+            );
+
+        Assert.False(
+            invalidExpected.Success
+        );
+
+        DataRelativePathRepairDirectoryRollbackRequest invalid =
+            DataRelativePathRepairDirectoryRollbackRequestAction.Request(
+                fixture.JournalDirectory,
+                "missing-journal.json",
+                fixture.DataRoot,
+                T0.AddSeconds(20),
+                invalidExpected
+            );
+
+        Assert.False(
+            invalid.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryRollbackRequestState
+                .InvalidExpectedJournalIdentity,
+            invalid.State
+        );
+
+        Assert.False(
+            invalid.LockState.HasValue
+        );
+
+        Assert.Null(
+            invalid.JournalRead
+        );
+
+        Assert.Null(
+            invalid.Classification
+        );
+
+        Assert.Null(
+            invalid.JournalTransition
+        );
+
+        Assert.Null(
+            invalid.JournalWrite
+        );
+
+        if (!fixture.SupportsUnnamedFiles())
+        {
+            return;
+        }
+
+        fixture.PersistAppliedWithFinal();
+
+        DataRelativePathRepairDirectoryJournalReaderResult before =
+            fixture.ReadJournal();
+
+        LinuxFileIncarnationIdentity actual =
+            Assert.IsType<LinuxFileIncarnationIdentity>(
+                before.JournalIncarnationIdentity
+            );
+
+        uint differentGeneration =
+            actual.InodeGeneration == uint.MaxValue
+                ? 0U
+                : actual.InodeGeneration + 1U;
+
+        var changedExpected =
+            new LinuxFileIncarnationIdentity(
+                actual.PhysicalIdentity,
+                differentGeneration
+            );
+
+        Assert.True(
+            changedExpected.Success
+        );
+
+        Assert.False(
+            actual.SameIncarnationAs(
+                changedExpected
+            )
+        );
+
+        DataRelativePathRepairDirectoryRollbackRequest changed =
+            DataRelativePathRepairDirectoryRollbackRequestAction.Request(
+                fixture.JournalDirectory,
+                "journal.json",
+                fixture.DataRoot,
+                T0.AddSeconds(21),
+                changedExpected
+            );
+
+        Assert.False(
+            changed.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryRollbackRequestState
+                .JournalIncarnationChanged,
+            changed.State
+        );
+
+        Assert.True(
+            changed.LockState.HasValue
+        );
+
+        Assert.NotNull(
+            changed.JournalRead
+        );
+
+        Assert.Null(
+            changed.Classification
+        );
+
+        Assert.Null(
+            changed.JournalTransition
+        );
+
+        Assert.Null(
+            changed.JournalWrite
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.PathFor(
+                    "Final"
+                )
+            )
+        );
+
+        DataRelativePathRepairDirectoryJournalReaderResult after =
+            fixture.ReadJournal();
+
+        Assert.Equal(
+            before.Record,
+            after.Record
+        );
+
+        Assert.True(
+            actual.SameIncarnationAs(
+                after.JournalIncarnationIdentity!
+            )
+        );
+    }
+
     private sealed class Fixture
         : IDisposable
     {

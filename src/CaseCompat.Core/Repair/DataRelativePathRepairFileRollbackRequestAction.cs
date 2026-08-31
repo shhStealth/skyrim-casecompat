@@ -9,11 +9,27 @@ public static class
         LinuxNoFollowPathHandle journalDirectory,
         string journalChildName,
         string trustedDataRoot,
-        DateTimeOffset nowUtc)
+        DateTimeOffset nowUtc,
+        LinuxFileIncarnationIdentity?
+            expectedCurrentJournalIncarnation = null)
     {
         ArgumentNullException.ThrowIfNull(
             journalDirectory
         );
+
+        if (
+            expectedCurrentJournalIncarnation is not null &&
+            !expectedCurrentJournalIncarnation.Success)
+        {
+            return Result(
+                DataRelativePathRepairFileRollbackRequestState
+                    .InvalidExpectedJournalIdentity,
+                error:
+                    "File rollback request requires a usable generation-aware " +
+                    "identity when the caller binds rollback to an " +
+                    "earlier journal read."
+            );
+        }
 
         /*
          * Lock before reading the journal so the decision and
@@ -59,6 +75,30 @@ public static class
                 error:
                     read.Error ??
                     read.State.ToString()
+            );
+        }
+
+        if (
+            expectedCurrentJournalIncarnation is not null &&
+            (
+                read.JournalIncarnationIdentity is null ||
+                !expectedCurrentJournalIncarnation
+                    .SameIncarnationAs(
+                        read.JournalIncarnationIdentity
+                    )
+            ))
+        {
+            return Result(
+                DataRelativePathRepairFileRollbackRequestState
+                    .JournalIncarnationChanged,
+                lockState:
+                    lockResult.State,
+                journalRead:
+                    read,
+                error:
+                    "The rollback journal changed after the caller " +
+                    "read and bound it. Rollback is refused before " +
+                    "classification or filesystem mutation."
             );
         }
 

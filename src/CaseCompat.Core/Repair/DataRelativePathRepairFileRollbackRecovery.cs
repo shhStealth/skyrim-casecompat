@@ -8,6 +8,8 @@ public enum DataRelativePathRepairFileRollbackRecoveryState
 
     LockUnavailable,
     JournalReadFailed,
+    InvalidExpectedJournalIdentity,
+    JournalIncarnationChanged,
     RecoveryStateNotEligible,
 
     JournalTransitionFailed,
