@@ -39,7 +39,7 @@ public static class DataRelativePathRepairFileRecoveryClassifier
          * mutating anything beneath that root.
          */
         if (
-            !DataRelativePathRepairRecoveryDataRootAuthority.Matches(
+            !DataRelativePathRepairDataRootAuthority.Matches(
                 trustedDataRoot,
                 journal.DataRoot,
                 out string? dataRootBindingError

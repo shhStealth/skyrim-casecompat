@@ -18,6 +18,62 @@ public sealed class DataRelativePathRepairFileExecutorTests
         );
 
     [Fact]
+    public void Execute_TrustedDataRootMismatch_DoesNotStartTransaction()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        DataRelativePathRepairFileJournalRecord intent =
+            fixture.CreateIntent();
+
+        string trustedDataRoot =
+            Path.Combine(
+                fixture.RootPath,
+                "OtherData"
+            );
+
+        DataRelativePathRepairFileExecution result =
+            DataRelativePathRepairFileExecutor.Execute(
+                fixture.JournalDirectory,
+                "journal.json",
+                intent,
+                trustedDataRoot,
+                T0.AddSeconds(10)
+            );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairFileExecutionState
+                .DataRootMismatch,
+            result.State
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.SourcePath
+            )
+        );
+
+        Assert.False(
+            File.Exists(
+                fixture.DestinationPath
+            )
+        );
+
+        Assert.False(
+            fixture.JournalExists()
+        );
+    }
+
+    [Fact]
     public void Execute_DirectChildRepair_PublishesAndPersistsApplied()
     {
         if (!OperatingSystem.IsLinux())
@@ -41,6 +97,7 @@ public sealed class DataRelativePathRepairFileExecutorTests
                 fixture.JournalDirectory,
                 "journal.json",
                 intent,
+                fixture.DataRoot,
                 T0.AddSeconds(10)
             );
 
@@ -166,6 +223,7 @@ public sealed class DataRelativePathRepairFileExecutorTests
                 fixture.JournalDirectory,
                 "journal.json",
                 intent,
+                fixture.DataRoot,
                 T0.AddSeconds(10)
             );
 
@@ -219,6 +277,7 @@ public sealed class DataRelativePathRepairFileExecutorTests
                 fixture.JournalDirectory,
                 "journal.json",
                 intent,
+                fixture.DataRoot,
                 T0.AddSeconds(10)
             );
 
@@ -267,6 +326,7 @@ public sealed class DataRelativePathRepairFileExecutorTests
                 fixture.JournalDirectory,
                 "journal.json",
                 intent,
+                fixture.DataRoot,
                 T0.AddSeconds(10)
             );
 
@@ -331,6 +391,7 @@ public sealed class DataRelativePathRepairFileExecutorTests
                 fixture.JournalDirectory,
                 "journal.json",
                 intent,
+                fixture.DataRoot,
                 T0.AddSeconds(10)
             );
 

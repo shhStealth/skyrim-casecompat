@@ -8,6 +8,7 @@ public static class DataRelativePathRepairFileExecutor
         LinuxNoFollowPathHandle journalDirectory,
         string journalChildName,
         DataRelativePathRepairFileJournalRecord intent,
+        string trustedDataRoot,
         DateTimeOffset nowUtc)
     {
         ArgumentNullException.ThrowIfNull(
@@ -41,6 +42,29 @@ public static class DataRelativePathRepairFileExecutor
         }
 
         /*
+         * The intent describes the requested repair; it does not
+         * independently grant filesystem authority.
+         *
+         * Bind the recorded Data root to the caller-authorized
+         * Data root before locking, inspecting, or mutating live
+         * filesystem state.
+         */
+        if (
+            !DataRelativePathRepairDataRootAuthority.Matches(
+                trustedDataRoot,
+                intent.DataRoot,
+                out string? dataRootBindingError
+            ))
+        {
+            return Result(
+                DataRelativePathRepairFileExecutionState
+                    .DataRootMismatch,
+                error:
+                    dataRootBindingError
+            );
+        }
+
+        /*
          * Serialize all cooperating CaseCompat writers before
          * looking at mutable filesystem state.
          */
@@ -69,7 +93,7 @@ public static class DataRelativePathRepairFileExecutor
             sourceAcquisition =
                 DataRelativePathRepairSourceLeaseAcquirer
                     .Acquire(
-                        intent.DataRoot,
+                        trustedDataRoot,
                         intent.SourceSnapshot
                     );
 
@@ -95,7 +119,7 @@ public static class DataRelativePathRepairFileExecutor
             parentAcquisition =
                 DataRelativePathRepairDestinationParentLeaseAcquirer
                     .Acquire(
-                        intent.DataRoot,
+                        trustedDataRoot,
                         intent.DestinationParentSnapshot
                     );
 

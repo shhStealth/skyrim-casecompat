@@ -73,6 +73,7 @@ public sealed class
                 fixture.JournalDirectory,
                 "journal.json",
                 intent,
+                fixture.DataRoot,
                 T0.AddSeconds(10)
             );
 

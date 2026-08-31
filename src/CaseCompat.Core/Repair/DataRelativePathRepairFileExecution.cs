@@ -7,6 +7,7 @@ public enum DataRelativePathRepairFileExecutionState
     AppliedDurably,
 
     InvalidIntent,
+    DataRootMismatch,
     LockUnavailable,
 
     SourceValidationFailed,
