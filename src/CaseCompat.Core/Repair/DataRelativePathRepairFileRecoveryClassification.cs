@@ -5,6 +5,7 @@ namespace CaseCompat.Core.Repair;
 public enum DataRelativePathRepairFileRecoveryState
 {
     InvalidRecord,
+    DataRootMismatch,
     DestinationParentValidationFailed,
     DestinationInspectionFailed,
 

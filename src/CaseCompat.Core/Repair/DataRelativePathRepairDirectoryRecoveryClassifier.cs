@@ -24,7 +24,8 @@ public static class
     public static
         DataRelativePathRepairDirectoryRecoveryClassification
         Classify(
-            DataRelativePathRepairDirectoryJournalRecord journal)
+            DataRelativePathRepairDirectoryJournalRecord journal,
+            string trustedDataRoot)
     {
         ArgumentNullException.ThrowIfNull(
             journal
@@ -43,6 +44,30 @@ public static class
                 journal,
                 error:
                     validationError
+            );
+        }
+
+        /*
+         * The durable journal describes recovery state; it does not
+         * grant filesystem authority.
+         *
+         * Bind its recorded Data root to the independently trusted
+         * root supplied by the recovery caller before inspecting or
+         * mutating anything beneath that root.
+         */
+        if (
+            !DataRelativePathRepairRecoveryDataRootAuthority.Matches(
+                trustedDataRoot,
+                journal.DataRoot,
+                out string? dataRootBindingError
+            ))
+        {
+            return Result(
+                DataRelativePathRepairDirectoryRecoveryState
+                    .DataRootMismatch,
+                journal,
+                error:
+                    dataRootBindingError
             );
         }
 
@@ -69,7 +94,7 @@ public static class
             parentAcquisition =
                 DataRelativePathRepairDestinationParentLeaseAcquirer
                     .Acquire(
-                        journal.DataRoot,
+                        trustedDataRoot,
                         journal.DestinationParentSnapshot
                     );
 

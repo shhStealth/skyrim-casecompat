@@ -13,6 +13,7 @@ public static class
             LinuxFileIncarnationIdentity
                 expectedCurrentJournalIncarnation,
             DataRelativePathRepairDirectoryJournalRecord journal,
+            string trustedDataRoot,
             DateTimeOffset nowUtc)
     {
         ArgumentNullException.ThrowIfNull(
@@ -31,7 +32,8 @@ public static class
             classification =
                 DataRelativePathRepairDirectoryRecoveryClassifier
                     .Classify(
-                        journal
+                        journal,
+                        trustedDataRoot
                     );
 
         if (!expectedCurrentJournalIncarnation.Success)
@@ -76,7 +78,7 @@ public static class
             acquisition =
                 DataRelativePathRepairDestinationParentLeaseAcquirer
                     .Acquire(
-                        journal.DataRoot,
+                        trustedDataRoot,
                         journal.DestinationParentSnapshot
                     );
 

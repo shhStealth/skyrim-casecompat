@@ -19,6 +19,83 @@ public sealed class
         );
 
     [Fact]
+    public void TrustedDataRootMismatch_DoesNotPublishPreparedDirectory()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsUnnamedFiles())
+        {
+            return;
+        }
+
+        fixture.PersistPreparedWithStaging();
+
+        DataRelativePathRepairDirectoryJournalReaderResult before =
+            fixture.ReadJournal();
+
+        string trustedDataRoot =
+            Path.Combine(
+                fixture.RootPath,
+                "OtherData"
+            );
+
+        DataRelativePathRepairDirectoryForwardRecovery result =
+            DataRelativePathRepairDirectoryForwardRecoveryAction
+                .Recover(
+                    fixture.JournalDirectory,
+                    "journal.json",
+                    trustedDataRoot,
+                    T0.AddSeconds(2)
+                );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryForwardRecoveryState
+                .RecoveryStateNotEligible,
+            result.State
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryRecoveryState
+                .DataRootMismatch,
+            result.Classification!.State
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.PathFor(
+                    ".stage"
+                )
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.PathFor(
+                    "Final"
+                )
+            )
+        );
+
+        DataRelativePathRepairDirectoryJournalReaderResult after =
+            fixture.ReadJournal();
+
+        Assert.Equal(
+            before.Record,
+            after.Record
+        );
+    }
+
+    [Fact]
     public void PreparedStaging_Recover_PublishesAndPersistsApplied()
     {
         if (!OperatingSystem.IsLinux())
@@ -41,6 +118,7 @@ public sealed class
                 .Recover(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(2)
                 );
 
@@ -135,6 +213,7 @@ public sealed class
                 .Recover(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(2)
                 );
 
@@ -216,6 +295,7 @@ public sealed class
                 .Recover(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(2)
                 );
 
@@ -292,6 +372,7 @@ public sealed class
                 .Recover(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(2)
                 );
 
@@ -363,6 +444,7 @@ public sealed class
                 .Recover(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(2)
                 );
 

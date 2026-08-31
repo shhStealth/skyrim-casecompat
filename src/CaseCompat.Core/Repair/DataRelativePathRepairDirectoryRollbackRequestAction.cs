@@ -8,6 +8,7 @@ public static class
     public static DataRelativePathRepairDirectoryRollbackRequest Request(
         LinuxNoFollowPathHandle journalDirectory,
         string journalChildName,
+        string trustedDataRoot,
         DateTimeOffset nowUtc)
     {
         ArgumentNullException.ThrowIfNull(
@@ -68,7 +69,8 @@ public static class
             classification =
                 DataRelativePathRepairDirectoryRecoveryClassifier
                     .Classify(
-                        journal
+                        journal,
+                        trustedDataRoot
                     );
 
         /*

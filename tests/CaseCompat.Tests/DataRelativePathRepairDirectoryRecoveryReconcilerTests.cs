@@ -19,6 +19,90 @@ public sealed class
         );
 
     [Fact]
+    public void TrustedDataRootMismatch_DoesNotReconcileDirectoryJournal()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsUnnamedFiles())
+        {
+            return;
+        }
+
+        DataRelativePathRepairDirectoryJournalRecord intent =
+            fixture.CreateIntent();
+
+        fixture.PersistInitial(
+            intent
+        );
+
+        DataRelativePathRepairDirectoryJournalReaderResult before =
+            fixture.ReadJournal();
+
+        string trustedDataRoot =
+            Path.Combine(
+                fixture.RootPath,
+                "OtherData"
+            );
+
+        DataRelativePathRepairDirectoryRecoveryReconciliation result =
+            DataRelativePathRepairDirectoryRecoveryReconciler
+                .Reconcile(
+                    fixture.JournalDirectory,
+                    "journal.json",
+                    before.JournalIncarnationIdentity!,
+                    before.Record!,
+                    trustedDataRoot,
+                    T0.AddSeconds(2)
+                );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryRecoveryReconciliationState
+                .NoAutomaticReconciliation,
+            result.State
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryRecoveryState
+                .DataRootMismatch,
+            result.Classification.State
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.PathFor(
+                    ".stage"
+                )
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.PathFor(
+                    "Final"
+                )
+            )
+        );
+
+        DataRelativePathRepairDirectoryJournalReaderResult after =
+            fixture.ReadJournal();
+
+        Assert.Equal(
+            before.Record,
+            after.Record
+        );
+    }
+
+    [Fact]
     public void PreparedPublishedDirectory_PersistsApplied()
     {
         if (!OperatingSystem.IsLinux())
@@ -83,6 +167,7 @@ public sealed class
                     "journal.json",
                     before.JournalIncarnationIdentity!,
                     before.Record!,
+                    fixture.DataRoot,
                     T0.AddSeconds(2)
                 );
 
@@ -202,6 +287,7 @@ public sealed class
                     "journal.json",
                     before.JournalIncarnationIdentity!,
                     before.Record!,
+                    fixture.DataRoot,
                     T0.AddSeconds(4)
                 );
 
@@ -286,6 +372,7 @@ public sealed class
                     "journal.json",
                     before.JournalIncarnationIdentity!,
                     before.Record!,
+                    fixture.DataRoot,
                     T0.AddSeconds(2)
                 );
 
@@ -418,6 +505,7 @@ public sealed class
                     "journal.json",
                     before.JournalIncarnationIdentity!,
                     before.Record!,
+                    fixture.DataRoot,
                     T0.AddSeconds(4)
                 );
 
@@ -531,6 +619,7 @@ public sealed class
                     "journal.json",
                     stale.JournalIncarnationIdentity!,
                     stale.Record!,
+                    fixture.DataRoot,
                     T0.AddSeconds(3)
                 );
 

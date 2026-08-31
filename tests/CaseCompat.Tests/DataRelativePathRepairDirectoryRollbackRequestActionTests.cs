@@ -19,6 +19,75 @@ public sealed class
         );
 
     [Fact]
+    public void TrustedDataRootMismatch_DoesNotRequestDirectoryRollback()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsUnnamedFiles())
+        {
+            return;
+        }
+
+        fixture.PersistAppliedWithFinal();
+
+        DataRelativePathRepairDirectoryJournalReaderResult before =
+            fixture.ReadJournal();
+
+        string trustedDataRoot =
+            Path.Combine(
+                fixture.RootPath,
+                "OtherData"
+            );
+
+        DataRelativePathRepairDirectoryRollbackRequest result =
+            DataRelativePathRepairDirectoryRollbackRequestAction
+                .Request(
+                    fixture.JournalDirectory,
+                    "journal.json",
+                    trustedDataRoot,
+                    T0.AddSeconds(3)
+                );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryRollbackRequestState
+                .RecoveryStateNotEligible,
+            result.State
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryRecoveryState
+                .DataRootMismatch,
+            result.Classification!.State
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.PathFor(
+                    "Final"
+                )
+            )
+        );
+
+        DataRelativePathRepairDirectoryJournalReaderResult after =
+            fixture.ReadJournal();
+
+        Assert.Equal(
+            before.Record,
+            after.Record
+        );
+    }
+
+    [Fact]
     public void AppliedMatchingDirectory_PersistsRollbackRequested()
     {
         if (!OperatingSystem.IsLinux())
@@ -41,6 +110,7 @@ public sealed class
                 .Request(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(3)
                 );
 
@@ -87,7 +157,8 @@ public sealed class
             classification =
                 DataRelativePathRepairDirectoryRecoveryClassifier
                     .Classify(
-                        after.Record
+                        after.Record,
+                        fixture.DataRoot
                     );
 
         Assert.Equal(
@@ -120,6 +191,7 @@ public sealed class
                 .Request(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(3)
                 );
 
@@ -188,6 +260,7 @@ public sealed class
                 .Request(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(3)
                 );
 
@@ -260,6 +333,7 @@ public sealed class
                 .Request(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(3)
                 );
 

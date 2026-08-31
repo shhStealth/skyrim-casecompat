@@ -21,6 +21,84 @@ public sealed class
         );
 
     [Fact]
+    public void TrustedDataRootMismatch_DoesNotDeleteDestination()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        fixture.WriteDestination(
+            "source"
+        );
+
+        LinuxFileIncarnationIdentity preparedIdentity =
+            fixture.PreparedIdentityFromDestination();
+
+        fixture.PersistRollbackRequested(
+            preparedIdentity
+        );
+
+        DataRelativePathRepairFileJournalReaderResult before =
+            fixture.ReadJournal();
+
+        string trustedDataRoot =
+            Path.Combine(
+                fixture.RootPath,
+                "OtherData"
+            );
+
+        DataRelativePathRepairFileRollbackRecovery result =
+            DataRelativePathRepairFileRollbackRecoveryAction
+                .Recover(
+                    fixture.JournalDirectory,
+                    "journal.json",
+                    trustedDataRoot,
+                    T0.AddSeconds(10)
+                );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairFileRollbackRecoveryState
+                .RecoveryStateNotEligible,
+            result.State
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairFileRecoveryState
+                .DataRootMismatch,
+            result.Classification!.State
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.DestinationPath
+            )
+        );
+
+        Assert.Equal(
+            "source",
+            File.ReadAllText(
+                fixture.DestinationPath
+            )
+        );
+
+        DataRelativePathRepairFileJournalReaderResult after =
+            fixture.ReadJournal();
+
+        Assert.Equal(
+            before.Record,
+            after.Record
+        );
+    }
+
+    [Fact]
     public void RollbackRequestedMatchingDestination_RemovesAndPersistsRolledBack()
     {
         if (!OperatingSystem.IsLinux())
@@ -47,6 +125,7 @@ public sealed class
                 .Recover(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(10)
                 );
 
@@ -129,6 +208,7 @@ public sealed class
                 .Recover(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(10)
                 );
 
@@ -187,6 +267,7 @@ public sealed class
                 .Recover(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(10)
                 );
 
@@ -249,6 +330,7 @@ public sealed class
                 .Recover(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(10)
                 );
 

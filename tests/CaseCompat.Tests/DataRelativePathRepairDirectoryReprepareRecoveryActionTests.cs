@@ -19,6 +19,83 @@ public sealed class
         );
 
     [Fact]
+    public void TrustedDataRootMismatch_DoesNotCreateFreshStagingDirectory()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsUnnamedFiles())
+        {
+            return;
+        }
+
+        fixture.PersistMissingPrepared();
+
+        DataRelativePathRepairDirectoryJournalReaderResult before =
+            fixture.ReadJournal();
+
+        string trustedDataRoot =
+            Path.Combine(
+                fixture.RootPath,
+                "OtherData"
+            );
+
+        DataRelativePathRepairDirectoryReprepareRecovery result =
+            DataRelativePathRepairDirectoryReprepareRecoveryAction
+                .Recover(
+                    fixture.JournalDirectory,
+                    "journal.json",
+                    trustedDataRoot,
+                    T0.AddSeconds(2)
+                );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryReprepareRecoveryState
+                .RecoveryStateNotEligible,
+            result.State
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryRecoveryState
+                .DataRootMismatch,
+            result.Classification!.State
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.PathFor(
+                    ".stage"
+                )
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.PathFor(
+                    "Final"
+                )
+            )
+        );
+
+        DataRelativePathRepairDirectoryJournalReaderResult after =
+            fixture.ReadJournal();
+
+        Assert.Equal(
+            before.Record,
+            after.Record
+        );
+    }
+
+    [Fact]
     public void PreparedBothMissing_Recover_CreatesFreshDurablePreparedState()
     {
         if (!OperatingSystem.IsLinux())
@@ -41,6 +118,7 @@ public sealed class
                 .Recover(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(2)
                 );
 
@@ -116,7 +194,8 @@ public sealed class
             classification =
                 DataRelativePathRepairDirectoryRecoveryClassifier
                     .Classify(
-                        after.Record
+                        after.Record,
+                        fixture.DataRoot
                     );
 
         Assert.Equal(
@@ -157,6 +236,7 @@ public sealed class
                 .Recover(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(2)
                 );
 
@@ -216,6 +296,7 @@ public sealed class
                 .Recover(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(2)
                 );
 
@@ -276,6 +357,7 @@ public sealed class
                 .Recover(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(2)
                 );
 

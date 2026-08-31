@@ -19,6 +19,79 @@ public sealed class
         );
 
     [Fact]
+    public void TrustedDataRootMismatch_DoesNotPublishOrAdvanceJournal()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsUnnamedFiles())
+        {
+            return;
+        }
+
+        fixture.PersistIntent();
+
+        DataRelativePathRepairFileJournalReaderResult before =
+            fixture.ReadJournal();
+
+        string trustedDataRoot =
+            Path.Combine(
+                fixture.RootPath,
+                "OtherData"
+            );
+
+        DataRelativePathRepairFileForwardRecovery result =
+            DataRelativePathRepairFileForwardRecoveryAction
+                .Recover(
+                    fixture.JournalDirectory,
+                    "journal.json",
+                    trustedDataRoot,
+                    T0.AddSeconds(10)
+                );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairFileForwardRecoveryState
+                .RecoveryStateNotEligible,
+            result.State
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairFileRecoveryState
+                .DataRootMismatch,
+            result.Classification!.State
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.SourcePath
+            )
+        );
+
+        Assert.False(
+            File.Exists(
+                fixture.DestinationPath
+            )
+        );
+
+        DataRelativePathRepairFileJournalReaderResult after =
+            fixture.ReadJournal();
+
+        Assert.Equal(
+            before.Record,
+            after.Record
+        );
+    }
+
+    [Fact]
     public void IntentMissing_Recover_PublishesAndPersistsApplied()
     {
         if (!OperatingSystem.IsLinux())
@@ -41,6 +114,7 @@ public sealed class
                 .Recover(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(10)
                 );
 
@@ -104,6 +178,7 @@ public sealed class
                 .Recover(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(10)
                 );
 
@@ -215,6 +290,7 @@ public sealed class
                 .Recover(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(10)
                 );
 
@@ -285,6 +361,7 @@ public sealed class
                 .Recover(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(10)
                 );
 
@@ -341,6 +418,7 @@ public sealed class
                 .Recover(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(10)
                 );
 

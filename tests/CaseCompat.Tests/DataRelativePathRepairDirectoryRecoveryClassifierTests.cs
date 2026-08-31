@@ -19,6 +19,36 @@ public sealed class
         );
 
     [Fact]
+    public void TrustedDataRootMismatch_IsRejectedBeforeFilesystemInspection()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        string trustedDataRoot =
+            Path.Combine(
+                fixture.RootPath,
+                "OtherData"
+            );
+
+        DataRelativePathRepairDirectoryRecoveryClassification result =
+            DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
+                fixture.CreateIntent(),
+                trustedDataRoot
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryRecoveryState
+                .DataRootMismatch,
+            result.State
+        );
+    }
+
+    [Fact]
     public void Intent_MissingFinal_IsConsistent()
     {
         if (!OperatingSystem.IsLinux())
@@ -31,7 +61,8 @@ public sealed class
 
         var result =
             DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
-                fixture.CreateIntent()
+                fixture.CreateIntent(),
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -58,7 +89,8 @@ public sealed class
 
         var result =
             DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
-                fixture.CreateIntent()
+                fixture.CreateIntent(),
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -92,7 +124,8 @@ public sealed class
             DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
                 fixture.Prepared(
                     identity
-                )
+                ),
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -123,7 +156,8 @@ public sealed class
                     SyntheticDirectoryJournalIncarnation.FromPhysical(
                         fixture.SyntheticIdentity()
                     )
-                )
+                ),
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -166,7 +200,8 @@ public sealed class
             DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
                 fixture.Prepared(
                     identity
-                )
+                ),
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -208,7 +243,8 @@ public sealed class
             DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
                 fixture.Prepared(
                     identity
-                )
+                ),
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -239,7 +275,8 @@ public sealed class
                     SyntheticDirectoryJournalIncarnation.FromPhysical(
                         fixture.SyntheticIdentity()
                     )
-                )
+                ),
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -279,7 +316,8 @@ public sealed class
                     SyntheticDirectoryJournalIncarnation.FromPhysical(
                         fixture.SyntheticIdentity()
                     )
-                )
+                ),
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -305,7 +343,8 @@ public sealed class
 
         var result =
             DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
-                applied
+                applied,
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -347,7 +386,8 @@ public sealed class
 
         var result =
             DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
-                applied
+                applied,
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -389,7 +429,8 @@ public sealed class
 
         var result =
             DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
-                applied
+                applied,
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -423,7 +464,8 @@ public sealed class
 
         var result =
             DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
-                requested
+                requested,
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -469,7 +511,8 @@ public sealed class
 
         var result =
             DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
-                requested
+                requested,
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -523,7 +566,8 @@ public sealed class
 
         var result =
             DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
-                rolledBack
+                rolledBack,
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -572,7 +616,8 @@ public sealed class
 
         var result =
             DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
-                conflict
+                conflict,
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -649,7 +694,8 @@ public sealed class
 
         var result =
             DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
-                mismatched
+                mismatched,
+                fixture.DataRoot
             );
 
         Assert.Equal(

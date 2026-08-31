@@ -8,6 +8,7 @@ public static class
     public static DataRelativePathRepairFileForwardRecovery Recover(
         LinuxNoFollowPathHandle journalDirectory,
         string journalChildName,
+        string trustedDataRoot,
         DateTimeOffset nowUtc)
     {
         ArgumentNullException.ThrowIfNull(
@@ -68,7 +69,8 @@ public static class
             classification =
                 DataRelativePathRepairFileRecoveryClassifier
                     .Classify(
-                        journal
+                        journal,
+                        trustedDataRoot
                     );
 
         bool recoverIntent =
@@ -104,7 +106,7 @@ public static class
             sourceAcquisition =
                 DataRelativePathRepairSourceLeaseAcquirer
                     .Acquire(
-                        journal.DataRoot,
+                        trustedDataRoot,
                         journal.SourceSnapshot
                     );
 
@@ -134,7 +136,7 @@ public static class
             parentAcquisition =
                 DataRelativePathRepairDestinationParentLeaseAcquirer
                     .Acquire(
-                        journal.DataRoot,
+                        trustedDataRoot,
                         journal.DestinationParentSnapshot
                     );
 

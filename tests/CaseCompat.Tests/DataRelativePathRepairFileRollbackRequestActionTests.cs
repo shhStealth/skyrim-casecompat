@@ -21,6 +21,81 @@ public sealed class
         );
 
     [Fact]
+    public void TrustedDataRootMismatch_DoesNotRequestRollback()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        fixture.WriteDestination(
+            "source"
+        );
+
+        fixture.PersistApplied(
+            fixture.PreparedIdentityFromDestination()
+        );
+
+        DataRelativePathRepairFileJournalReaderResult before =
+            fixture.ReadJournal();
+
+        string trustedDataRoot =
+            Path.Combine(
+                fixture.RootPath,
+                "OtherData"
+            );
+
+        DataRelativePathRepairFileRollbackRequest result =
+            DataRelativePathRepairFileRollbackRequestAction
+                .Request(
+                    fixture.JournalDirectory,
+                    "journal.json",
+                    trustedDataRoot,
+                    T0.AddSeconds(10)
+                );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairFileRollbackRequestState
+                .RecoveryStateNotEligible,
+            result.State
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairFileRecoveryState
+                .DataRootMismatch,
+            result.Classification!.State
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.DestinationPath
+            )
+        );
+
+        Assert.Equal(
+            "source",
+            File.ReadAllText(
+                fixture.DestinationPath
+            )
+        );
+
+        DataRelativePathRepairFileJournalReaderResult after =
+            fixture.ReadJournal();
+
+        Assert.Equal(
+            before.Record,
+            after.Record
+        );
+    }
+
+    [Fact]
     public void AppliedMatchingDestination_PersistsRollbackRequested()
     {
         if (!OperatingSystem.IsLinux())
@@ -44,6 +119,7 @@ public sealed class
                 .Request(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(10)
                 );
 
@@ -115,6 +191,7 @@ public sealed class
                 .Request(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(10)
                 );
 
@@ -177,6 +254,7 @@ public sealed class
                 .Request(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(10)
                 );
 
@@ -250,6 +328,7 @@ public sealed class
                 .Request(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(10)
                 );
 

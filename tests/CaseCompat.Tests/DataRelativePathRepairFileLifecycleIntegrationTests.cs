@@ -209,6 +209,7 @@ public sealed class
                 .Request(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(20)
                 );
 
@@ -289,6 +290,7 @@ public sealed class
                 .Recover(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(30)
                 );
 
@@ -385,7 +387,8 @@ public sealed class
             finalClassification =
                 DataRelativePathRepairFileRecoveryClassifier
                     .Classify(
-                        rolledBack
+                        rolledBack,
+                        fixture.DataRoot
                     );
 
         Assert.Equal(

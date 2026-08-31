@@ -63,7 +63,8 @@ public sealed class
             initialClassification =
                 DataRelativePathRepairDirectoryRecoveryClassifier
                     .Classify(
-                        initial.Record
+                        initial.Record,
+                        fixture.DataRoot
                     );
 
         Assert.Equal(
@@ -86,6 +87,7 @@ public sealed class
                 .Recover(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(2)
                 );
 
@@ -175,7 +177,8 @@ public sealed class
             afterReprepareClassification =
                 DataRelativePathRepairDirectoryRecoveryClassifier
                     .Classify(
-                        afterReprepare.Record
+                        afterReprepare.Record,
+                        fixture.DataRoot
                     );
 
         Assert.Equal(
@@ -195,6 +198,7 @@ public sealed class
                 .Recover(
                     fixture.JournalDirectory,
                     "journal.json",
+                    fixture.DataRoot,
                     T0.AddSeconds(3)
                 );
 
@@ -308,7 +312,8 @@ public sealed class
             finalClassification =
                 DataRelativePathRepairDirectoryRecoveryClassifier
                     .Classify(
-                        final.Record
+                        final.Record,
+                        fixture.DataRoot
                     );
 
         Assert.Equal(

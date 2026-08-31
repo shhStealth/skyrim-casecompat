@@ -21,6 +21,66 @@ public sealed class
         );
 
     [Fact]
+    public void TrustedDataRootMismatch_DoesNotReconcileJournal()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        fixture.PersistPrepared(
+            fixture.FakePreparedIdentity()
+        );
+
+        DataRelativePathRepairFileJournalReaderResult before =
+            fixture.ReadJournal();
+
+        string trustedDataRoot =
+            Path.Combine(
+                fixture.RootPath,
+                "OtherData"
+            );
+
+        DataRelativePathRepairFileRecoveryReconciliation result =
+            DataRelativePathRepairFileRecoveryReconciler
+                .Reconcile(
+                    fixture.JournalDirectory,
+                    "journal.json",
+                    before.JournalIncarnationIdentity!,
+                    before.Record!,
+                    trustedDataRoot,
+                    T0.AddSeconds(10)
+                );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairFileRecoveryReconciliationState
+                .NoAutomaticReconciliation,
+            result.State
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairFileRecoveryState
+                .DataRootMismatch,
+            result.Classification.State
+        );
+
+        DataRelativePathRepairFileJournalReaderResult after =
+            fixture.ReadJournal();
+
+        Assert.Equal(
+            before.Record,
+            after.Record
+        );
+    }
+
+    [Fact]
     public void PreparedMatchingDestination_PersistsApplied()
     {
         if (!OperatingSystem.IsLinux())
@@ -58,6 +118,7 @@ public sealed class
                     "journal.json",
                     before.JournalIncarnationIdentity!,
                     before.Record!,
+                    fixture.DataRoot,
                     T0.AddSeconds(10)
                 );
 
@@ -135,6 +196,7 @@ public sealed class
                     "journal.json",
                     before.JournalIncarnationIdentity!,
                     before.Record,
+                    fixture.DataRoot,
                     T0.AddSeconds(10)
                 );
 
@@ -190,6 +252,7 @@ public sealed class
                     "journal.json",
                     before.JournalIncarnationIdentity!,
                     before.Record!,
+                    fixture.DataRoot,
                     T0.AddSeconds(10)
                 );
 
@@ -256,6 +319,7 @@ public sealed class
                     "journal.json",
                     before.JournalIncarnationIdentity!,
                     before.Record!,
+                    fixture.DataRoot,
                     T0.AddSeconds(10)
                 );
 
@@ -352,6 +416,7 @@ public sealed class
                     "journal.json",
                     stale.JournalIncarnationIdentity!,
                     stale.Record!,
+                    fixture.DataRoot,
                     T0.AddSeconds(10)
                 );
 

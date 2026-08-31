@@ -21,6 +21,31 @@ public sealed class
         );
 
     [Fact]
+    public void TrustedDataRootMismatch_IsRejectedBeforeFilesystemInspection()
+    {
+        using Fixture fixture =
+            new();
+
+        string trustedDataRoot =
+            Path.Combine(
+                fixture.RootPath,
+                "OtherData"
+            );
+
+        DataRelativePathRepairFileRecoveryClassification result =
+            DataRelativePathRepairFileRecoveryClassifier.Classify(
+                fixture.Intent(),
+                trustedDataRoot
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairFileRecoveryState
+                .DataRootMismatch,
+            result.State
+        );
+    }
+
+    [Fact]
     public void Intent_MissingDestination_IsConsistent()
     {
         using Fixture fixture =
@@ -28,7 +53,8 @@ public sealed class
 
         DataRelativePathRepairFileRecoveryClassification result =
             DataRelativePathRepairFileRecoveryClassifier.Classify(
-                fixture.Intent()
+                fixture.Intent(),
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -54,7 +80,8 @@ public sealed class
 
         DataRelativePathRepairFileRecoveryClassification result =
             DataRelativePathRepairFileRecoveryClassifier.Classify(
-                fixture.Intent()
+                fixture.Intent(),
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -77,7 +104,8 @@ public sealed class
 
         DataRelativePathRepairFileRecoveryClassification result =
             DataRelativePathRepairFileRecoveryClassifier.Classify(
-                prepared
+                prepared,
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -104,7 +132,8 @@ public sealed class
             DataRelativePathRepairFileRecoveryClassifier.Classify(
                 fixture.Prepared(
                     preparedIdentity
-                )
+                ),
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -145,7 +174,8 @@ public sealed class
             DataRelativePathRepairFileRecoveryClassifier.Classify(
                 fixture.Prepared(
                     wrongGeneration
-                )
+                ),
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -211,7 +241,8 @@ public sealed class
             DataRelativePathRepairFileRecoveryClassifier.Classify(
                 fixture.Prepared(
                     preparedIdentity
-                )
+                ),
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -246,7 +277,8 @@ public sealed class
             DataRelativePathRepairFileRecoveryClassifier.Classify(
                 fixture.Prepared(
                     preparedIdentity
-                )
+                ),
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -303,7 +335,8 @@ public sealed class
             DataRelativePathRepairFileRecoveryClassifier.Classify(
                 fixture.Prepared(
                     preparedIdentity
-                )
+                ),
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -365,7 +398,8 @@ public sealed class
 
         DataRelativePathRepairFileRecoveryClassification result =
             DataRelativePathRepairFileRecoveryClassifier.Classify(
-                applied
+                applied,
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -393,7 +427,8 @@ public sealed class
 
         DataRelativePathRepairFileRecoveryClassification result =
             DataRelativePathRepairFileRecoveryClassifier.Classify(
-                applied
+                applied,
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -424,7 +459,8 @@ public sealed class
 
         DataRelativePathRepairFileRecoveryClassification result =
             DataRelativePathRepairFileRecoveryClassifier.Classify(
-                rollbackRequested
+                rollbackRequested,
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -448,7 +484,8 @@ public sealed class
 
         DataRelativePathRepairFileRecoveryClassification result =
             DataRelativePathRepairFileRecoveryClassifier.Classify(
-                rollbackRequested
+                rollbackRequested,
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -476,7 +513,8 @@ public sealed class
 
         DataRelativePathRepairFileRecoveryClassification result =
             DataRelativePathRepairFileRecoveryClassifier.Classify(
-                rolledBack
+                rolledBack,
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -511,7 +549,8 @@ public sealed class
 
         DataRelativePathRepairFileRecoveryClassification result =
             DataRelativePathRepairFileRecoveryClassifier.Classify(
-                rolledBack
+                rolledBack,
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -541,7 +580,8 @@ public sealed class
 
         DataRelativePathRepairFileRecoveryClassification result =
             DataRelativePathRepairFileRecoveryClassifier.Classify(
-                conflict
+                conflict,
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -579,7 +619,8 @@ public sealed class
             DataRelativePathRepairFileRecoveryClassifier.Classify(
                 fixture.Prepared(
                     fixture.FakePreparedIncarnation()
-                )
+                ),
+                fixture.DataRoot
             );
 
         Assert.Equal(
@@ -621,7 +662,8 @@ public sealed class
 
         DataRelativePathRepairFileRecoveryClassification result =
             DataRelativePathRepairFileRecoveryClassifier.Classify(
-                prepared
+                prepared,
+                fixture.DataRoot
             );
 
         Assert.Equal(
