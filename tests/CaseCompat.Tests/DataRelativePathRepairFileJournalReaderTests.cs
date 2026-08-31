@@ -78,6 +78,33 @@ public sealed class DataRelativePathRepairFileJournalReaderTests
             read.JournalIdentity!.Success
         );
 
+        Assert.NotNull(
+            read.JournalIncarnation
+        );
+
+        Assert.True(
+            read.JournalIncarnation!.Success,
+            read.JournalIncarnation.Error
+        );
+
+        Assert.NotNull(
+            read.JournalIncarnationIdentity
+        );
+
+        Assert.True(
+            read.JournalIncarnationIdentity!
+                .SameIncarnationAs(
+                    read.JournalIncarnation.Identity!
+                )
+        );
+
+        Assert.True(
+            read.JournalIdentity.SameObjectAs(
+                read.JournalIncarnationIdentity
+                    .PhysicalIdentity
+            )
+        );
+
         Assert.True(
             read.Length > 0
         );

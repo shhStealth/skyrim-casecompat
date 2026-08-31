@@ -35,15 +35,21 @@ public sealed record
         DataRelativePathRepairDirectoryJournalReadState State,
         string JournalChildName,
         DataRelativePathRepairDirectoryJournalRecord? Record,
-        LinuxOpenedFileIdentityResult? JournalIdentity,
+        LinuxOpenedFileIncarnationResult? JournalIncarnation,
         long? Length,
         string? Error
     )
 {
+    public LinuxOpenedFileIdentityResult? JournalIdentity =>
+        JournalIncarnation?.PhysicalIdentity;
+
+    public LinuxFileIncarnationIdentity? JournalIncarnationIdentity =>
+        JournalIncarnation?.Identity;
+
     public bool Success =>
         State ==
             DataRelativePathRepairDirectoryJournalReadState.Loaded &&
         Record is not null &&
-        JournalIdentity is not null &&
-        JournalIdentity.Success;
+        JournalIncarnation is not null &&
+        JournalIncarnation.Success;
 }

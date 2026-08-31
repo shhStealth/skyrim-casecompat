@@ -100,26 +100,26 @@ public static class DataRelativePathRepairDirectoryJournalReader
         using LinuxOpenedChildHandle journal =
             opened.OpenedChild!;
 
-        LinuxOpenedFileIdentityResult identity =
-            LinuxOpenedFileIdentity.Capture(
+        LinuxOpenedFileIncarnationResult incarnation =
+            LinuxOpenedFileIncarnation.Capture(
                 journal
             );
 
-        if (!identity.Success)
+        if (!incarnation.Success)
         {
             return Result(
-                identity.State ==
-                LinuxOpenedFileIdentityState.NotRegularFile
+                incarnation.State ==
+                LinuxOpenedFileIncarnationState.NotRegularFile
                     ? DataRelativePathRepairDirectoryJournalReadState
                         .JournalNotRegularFile
                     : DataRelativePathRepairDirectoryJournalReadState
                         .JournalIdentityFailed,
                 journalChildName,
-                journalIdentity:
-                    identity,
+                journalIncarnation:
+                    incarnation,
                 error:
-                    identity.Error ??
-                    identity.State.ToString()
+                    incarnation.Error ??
+                    incarnation.State.ToString()
             );
         }
 
@@ -138,8 +138,8 @@ public static class DataRelativePathRepairDirectoryJournalReader
                 DataRelativePathRepairDirectoryJournalReadState
                     .JournalLengthUnavailable,
                 journalChildName,
-                journalIdentity:
-                    identity,
+                journalIncarnation:
+                    incarnation,
                 error:
                     ex.Message
             );
@@ -153,8 +153,8 @@ public static class DataRelativePathRepairDirectoryJournalReader
                 DataRelativePathRepairDirectoryJournalReadState
                     .JournalTooLarge,
                 journalChildName,
-                journalIdentity:
-                    identity,
+                journalIncarnation:
+                    incarnation,
                 length:
                     length,
                 error:
@@ -194,8 +194,8 @@ public static class DataRelativePathRepairDirectoryJournalReader
                         DataRelativePathRepairDirectoryJournalReadState
                             .UnexpectedEndOfFile,
                         journalChildName,
-                        journalIdentity:
-                            identity,
+                        journalIncarnation:
+                            incarnation,
                         length:
                             length,
                         error:
@@ -214,8 +214,8 @@ public static class DataRelativePathRepairDirectoryJournalReader
                 DataRelativePathRepairDirectoryJournalReadState
                     .ReadFailed,
                 journalChildName,
-                journalIdentity:
-                    identity,
+                journalIncarnation:
+                    incarnation,
                 length:
                     length,
                 error:
@@ -238,8 +238,8 @@ public static class DataRelativePathRepairDirectoryJournalReader
                 DataRelativePathRepairDirectoryJournalReadState
                     .JournalLengthUnavailable,
                 journalChildName,
-                journalIdentity:
-                    identity,
+                journalIncarnation:
+                    incarnation,
                 length:
                     length,
                 error:
@@ -253,8 +253,8 @@ public static class DataRelativePathRepairDirectoryJournalReader
                 DataRelativePathRepairDirectoryJournalReadState
                     .LengthChangedDuringRead,
                 journalChildName,
-                journalIdentity:
-                    identity,
+                journalIncarnation:
+                    incarnation,
                 length:
                     lengthAfterRead,
                 error:
@@ -279,8 +279,8 @@ public static class DataRelativePathRepairDirectoryJournalReader
                 DataRelativePathRepairDirectoryJournalReadState
                     .DeserializeFailed,
                 journalChildName,
-                journalIdentity:
-                    identity,
+                journalIncarnation:
+                    incarnation,
                 length:
                     length,
                 error:
@@ -293,8 +293,8 @@ public static class DataRelativePathRepairDirectoryJournalReader
                 DataRelativePathRepairDirectoryJournalReadState
                     .DeserializeFailed,
                 journalChildName,
-                journalIdentity:
-                    identity,
+                journalIncarnation:
+                    incarnation,
                 length:
                     length,
                 error:
@@ -308,8 +308,8 @@ public static class DataRelativePathRepairDirectoryJournalReader
                 DataRelativePathRepairDirectoryJournalReadState
                     .DeserializeFailed,
                 journalChildName,
-                journalIdentity:
-                    identity,
+                journalIncarnation:
+                    incarnation,
                 length:
                     length,
                 error:
@@ -330,8 +330,8 @@ public static class DataRelativePathRepairDirectoryJournalReader
                 journalChildName,
                 record:
                     record,
-                journalIdentity:
-                    identity,
+                journalIncarnation:
+                    incarnation,
                 length:
                     length,
                 error:
@@ -344,8 +344,8 @@ public static class DataRelativePathRepairDirectoryJournalReader
             journalChildName,
             record:
                 record,
-            journalIdentity:
-                identity,
+            journalIncarnation:
+                incarnation,
             length:
                 length
         );
@@ -375,7 +375,7 @@ public static class DataRelativePathRepairDirectoryJournalReader
             DataRelativePathRepairDirectoryJournalReadState state,
             string? journalChildName,
             DataRelativePathRepairDirectoryJournalRecord? record = null,
-            LinuxOpenedFileIdentityResult? journalIdentity = null,
+            LinuxOpenedFileIncarnationResult? journalIncarnation = null,
             long? length = null,
             string? error = null)
     {
@@ -387,8 +387,8 @@ public static class DataRelativePathRepairDirectoryJournalReader
                     journalChildName ?? string.Empty,
                 Record:
                     record,
-                JournalIdentity:
-                    journalIdentity,
+                JournalIncarnation:
+                    journalIncarnation,
                 Length:
                     length,
                 Error:
