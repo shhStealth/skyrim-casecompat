@@ -477,12 +477,12 @@ public static class DataRelativePathRepairFileJournalWriter
             );
         }
 
-        LinuxOpenedFileIdentityResult stagedIdentity =
-            LinuxOpenedFileIdentity.Capture(
+        LinuxOpenedFileIncarnationResult stagedIncarnation =
+            LinuxOpenedFileIncarnation.Capture(
                 temporary
             );
 
-        if (!stagedIdentity.Success)
+        if (!stagedIncarnation.Success)
         {
             bool cleaned =
                 CleanupStaging(
@@ -503,7 +503,7 @@ public static class DataRelativePathRepairFileJournalWriter
                 stagingEntryMayRemain:
                     !cleaned,
                 error:
-                    "The staged journal identity could not be " +
+                    "The staged journal incarnation could not be " +
                     "captured after publication."
             );
         }
@@ -513,9 +513,8 @@ public static class DataRelativePathRepairFileJournalWriter
                 journalDirectory,
                 stagingName,
                 journalChildName,
-                stagedIdentity,
+                stagedIncarnation.Identity!,
                 expectedCurrentJournalIncarnation
-                    .PhysicalIdentity
             );
 
         if (!replace.Success)

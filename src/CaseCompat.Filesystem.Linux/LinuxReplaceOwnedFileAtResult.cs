@@ -38,14 +38,26 @@ public sealed record LinuxReplaceOwnedFileAtResult(
     LinuxReplaceOwnedFileAtState State,
     string SourceChildName,
     string DestinationChildName,
-    LinuxOpenedFileIdentityResult ExpectedSourceIdentity,
-    LinuxOpenedFileIdentityResult? ActualSourceIdentity,
-    LinuxOpenedFileIdentityResult ExpectedDestinationIdentity,
-    LinuxOpenedFileIdentityResult? ActualDestinationIdentity,
+    LinuxFileIncarnationIdentity ExpectedSourceIncarnation,
+    LinuxOpenedFileIncarnationResult? ActualSourceIncarnation,
+    LinuxFileIncarnationIdentity ExpectedDestinationIncarnation,
+    LinuxOpenedFileIncarnationResult? ActualDestinationIncarnation,
     int? Errno,
     string? Error
 )
 {
+    public LinuxOpenedFileIdentityResult ExpectedSourceIdentity =>
+        ExpectedSourceIncarnation.PhysicalIdentity;
+
+    public LinuxOpenedFileIdentityResult? ActualSourceIdentity =>
+        ActualSourceIncarnation?.PhysicalIdentity;
+
+    public LinuxOpenedFileIdentityResult ExpectedDestinationIdentity =>
+        ExpectedDestinationIncarnation.PhysicalIdentity;
+
+    public LinuxOpenedFileIdentityResult? ActualDestinationIdentity =>
+        ActualDestinationIncarnation?.PhysicalIdentity;
+
     public bool Success =>
         State ==
             LinuxReplaceOwnedFileAtState.Replaced;

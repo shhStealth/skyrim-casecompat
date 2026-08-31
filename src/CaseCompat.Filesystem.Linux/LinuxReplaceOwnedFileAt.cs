@@ -34,19 +34,19 @@ public static class LinuxReplaceOwnedFileAt
         LinuxNoFollowPathHandle parentDirectory,
         string sourceChildName,
         string destinationChildName,
-        LinuxOpenedFileIdentityResult expectedSourceIdentity,
-        LinuxOpenedFileIdentityResult expectedDestinationIdentity)
+        LinuxFileIncarnationIdentity expectedSourceIncarnation,
+        LinuxFileIncarnationIdentity expectedDestinationIncarnation)
     {
         ArgumentNullException.ThrowIfNull(
             parentDirectory
         );
 
         ArgumentNullException.ThrowIfNull(
-            expectedSourceIdentity
+            expectedSourceIncarnation
         );
 
         ArgumentNullException.ThrowIfNull(
-            expectedDestinationIdentity
+            expectedDestinationIncarnation
         );
 
         if (
@@ -57,8 +57,8 @@ public static class LinuxReplaceOwnedFileAt
                 LinuxReplaceOwnedFileAtState.InvalidName,
                 sourceChildName,
                 destinationChildName,
-                expectedSourceIdentity,
-                expectedDestinationIdentity,
+                expectedSourceIncarnation,
+                expectedDestinationIncarnation,
                 error:
                     "Source and destination must each identify " +
                     "exactly one direct child."
@@ -76,8 +76,8 @@ public static class LinuxReplaceOwnedFileAt
                 LinuxReplaceOwnedFileAtState.SameName,
                 sourceChildName,
                 destinationChildName,
-                expectedSourceIdentity,
-                expectedDestinationIdentity,
+                expectedSourceIncarnation,
+                expectedDestinationIncarnation,
                 error:
                     "Source and destination names must differ."
             );
@@ -90,38 +90,38 @@ public static class LinuxReplaceOwnedFileAt
                     .UnsupportedPlatform,
                 sourceChildName,
                 destinationChildName,
-                expectedSourceIdentity,
-                expectedDestinationIdentity,
+                expectedSourceIncarnation,
+                expectedDestinationIncarnation,
                 error:
                     "Descriptor-relative atomic replacement is " +
                     "supported on Linux only."
             );
         }
 
-        if (!expectedSourceIdentity.Success)
+        if (!expectedSourceIncarnation.Success)
         {
             return Result(
                 LinuxReplaceOwnedFileAtState
                     .InvalidExpectedSourceIdentity,
                 sourceChildName,
                 destinationChildName,
-                expectedSourceIdentity,
-                expectedDestinationIdentity,
+                expectedSourceIncarnation,
+                expectedDestinationIncarnation,
                 error:
                     "Replacement requires a successfully captured " +
                     "expected source identity."
             );
         }
 
-        if (!expectedDestinationIdentity.Success)
+        if (!expectedDestinationIncarnation.Success)
         {
             return Result(
                 LinuxReplaceOwnedFileAtState
                     .InvalidExpectedDestinationIdentity,
                 sourceChildName,
                 destinationChildName,
-                expectedSourceIdentity,
-                expectedDestinationIdentity,
+                expectedSourceIncarnation,
+                expectedDestinationIncarnation,
                 error:
                     "Replacement requires a successfully captured " +
                     "expected destination identity."
@@ -142,8 +142,8 @@ public static class LinuxReplaceOwnedFileAt
                 ),
                 sourceChildName,
                 destinationChildName,
-                expectedSourceIdentity,
-                expectedDestinationIdentity,
+                expectedSourceIncarnation,
+                expectedDestinationIncarnation,
                 errno:
                     sourceOpen.Errno,
                 error:
@@ -154,15 +154,15 @@ public static class LinuxReplaceOwnedFileAt
         using LinuxOpenedChildHandle source =
             sourceOpen.OpenedChild!;
 
-        LinuxOpenedFileIdentityResult actualSourceIdentity =
-            LinuxOpenedFileIdentity.Capture(
+        LinuxOpenedFileIncarnationResult actualSourceIncarnation =
+            LinuxOpenedFileIncarnation.Capture(
                 source
             );
 
-        if (!actualSourceIdentity.Success)
+        if (!actualSourceIncarnation.Success)
         {
             return Result(
-                actualSourceIdentity.State ==
+                actualSourceIncarnation.PhysicalIdentity?.State ==
                 LinuxOpenedFileIdentityState.NotRegularFile
                     ? LinuxReplaceOwnedFileAtState
                         .SourceNotRegularFile
@@ -170,20 +170,20 @@ public static class LinuxReplaceOwnedFileAt
                         .SourceIdentityUnavailable,
                 sourceChildName,
                 destinationChildName,
-                expectedSourceIdentity,
-                expectedDestinationIdentity,
-                actualSourceIdentity:
-                    actualSourceIdentity,
+                expectedSourceIncarnation,
+                expectedDestinationIncarnation,
+                actualSourceIncarnation:
+                    actualSourceIncarnation,
                 errno:
-                    actualSourceIdentity.Errno,
+                    actualSourceIncarnation.PhysicalIdentity?.Errno,
                 error:
-                    actualSourceIdentity.Error
+                    actualSourceIncarnation.Error
             );
         }
 
         if (
-            !expectedSourceIdentity.SameObjectAs(
-                actualSourceIdentity
+            !expectedSourceIncarnation.SameIncarnationAs(
+                actualSourceIncarnation.Identity!
             ))
         {
             return Result(
@@ -191,13 +191,13 @@ public static class LinuxReplaceOwnedFileAt
                     .SourceIdentityMismatch,
                 sourceChildName,
                 destinationChildName,
-                expectedSourceIdentity,
-                expectedDestinationIdentity,
-                actualSourceIdentity:
-                    actualSourceIdentity,
+                expectedSourceIncarnation,
+                expectedDestinationIncarnation,
+                actualSourceIncarnation:
+                    actualSourceIncarnation,
                 error:
                     "The current staging child is not the " +
-                    "expected CaseCompat-owned source inode."
+                    "expected CaseCompat-owned source incarnation."
             );
         }
 
@@ -215,10 +215,10 @@ public static class LinuxReplaceOwnedFileAt
                 ),
                 sourceChildName,
                 destinationChildName,
-                expectedSourceIdentity,
-                expectedDestinationIdentity,
-                actualSourceIdentity:
-                    actualSourceIdentity,
+                expectedSourceIncarnation,
+                expectedDestinationIncarnation,
+                actualSourceIncarnation:
+                    actualSourceIncarnation,
                 errno:
                     destinationOpen.Errno,
                 error:
@@ -229,15 +229,15 @@ public static class LinuxReplaceOwnedFileAt
         using LinuxOpenedChildHandle destination =
             destinationOpen.OpenedChild!;
 
-        LinuxOpenedFileIdentityResult actualDestinationIdentity =
-            LinuxOpenedFileIdentity.Capture(
+        LinuxOpenedFileIncarnationResult actualDestinationIncarnation =
+            LinuxOpenedFileIncarnation.Capture(
                 destination
             );
 
-        if (!actualDestinationIdentity.Success)
+        if (!actualDestinationIncarnation.Success)
         {
             return Result(
-                actualDestinationIdentity.State ==
+                actualDestinationIncarnation.PhysicalIdentity?.State ==
                 LinuxOpenedFileIdentityState.NotRegularFile
                     ? LinuxReplaceOwnedFileAtState
                         .DestinationNotRegularFile
@@ -245,22 +245,22 @@ public static class LinuxReplaceOwnedFileAt
                         .DestinationIdentityUnavailable,
                 sourceChildName,
                 destinationChildName,
-                expectedSourceIdentity,
-                expectedDestinationIdentity,
-                actualSourceIdentity:
-                    actualSourceIdentity,
-                actualDestinationIdentity:
-                    actualDestinationIdentity,
+                expectedSourceIncarnation,
+                expectedDestinationIncarnation,
+                actualSourceIncarnation:
+                    actualSourceIncarnation,
+                actualDestinationIncarnation:
+                    actualDestinationIncarnation,
                 errno:
-                    actualDestinationIdentity.Errno,
+                    actualDestinationIncarnation.PhysicalIdentity?.Errno,
                 error:
-                    actualDestinationIdentity.Error
+                    actualDestinationIncarnation.Error
             );
         }
 
         if (
-            !expectedDestinationIdentity.SameObjectAs(
-                actualDestinationIdentity
+            !expectedDestinationIncarnation.SameIncarnationAs(
+                actualDestinationIncarnation.Identity!
             ))
         {
             return Result(
@@ -268,34 +268,36 @@ public static class LinuxReplaceOwnedFileAt
                     .DestinationIdentityMismatch,
                 sourceChildName,
                 destinationChildName,
-                expectedSourceIdentity,
-                expectedDestinationIdentity,
-                actualSourceIdentity:
-                    actualSourceIdentity,
-                actualDestinationIdentity:
-                    actualDestinationIdentity,
+                expectedSourceIncarnation,
+                expectedDestinationIncarnation,
+                actualSourceIncarnation:
+                    actualSourceIncarnation,
+                actualDestinationIncarnation:
+                    actualDestinationIncarnation,
                 error:
                     "The current destination child is not the " +
-                    "expected CaseCompat-owned destination inode."
+                    "expected CaseCompat-owned destination incarnation."
             );
         }
 
         if (
-            actualSourceIdentity.SameObjectAs(
-                actualDestinationIdentity
-            ))
+            actualSourceIncarnation.Identity!.PhysicalIdentity
+                .SameObjectAs(
+                    actualDestinationIncarnation.Identity!
+                        .PhysicalIdentity
+                ))
         {
             return Result(
                 LinuxReplaceOwnedFileAtState
                     .SourceAndDestinationSameObject,
                 sourceChildName,
                 destinationChildName,
-                expectedSourceIdentity,
-                expectedDestinationIdentity,
-                actualSourceIdentity:
-                    actualSourceIdentity,
-                actualDestinationIdentity:
-                    actualDestinationIdentity,
+                expectedSourceIncarnation,
+                expectedDestinationIncarnation,
+                actualSourceIncarnation:
+                    actualSourceIncarnation,
+                actualDestinationIncarnation:
+                    actualDestinationIncarnation,
                 error:
                     "Source and destination already reference " +
                     "the same inode."
@@ -314,12 +316,12 @@ public static class LinuxReplaceOwnedFileAt
                     .InvalidParentHandle,
                 sourceChildName,
                 destinationChildName,
-                expectedSourceIdentity,
-                expectedDestinationIdentity,
-                actualSourceIdentity:
-                    actualSourceIdentity,
-                actualDestinationIdentity:
-                    actualDestinationIdentity,
+                expectedSourceIncarnation,
+                expectedDestinationIncarnation,
+                actualSourceIncarnation:
+                    actualSourceIncarnation,
+                actualDestinationIncarnation:
+                    actualDestinationIncarnation,
                 error:
                     "The parent descriptor became invalid or " +
                     "closed before replacement."
@@ -366,12 +368,12 @@ public static class LinuxReplaceOwnedFileAt
                     LinuxReplaceOwnedFileAtState.Replaced,
                     sourceChildName,
                     destinationChildName,
-                    expectedSourceIdentity,
-                    expectedDestinationIdentity,
-                    actualSourceIdentity:
-                        actualSourceIdentity,
-                    actualDestinationIdentity:
-                        actualDestinationIdentity
+                    expectedSourceIncarnation,
+                    expectedDestinationIncarnation,
+                    actualSourceIncarnation:
+                        actualSourceIncarnation,
+                    actualDestinationIncarnation:
+                        actualDestinationIncarnation
                 );
             }
 
@@ -415,12 +417,12 @@ public static class LinuxReplaceOwnedFileAt
                 state,
                 sourceChildName,
                 destinationChildName,
-                expectedSourceIdentity,
-                expectedDestinationIdentity,
-                actualSourceIdentity:
-                    actualSourceIdentity,
-                actualDestinationIdentity:
-                    actualDestinationIdentity,
+                expectedSourceIncarnation,
+                expectedDestinationIncarnation,
+                actualSourceIncarnation:
+                    actualSourceIncarnation,
+                actualDestinationIncarnation:
+                    actualDestinationIncarnation,
                 errno:
                     errno
             );
@@ -432,12 +434,12 @@ public static class LinuxReplaceOwnedFileAt
                     .InvalidParentHandle,
                 sourceChildName,
                 destinationChildName,
-                expectedSourceIdentity,
-                expectedDestinationIdentity,
-                actualSourceIdentity:
-                    actualSourceIdentity,
-                actualDestinationIdentity:
-                    actualDestinationIdentity,
+                expectedSourceIncarnation,
+                expectedDestinationIncarnation,
+                actualSourceIncarnation:
+                    actualSourceIncarnation,
+                actualDestinationIncarnation:
+                    actualDestinationIncarnation,
                 error:
                     ex.Message
             );
@@ -449,12 +451,12 @@ public static class LinuxReplaceOwnedFileAt
                     .InvalidParentHandle,
                 sourceChildName,
                 destinationChildName,
-                expectedSourceIdentity,
-                expectedDestinationIdentity,
-                actualSourceIdentity:
-                    actualSourceIdentity,
-                actualDestinationIdentity:
-                    actualDestinationIdentity,
+                expectedSourceIncarnation,
+                expectedDestinationIncarnation,
+                actualSourceIncarnation:
+                    actualSourceIncarnation,
+                actualDestinationIncarnation:
+                    actualDestinationIncarnation,
                 error:
                     ex.Message
             );
@@ -554,10 +556,10 @@ public static class LinuxReplaceOwnedFileAt
         LinuxReplaceOwnedFileAtState state,
         string? sourceChildName,
         string? destinationChildName,
-        LinuxOpenedFileIdentityResult expectedSourceIdentity,
-        LinuxOpenedFileIdentityResult expectedDestinationIdentity,
-        LinuxOpenedFileIdentityResult? actualSourceIdentity = null,
-        LinuxOpenedFileIdentityResult? actualDestinationIdentity = null,
+        LinuxFileIncarnationIdentity expectedSourceIncarnation,
+        LinuxFileIncarnationIdentity expectedDestinationIncarnation,
+        LinuxOpenedFileIncarnationResult? actualSourceIncarnation = null,
+        LinuxOpenedFileIncarnationResult? actualDestinationIncarnation = null,
         int? errno = null,
         string? error = null)
     {
@@ -578,14 +580,14 @@ public static class LinuxReplaceOwnedFileAt
                 sourceChildName ?? string.Empty,
             DestinationChildName:
                 destinationChildName ?? string.Empty,
-            ExpectedSourceIdentity:
-                expectedSourceIdentity,
-            ActualSourceIdentity:
-                actualSourceIdentity,
-            ExpectedDestinationIdentity:
-                expectedDestinationIdentity,
-            ActualDestinationIdentity:
-                actualDestinationIdentity,
+            ExpectedSourceIncarnation:
+                expectedSourceIncarnation,
+            ActualSourceIncarnation:
+                actualSourceIncarnation,
+            ExpectedDestinationIncarnation:
+                expectedDestinationIncarnation,
+            ActualDestinationIncarnation:
+                actualDestinationIncarnation,
             Errno:
                 errno,
             Error:

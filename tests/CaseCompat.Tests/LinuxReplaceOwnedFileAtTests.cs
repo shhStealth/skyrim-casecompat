@@ -29,7 +29,7 @@ public sealed class LinuxReplaceOwnedFileAtTests
         using LinuxNoFollowPathHandle parent =
             OpenRoot(temp.RootPath);
 
-        LinuxOpenedFileIdentityResult sourceExpected =
+        LinuxFileIncarnationIdentity sourceExpected =
             Capture(parent, "staging.json");
 
         LinuxOpenChildReadOnlyAtResult oldOpen =
@@ -45,12 +45,18 @@ public sealed class LinuxReplaceOwnedFileAtTests
                 oldOpen.OpenedChild
             );
 
-        LinuxOpenedFileIdentityResult destinationExpected =
-            LinuxOpenedFileIdentity.Capture(
+        LinuxOpenedFileIncarnationResult destinationCapture =
+            LinuxOpenedFileIncarnation.Capture(
                 oldDestination
             );
 
-        Assert.True(destinationExpected.Success);
+        Assert.True(
+            destinationCapture.Success,
+            destinationCapture.Error
+        );
+
+        LinuxFileIncarnationIdentity destinationExpected =
+            destinationCapture.Identity!;
 
         LinuxReplaceOwnedFileAtResult result =
             LinuxReplaceOwnedFileAt.Replace(
@@ -135,10 +141,10 @@ public sealed class LinuxReplaceOwnedFileAtTests
         using LinuxNoFollowPathHandle parent =
             OpenRoot(temp.RootPath);
 
-        LinuxOpenedFileIdentityResult sourceExpected =
+        LinuxFileIncarnationIdentity sourceExpected =
             Capture(parent, "staging.json");
 
-        LinuxOpenedFileIdentityResult destinationExpected =
+        LinuxFileIncarnationIdentity destinationExpected =
             Capture(parent, "journal.json");
 
         File.Move(staging, moved);
@@ -192,10 +198,10 @@ public sealed class LinuxReplaceOwnedFileAtTests
         using LinuxNoFollowPathHandle parent =
             OpenRoot(temp.RootPath);
 
-        LinuxOpenedFileIdentityResult sourceExpected =
+        LinuxFileIncarnationIdentity sourceExpected =
             Capture(parent, "staging.json");
 
-        LinuxOpenedFileIdentityResult destinationExpected =
+        LinuxFileIncarnationIdentity destinationExpected =
             Capture(parent, "journal.json");
 
         File.Move(journal, moved);
@@ -221,6 +227,178 @@ public sealed class LinuxReplaceOwnedFileAtTests
         Assert.Equal("new", File.ReadAllText(staging));
         Assert.Equal("replacement", File.ReadAllText(journal));
         Assert.Equal("expected-old", File.ReadAllText(moved));
+    }
+
+    [Fact]
+    public void Replace_SourceGenerationMismatch_Refuses()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var temp =
+            new TemporaryDirectory();
+
+        string staging =
+            Path.Combine(
+                temp.RootPath,
+                "staging.json"
+            );
+
+        string journal =
+            Path.Combine(
+                temp.RootPath,
+                "journal.json"
+            );
+
+        File.WriteAllText(staging, "new");
+        File.WriteAllText(journal, "old");
+
+        using LinuxNoFollowPathHandle parent =
+            OpenRoot(temp.RootPath);
+
+        LinuxFileIncarnationIdentity actualSource =
+            Capture(
+                parent,
+                "staging.json"
+            );
+
+        LinuxFileIncarnationIdentity expectedSource =
+            DifferentGeneration(
+                actualSource
+            );
+
+        LinuxFileIncarnationIdentity expectedDestination =
+            Capture(
+                parent,
+                "journal.json"
+            );
+
+        Assert.True(
+            expectedSource.PhysicalIdentity.SameObjectAs(
+                actualSource.PhysicalIdentity
+            )
+        );
+
+        Assert.False(
+            expectedSource.SameIncarnationAs(
+                actualSource
+            )
+        );
+
+        LinuxReplaceOwnedFileAtResult result =
+            LinuxReplaceOwnedFileAt.Replace(
+                parent,
+                "staging.json",
+                "journal.json",
+                expectedSource,
+                expectedDestination
+            );
+
+        Assert.False(result.Success);
+
+        Assert.Equal(
+            LinuxReplaceOwnedFileAtState
+                .SourceIdentityMismatch,
+            result.State
+        );
+
+        Assert.Equal(
+            "new",
+            File.ReadAllText(staging)
+        );
+
+        Assert.Equal(
+            "old",
+            File.ReadAllText(journal)
+        );
+    }
+
+    [Fact]
+    public void Replace_DestinationGenerationMismatch_Refuses()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var temp =
+            new TemporaryDirectory();
+
+        string staging =
+            Path.Combine(
+                temp.RootPath,
+                "staging.json"
+            );
+
+        string journal =
+            Path.Combine(
+                temp.RootPath,
+                "journal.json"
+            );
+
+        File.WriteAllText(staging, "new");
+        File.WriteAllText(journal, "old");
+
+        using LinuxNoFollowPathHandle parent =
+            OpenRoot(temp.RootPath);
+
+        LinuxFileIncarnationIdentity expectedSource =
+            Capture(
+                parent,
+                "staging.json"
+            );
+
+        LinuxFileIncarnationIdentity actualDestination =
+            Capture(
+                parent,
+                "journal.json"
+            );
+
+        LinuxFileIncarnationIdentity expectedDestination =
+            DifferentGeneration(
+                actualDestination
+            );
+
+        Assert.True(
+            expectedDestination.PhysicalIdentity.SameObjectAs(
+                actualDestination.PhysicalIdentity
+            )
+        );
+
+        Assert.False(
+            expectedDestination.SameIncarnationAs(
+                actualDestination
+            )
+        );
+
+        LinuxReplaceOwnedFileAtResult result =
+            LinuxReplaceOwnedFileAt.Replace(
+                parent,
+                "staging.json",
+                "journal.json",
+                expectedSource,
+                expectedDestination
+            );
+
+        Assert.False(result.Success);
+
+        Assert.Equal(
+            LinuxReplaceOwnedFileAtState
+                .DestinationIdentityMismatch,
+            result.State
+        );
+
+        Assert.Equal(
+            "new",
+            File.ReadAllText(staging)
+        );
+
+        Assert.Equal(
+            "old",
+            File.ReadAllText(journal)
+        );
     }
 
     [Fact]
@@ -252,10 +430,10 @@ public sealed class LinuxReplaceOwnedFileAtTests
         using LinuxNoFollowPathHandle parent =
             OpenRoot(temp.RootPath);
 
-        LinuxOpenedFileIdentityResult sourceExpected =
+        LinuxFileIncarnationIdentity sourceExpected =
             Capture(parent, "owned-source.json");
 
-        LinuxOpenedFileIdentityResult destinationExpected =
+        LinuxFileIncarnationIdentity destinationExpected =
             Capture(parent, "journal.json");
 
         LinuxReplaceOwnedFileAtResult result =
@@ -312,10 +490,10 @@ public sealed class LinuxReplaceOwnedFileAtTests
         using LinuxNoFollowPathHandle parent =
             OpenRoot(temp.RootPath);
 
-        LinuxOpenedFileIdentityResult sourceExpected =
+        LinuxFileIncarnationIdentity sourceExpected =
             Capture(parent, "staging.json");
 
-        LinuxOpenedFileIdentityResult destinationExpected =
+        LinuxFileIncarnationIdentity destinationExpected =
             Capture(parent, "owned-destination.json");
 
         LinuxReplaceOwnedFileAtResult result =
@@ -383,10 +561,10 @@ public sealed class LinuxReplaceOwnedFileAtTests
                 parentOpen.OpenedPath
             );
 
-        LinuxOpenedFileIdentityResult sourceExpected =
+        LinuxFileIncarnationIdentity sourceExpected =
             Capture(parent, "staging.json");
 
-        LinuxOpenedFileIdentityResult destinationExpected =
+        LinuxFileIncarnationIdentity destinationExpected =
             Capture(parent, "journal.json");
 
         string moved =
@@ -459,10 +637,10 @@ public sealed class LinuxReplaceOwnedFileAtTests
         LinuxNoFollowPathHandle parent =
             OpenRoot(temp.RootPath);
 
-        LinuxOpenedFileIdentityResult sourceExpected =
+        LinuxFileIncarnationIdentity sourceExpected =
             Capture(parent, "staging.json");
 
-        LinuxOpenedFileIdentityResult destinationExpected =
+        LinuxFileIncarnationIdentity destinationExpected =
             Capture(parent, "journal.json");
 
         parent.Dispose();
@@ -504,7 +682,7 @@ public sealed class LinuxReplaceOwnedFileAtTests
         using LinuxNoFollowPathHandle parent =
             OpenRoot(temp.RootPath);
 
-        LinuxOpenedFileIdentityResult identity =
+        LinuxFileIncarnationIdentity identity =
             Capture(parent, "journal.json");
 
         LinuxReplaceOwnedFileAtResult result =
@@ -555,10 +733,10 @@ public sealed class LinuxReplaceOwnedFileAtTests
         using LinuxNoFollowPathHandle parent =
             OpenRoot(temp.RootPath);
 
-        LinuxOpenedFileIdentityResult sourceIdentity =
+        LinuxFileIncarnationIdentity sourceIdentity =
             Capture(parent, "source.json");
 
-        LinuxOpenedFileIdentityResult destinationIdentity =
+        LinuxFileIncarnationIdentity destinationIdentity =
             Capture(parent, "journal.json");
 
         LinuxReplaceOwnedFileAtResult result =
@@ -585,7 +763,7 @@ public sealed class LinuxReplaceOwnedFileAtTests
         );
     }
 
-    private static LinuxOpenedFileIdentityResult Capture(
+    private static LinuxFileIncarnationIdentity Capture(
         LinuxNoFollowPathHandle parent,
         string childName)
     {
@@ -602,14 +780,32 @@ public sealed class LinuxReplaceOwnedFileAtTests
                 opened.OpenedChild
             );
 
-        LinuxOpenedFileIdentityResult identity =
-            LinuxOpenedFileIdentity.Capture(
+        LinuxOpenedFileIncarnationResult incarnation =
+            LinuxOpenedFileIncarnation.Capture(
                 child
             );
 
-        Assert.True(identity.Success);
+        Assert.True(
+            incarnation.Success,
+            incarnation.Error
+        );
 
-        return identity;
+        return incarnation.Identity!;
+    }
+
+    private static LinuxFileIncarnationIdentity
+        DifferentGeneration(
+            LinuxFileIncarnationIdentity identity)
+    {
+        uint differentGeneration =
+            identity.InodeGeneration == uint.MaxValue
+                ? 0u
+                : identity.InodeGeneration + 1u;
+
+        return new LinuxFileIncarnationIdentity(
+            identity.PhysicalIdentity,
+            differentGeneration
+        );
     }
 
     private static LinuxNoFollowPathHandle OpenRoot(
