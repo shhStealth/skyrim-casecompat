@@ -137,22 +137,44 @@ public static class
                 parentAcquisition.Lease!;
 
         /*
-         * Directory ownership evidence is mount-aware.
-         * Strengthen the shared parent lease with MountId without
-         * changing the already-proven file-repair path.
+         * Forward recovery reacquires the destination parent after
+         * classification. Revalidate the complete durable directory
+         * incarnation again before any namespace-sensitive operation.
+         *
+         * Generation-unavailable is a hard failure. There is no
+         * fallback to device/inode/mount-only ownership.
          */
-        LinuxFileIdentityResult expectedParentIdentity =
-            journal.DestinationParentSnapshot.Identity;
-
-        LinuxFileIdentityResult? actualParentIdentity =
-            parent.ActualSnapshot.Identity;
+        if (
+            !parent.ActualIncarnation.Success ||
+            parent.IncarnationIdentity is null)
+        {
+            return Result(
+                DataRelativePathRepairDirectoryForwardRecoveryState
+                    .DestinationParentValidationFailed,
+                lockState:
+                    lockResult.State,
+                journalRead:
+                    read,
+                classification:
+                    classification,
+                parentValidation:
+                    parentAcquisition.Validation,
+                error:
+                    "The destination parent could not provide " +
+                    "generation-aware incarnation identity from the " +
+                    "retained directory descriptor: " +
+                    (
+                        parent.ActualIncarnation.Error ??
+                        parent.ActualIncarnation.State.ToString()
+                    )
+            );
+        }
 
         if (
-            actualParentIdentity is null ||
-            !SameDirectoryObject(
-                expectedParentIdentity,
-                actualParentIdentity
-            ))
+            !journal.DestinationParentIncarnationIdentity
+                .SameIncarnationAs(
+                    parent.IncarnationIdentity
+                ))
         {
             return Result(
                 DataRelativePathRepairDirectoryForwardRecoveryState
@@ -167,8 +189,8 @@ public static class
                     parentAcquisition.Validation,
                 error:
                     "The destination parent no longer matches the " +
-                    "complete mount-aware physical identity " +
-                    "recorded by the directory journal."
+                    "generation-aware directory incarnation recorded " +
+                    "by the durable journal."
             );
         }
 
@@ -236,15 +258,15 @@ public static class
                 stagingChildName
             );
 
-        LinuxOpenedDirectorySnapshotResult stagingSnapshot =
-            LinuxOpenedDirectorySnapshot.Capture(
+        LinuxOpenedDirectoryIncarnationResult stagingIncarnation =
+            LinuxOpenedDirectoryIncarnation.Capture(
                 staging,
                 stagingDisplayPath
             );
 
         if (
-            stagingSnapshot.State ==
-            LinuxOpenedDirectorySnapshotState.NotDirectory)
+            stagingIncarnation.State ==
+            LinuxOpenedDirectoryIncarnationState.NotDirectory)
         {
             return Result(
                 DataRelativePathRepairDirectoryForwardRecoveryState
@@ -260,26 +282,24 @@ public static class
                 stagingOpenState:
                     stagingOpen.State,
                 stagingSnapshot:
-                    stagingSnapshot,
+                    stagingIncarnation.Snapshot,
                 error:
                     "The recorded staging entry is no longer a " +
                     "directory."
             );
         }
 
-        bool stagingIdentityUsable =
-            stagingSnapshot.Identity is not null &&
-            HasCompleteIdentity(
-                stagingSnapshot.Identity
-            ) &&
-            (
-                stagingSnapshot.State ==
-                    LinuxOpenedDirectorySnapshotState.Captured ||
-                stagingSnapshot.State ==
-                    LinuxOpenedDirectorySnapshotState.FlagsUnavailable
-            );
-
-        if (!stagingIdentityUsable)
+        /*
+         * Forward publication authority requires the complete
+         * incarnation captured from this exact reopened staging
+         * descriptor.
+         *
+         * A usable physical snapshot without inode generation is not
+         * sufficient to continue toward publication.
+         */
+        if (
+            !stagingIncarnation.Success ||
+            stagingIncarnation.Identity is null)
         {
             return Result(
                 DataRelativePathRepairDirectoryForwardRecoveryState
@@ -295,21 +315,22 @@ public static class
                 stagingOpenState:
                     stagingOpen.State,
                 stagingSnapshot:
-                    stagingSnapshot,
+                    stagingIncarnation.Snapshot,
                 error:
-                    stagingSnapshot.Error ??
-                    stagingSnapshot.State.ToString()
+                    stagingIncarnation.Error ??
+                    stagingIncarnation.State.ToString()
             );
         }
 
-        LinuxFileIdentityResult expectedDirectoryIdentity =
-            journal.PreparedDirectoryIdentity!;
+        LinuxOpenedDirectorySnapshotResult stagingSnapshot =
+            stagingIncarnation.Snapshot!;
 
         if (
-            !SameDirectoryObject(
-                expectedDirectoryIdentity,
-                stagingSnapshot.Identity!
-            ))
+            journal.PreparedDirectoryIncarnationIdentity is null ||
+            !journal.PreparedDirectoryIncarnationIdentity
+                .SameIncarnationAs(
+                    stagingIncarnation.Identity
+                ))
         {
             return Result(
                 DataRelativePathRepairDirectoryForwardRecoveryState
@@ -325,10 +346,11 @@ public static class
                 stagingOpenState:
                     stagingOpen.State,
                 stagingSnapshot:
-                    stagingSnapshot,
+                    stagingIncarnation.Snapshot,
                 error:
                     "The staging directory no longer matches the " +
-                    "mount-aware inode recorded while Prepared."
+                    "generation-aware directory incarnation recorded " +
+                    "while Prepared."
             );
         }
 
@@ -617,34 +639,6 @@ public static class
             appliedJournalWrite:
                 appliedWrite
         );
-    }
-
-    private static bool SameDirectoryObject(
-        LinuxFileIdentityResult left,
-        LinuxFileIdentityResult right)
-    {
-        return
-            HasCompleteIdentity(left) &&
-            HasCompleteIdentity(right) &&
-            left.DeviceMajor ==
-                right.DeviceMajor &&
-            left.DeviceMinor ==
-                right.DeviceMinor &&
-            left.Inode ==
-                right.Inode &&
-            left.MountId ==
-                right.MountId;
-    }
-
-    private static bool HasCompleteIdentity(
-        LinuxFileIdentityResult identity)
-    {
-        return
-            identity.Success &&
-            identity.DeviceMajor is not null &&
-            identity.DeviceMinor is not null &&
-            identity.Inode is not null &&
-            identity.MountId is not null;
     }
 
     private static
