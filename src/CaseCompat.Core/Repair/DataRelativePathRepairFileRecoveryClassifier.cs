@@ -147,41 +147,49 @@ public static class DataRelativePathRepairFileRecoveryClassifier
         using LinuxOpenedChildHandle destination =
             opened.OpenedChild!;
 
-        LinuxOpenedFileIdentityResult destinationIdentity =
-            LinuxOpenedFileIdentity.Capture(
+        LinuxOpenedFileIncarnationResult destinationIncarnation =
+            LinuxOpenedFileIncarnation.Capture(
                 destination
             );
 
-        if (!destinationIdentity.Success)
+        /*
+         * A directory or other non-regular object still proves
+         * the destination name is occupied. Treat that as
+         * conflict rather than losing the semantic recovery
+         * classification.
+         */
+        if (
+            destinationIncarnation.State ==
+            LinuxOpenedFileIncarnationState
+                .NotRegularFile)
         {
-            /*
-             * A directory or other non-regular object still
-             * proves the destination name is occupied. Treat
-             * that as conflict rather than losing the semantic
-             * recovery classification.
-             */
-            if (
-                destinationIdentity.State ==
-                LinuxOpenedFileIdentityState
-                    .NotRegularFile)
-            {
-                return Result(
-                    ClassifyConflict(
-                        journal.State
-                    ),
-                    journal,
-                    parentValidation:
-                        parentAcquisition.Validation,
-                    destinationOpenState:
-                        opened.State,
-                    destinationIdentity:
-                        destinationIdentity,
-                    error:
-                        "The destination name is occupied by " +
-                        "a non-regular file."
-                );
-            }
+            return Result(
+                ClassifyConflict(
+                    journal.State
+                ),
+                journal,
+                parentValidation:
+                    parentAcquisition.Validation,
+                destinationOpenState:
+                    opened.State,
+                destinationIdentity:
+                    destinationIncarnation.PhysicalIdentity,
+                destinationIncarnation:
+                    destinationIncarnation,
+                error:
+                    "The destination name is occupied by " +
+                    "a non-regular file."
+            );
+        }
 
+        /*
+         * Once a durable journal contains generation-aware file
+         * authority, recovery must not fall back to a weaker
+         * device/inode/mount comparison when generation capture
+         * is unavailable.
+         */
+        if (!destinationIncarnation.Success)
+        {
             return Result(
                 DataRelativePathRepairFileRecoveryState
                     .DestinationInspectionFailed,
@@ -191,12 +199,17 @@ public static class DataRelativePathRepairFileRecoveryClassifier
                 destinationOpenState:
                     opened.State,
                 destinationIdentity:
-                    destinationIdentity,
+                    destinationIncarnation.PhysicalIdentity,
+                destinationIncarnation:
+                    destinationIncarnation,
                 error:
-                    destinationIdentity.Error ??
-                    destinationIdentity.State.ToString()
+                    destinationIncarnation.Error ??
+                    destinationIncarnation.State.ToString()
             );
         }
+
+        LinuxOpenedFileIdentityResult destinationIdentity =
+            destinationIncarnation.PhysicalIdentity!;
 
         if (
             journal.State ==
@@ -213,6 +226,8 @@ public static class DataRelativePathRepairFileRecoveryClassifier
                     opened.State,
                 destinationIdentity:
                     destinationIdentity,
+                destinationIncarnation:
+                    destinationIncarnation,
                 error:
                     "A destination entry exists even though " +
                     "the durable journal has not reached " +
@@ -235,14 +250,16 @@ public static class DataRelativePathRepairFileRecoveryClassifier
                     opened.State,
                 destinationIdentity:
                     destinationIdentity,
+                destinationIncarnation:
+                    destinationIncarnation,
                 error:
                     "A destination entry exists although the " +
                     "journal records a completed rollback."
             );
         }
 
-        LinuxOpenedFileIdentityResult preparedIdentity =
-            journal.PreparedFileIdentity!;
+        LinuxFileIncarnationIdentity preparedIncarnation =
+            journal.PreparedFileIncarnationIdentity!;
 
         LinuxOpenedFileSnapshotResult destinationSnapshot =
             LinuxOpenedFileSnapshot.Capture(
@@ -262,6 +279,8 @@ public static class DataRelativePathRepairFileRecoveryClassifier
                     opened.State,
                 destinationIdentity:
                     destinationIdentity,
+                destinationIncarnation:
+                    destinationIncarnation,
                 destinationSnapshot:
                     destinationSnapshot,
                 error:
@@ -270,9 +289,9 @@ public static class DataRelativePathRepairFileRecoveryClassifier
             );
         }
 
-        bool identityMatches =
-            preparedIdentity.SameObjectAs(
-                destinationIdentity
+        bool incarnationMatches =
+            preparedIncarnation.SameIncarnationAs(
+                destinationIncarnation.Identity!
             );
 
         bool sizeMatches =
@@ -287,32 +306,32 @@ public static class DataRelativePathRepairFileRecoveryClassifier
             );
 
         bool matches =
-            identityMatches &&
+            incarnationMatches &&
             sizeMatches &&
             hashMatches;
 
         string? mismatchReason =
             null;
 
-        if (!identityMatches)
+        if (!incarnationMatches)
         {
             mismatchReason =
-                "The destination inode does not match the " +
-                "inode recorded while the repair file was " +
-                "Prepared.";
+                "The destination file incarnation does not match " +
+                "the incarnation recorded while the repair file " +
+                "was Prepared.";
         }
         else if (!sizeMatches)
         {
             mismatchReason =
-                "The destination inode matches the Prepared " +
-                "inode, but its size does not match the " +
-                "journal source snapshot.";
+                "The destination file incarnation matches the " +
+                "Prepared authority, but its size does not match " +
+                "the journal source snapshot.";
         }
         else if (!hashMatches)
         {
             mismatchReason =
-                "The destination inode and size match the " +
-                "Prepared evidence, but its SHA-256 does not " +
+                "The destination file incarnation and size match " +
+                "the Prepared evidence, but its SHA-256 does not " +
                 "match the journal source snapshot.";
         }
 
@@ -331,6 +350,8 @@ public static class DataRelativePathRepairFileRecoveryClassifier
                 opened.State,
             destinationIdentity:
                 destinationIdentity,
+            destinationIncarnation:
+                destinationIncarnation,
             destinationSnapshot:
                 destinationSnapshot,
             error:
@@ -454,6 +475,8 @@ public static class DataRelativePathRepairFileRecoveryClassifier
                 destinationOpenState = null,
             LinuxOpenedFileIdentityResult?
                 destinationIdentity = null,
+            LinuxOpenedFileIncarnationResult?
+                destinationIncarnation = null,
             LinuxOpenedFileSnapshotResult?
                 destinationSnapshot = null,
             string? error = null)
@@ -474,6 +497,10 @@ public static class DataRelativePathRepairFileRecoveryClassifier
                     destinationSnapshot,
                 Error:
                     error
-            );
+            )
+            {
+                DestinationIncarnation =
+                    destinationIncarnation
+            };
     }
 }

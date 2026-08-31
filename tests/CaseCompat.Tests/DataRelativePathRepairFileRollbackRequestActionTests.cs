@@ -403,7 +403,7 @@ public sealed class
             );
         }
 
-        public LinuxOpenedFileIdentityResult
+        public LinuxFileIncarnationIdentity
             PreparedIdentityFromDestination()
         {
             using LinuxNoFollowPathHandle parent =
@@ -418,7 +418,8 @@ public sealed class
                 );
 
             Assert.True(
-                opened.Success
+                opened.Success,
+                opened.Error
             );
 
             using LinuxOpenedChildHandle child =
@@ -428,19 +429,31 @@ public sealed class
                     opened.OpenedChild
                 );
 
-            LinuxOpenedFileIdentityResult identity =
-                LinuxOpenedFileIdentity.Capture(
+            LinuxOpenedFileIncarnationResult capture =
+                LinuxOpenedFileIncarnation.Capture(
                     child
                 );
 
             Assert.True(
-                identity.Success
+                capture.Success,
+                capture.Error
             );
+
+            LinuxFileIncarnationIdentity identity =
+                Assert.IsType<
+                    LinuxFileIncarnationIdentity
+                >(
+                    capture.Identity
+                );
 
             return identity with
             {
-                LinkCount =
-                    0U
+                PhysicalIdentity =
+                    identity.PhysicalIdentity with
+                    {
+                        LinkCount =
+                            0U
+                    }
             };
         }
 
@@ -470,6 +483,16 @@ public sealed class
         public void PersistApplied(
             LinuxOpenedFileIdentityResult preparedIdentity)
         {
+            PersistApplied(
+                SyntheticFileJournalIncarnation.FromPhysical(
+                    preparedIdentity
+                )
+            );
+        }
+
+        public void PersistApplied(
+            LinuxFileIncarnationIdentity preparedIdentity)
+        {
             DataRelativePathRepairFileJournalRecord intent =
                 Intent();
 
@@ -491,9 +514,7 @@ public sealed class
                     DataRelativePathRepairFileJournal
                         .MarkPrepared(
                             intent,
-                            SyntheticFileJournalIncarnation.FromPhysical(
-                                preparedIdentity
-                            ),
+                            preparedIdentity,
                             T0.AddSeconds(1)
                         )
                 );

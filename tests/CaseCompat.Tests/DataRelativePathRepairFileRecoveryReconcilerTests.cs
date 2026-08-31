@@ -35,7 +35,7 @@ public sealed class
             "source"
         );
 
-        LinuxOpenedFileIdentityResult preparedIdentity =
+        LinuxFileIncarnationIdentity preparedIdentity =
             fixture.PreparedIdentityFromDestination();
 
         DataRelativePathRepairFileJournalRecord prepared =
@@ -239,7 +239,7 @@ public sealed class
             "source"
         );
 
-        LinuxOpenedFileIdentityResult preparedIdentity =
+        LinuxFileIncarnationIdentity preparedIdentity =
             fixture.PreparedIdentityFromDestination();
 
         fixture.PersistRollbackRequested(
@@ -313,7 +313,7 @@ public sealed class
             "source"
         );
 
-        LinuxOpenedFileIdentityResult preparedIdentity =
+        LinuxFileIncarnationIdentity preparedIdentity =
             fixture.PreparedIdentityFromDestination();
 
         fixture.PersistPrepared(
@@ -486,7 +486,7 @@ public sealed class
             );
         }
 
-        public LinuxOpenedFileIdentityResult
+        public LinuxFileIncarnationIdentity
             PreparedIdentityFromDestination()
         {
             using LinuxNoFollowPathHandle parent =
@@ -501,7 +501,8 @@ public sealed class
                 );
 
             Assert.True(
-                opened.Success
+                opened.Success,
+                opened.Error
             );
 
             using LinuxOpenedChildHandle child =
@@ -511,19 +512,31 @@ public sealed class
                     opened.OpenedChild
                 );
 
-            LinuxOpenedFileIdentityResult identity =
-                LinuxOpenedFileIdentity.Capture(
+            LinuxOpenedFileIncarnationResult capture =
+                LinuxOpenedFileIncarnation.Capture(
                     child
                 );
 
             Assert.True(
-                identity.Success
+                capture.Success,
+                capture.Error
             );
+
+            LinuxFileIncarnationIdentity identity =
+                Assert.IsType<
+                    LinuxFileIncarnationIdentity
+                >(
+                    capture.Identity
+                );
 
             return identity with
             {
-                LinkCount =
-                    0U
+                PhysicalIdentity =
+                    identity.PhysicalIdentity with
+                    {
+                        LinkCount =
+                            0U
+                    }
             };
         }
 
@@ -554,6 +567,17 @@ public sealed class
             PersistPrepared(
                 LinuxOpenedFileIdentityResult preparedIdentity)
         {
+            return PersistPrepared(
+                SyntheticFileJournalIncarnation.FromPhysical(
+                    preparedIdentity
+                )
+            );
+        }
+
+        public DataRelativePathRepairFileJournalRecord
+            PersistPrepared(
+                LinuxFileIncarnationIdentity preparedIdentity)
+        {
             DataRelativePathRepairFileJournalReaderResult current =
                 ReadJournal();
 
@@ -561,9 +585,7 @@ public sealed class
                 RequireRecord(
                     DataRelativePathRepairFileJournal.MarkPrepared(
                         current.Record!,
-                        SyntheticFileJournalIncarnation.FromPhysical(
-                            preparedIdentity
-                        ),
+                        preparedIdentity,
                         T0.AddSeconds(1)
                     )
                 );
@@ -579,6 +601,17 @@ public sealed class
         public DataRelativePathRepairFileJournalRecord
             PersistRollbackRequested(
                 LinuxOpenedFileIdentityResult preparedIdentity)
+        {
+            return PersistRollbackRequested(
+                SyntheticFileJournalIncarnation.FromPhysical(
+                    preparedIdentity
+                )
+            );
+        }
+
+        public DataRelativePathRepairFileJournalRecord
+            PersistRollbackRequested(
+                LinuxFileIncarnationIdentity preparedIdentity)
         {
             DataRelativePathRepairFileJournalRecord prepared =
                 PersistPrepared(

@@ -72,7 +72,7 @@ public sealed class
 
         DataRelativePathRepairFileJournalRecord prepared =
             fixture.Prepared(
-                fixture.FakePreparedIdentity()
+                fixture.FakePreparedIncarnation()
             );
 
         DataRelativePathRepairFileRecoveryClassification result =
@@ -97,8 +97,8 @@ public sealed class
             "source"
         );
 
-        LinuxOpenedFileIdentityResult preparedIdentity =
-            fixture.PreparedIdentityFromDestination();
+        LinuxFileIncarnationIdentity preparedIdentity =
+            fixture.PreparedIncarnationFromDestination();
 
         DataRelativePathRepairFileRecoveryClassification result =
             DataRelativePathRepairFileRecoveryClassifier.Classify(
@@ -119,6 +119,75 @@ public sealed class
     }
 
     [Fact]
+    public void Prepared_SamePhysicalIdentityDifferentGeneration_IsConflict()
+    {
+        using Fixture fixture =
+            new();
+
+        fixture.WriteDestination(
+            "source"
+        );
+
+        LinuxFileIncarnationIdentity liveIncarnation =
+            fixture.PreparedIncarnationFromDestination();
+
+        LinuxFileIncarnationIdentity wrongGeneration =
+            liveIncarnation with
+            {
+                InodeGeneration =
+                    liveIncarnation.InodeGeneration ==
+                        uint.MaxValue
+                        ? 0U
+                        : liveIncarnation.InodeGeneration + 1U
+            };
+
+        DataRelativePathRepairFileRecoveryClassification result =
+            DataRelativePathRepairFileRecoveryClassifier.Classify(
+                fixture.Prepared(
+                    wrongGeneration
+                )
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairFileRecoveryState
+                .PreparedDestinationConflict,
+            result.State
+        );
+
+        Assert.False(
+            result.DestinationMatchesPreparedIdentity
+        );
+
+        Assert.True(
+            result.DestinationContentMatchesSourceSnapshot
+        );
+
+        Assert.NotNull(
+            result.DestinationIncarnation
+        );
+
+        Assert.True(
+            result.DestinationIncarnation!.Success
+        );
+
+        Assert.NotNull(
+            result.DestinationIncarnationIdentity
+        );
+
+        Assert.Equal(
+            liveIncarnation.InodeGeneration,
+            result.DestinationIncarnationIdentity!
+                .InodeGeneration
+        );
+
+        Assert.Contains(
+            "incarnation",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase
+        );
+    }
+
+    [Fact]
     public void Prepared_DifferentDestination_IsConflict()
     {
         using Fixture fixture =
@@ -129,8 +198,8 @@ public sealed class
             "owned"
         );
 
-        LinuxOpenedFileIdentityResult preparedIdentity =
-            fixture.PreparedIdentityFromChild(
+        LinuxFileIncarnationIdentity preparedIdentity =
+            fixture.PreparedIncarnationFromChild(
                 "owned.nif"
             );
 
@@ -166,8 +235,8 @@ public sealed class
             "source"
         );
 
-        LinuxOpenedFileIdentityResult preparedIdentity =
-            fixture.PreparedIdentityFromDestination();
+        LinuxFileIncarnationIdentity preparedIdentity =
+            fixture.PreparedIncarnationFromDestination();
 
         fixture.OverwriteDestinationInPlace(
             "mutant"
@@ -223,8 +292,8 @@ public sealed class
             "source"
         );
 
-        LinuxOpenedFileIdentityResult preparedIdentity =
-            fixture.PreparedIdentityFromDestination();
+        LinuxFileIncarnationIdentity preparedIdentity =
+            fixture.PreparedIncarnationFromDestination();
 
         fixture.OverwriteDestinationInPlace(
             "source!"
@@ -281,8 +350,8 @@ public sealed class
             "source"
         );
 
-        LinuxOpenedFileIdentityResult preparedIdentity =
-            fixture.PreparedIdentityFromDestination();
+        LinuxFileIncarnationIdentity preparedIdentity =
+            fixture.PreparedIncarnationFromDestination();
 
         DataRelativePathRepairFileJournalRecord applied =
             RequireRecord(
@@ -316,7 +385,7 @@ public sealed class
             RequireRecord(
                 DataRelativePathRepairFileJournal.MarkApplied(
                     fixture.Prepared(
-                        fixture.FakePreparedIdentity()
+                        fixture.FakePreparedIncarnation()
                     ),
                     T0.AddSeconds(2)
                 )
@@ -344,8 +413,8 @@ public sealed class
             "source"
         );
 
-        LinuxOpenedFileIdentityResult preparedIdentity =
-            fixture.PreparedIdentityFromDestination();
+        LinuxFileIncarnationIdentity preparedIdentity =
+            fixture.PreparedIncarnationFromDestination();
 
         DataRelativePathRepairFileJournalRecord
             rollbackRequested =
@@ -374,7 +443,7 @@ public sealed class
         DataRelativePathRepairFileJournalRecord
             rollbackRequested =
                 fixture.RollbackRequested(
-                    fixture.FakePreparedIdentity()
+                    fixture.FakePreparedIncarnation()
                 );
 
         DataRelativePathRepairFileRecoveryClassification result =
@@ -399,7 +468,7 @@ public sealed class
             RequireRecord(
                 DataRelativePathRepairFileJournal.MarkRolledBack(
                     fixture.RollbackRequested(
-                        fixture.FakePreparedIdentity()
+                        fixture.FakePreparedIncarnation()
                     ),
                     T0.AddSeconds(4)
                 )
@@ -427,8 +496,8 @@ public sealed class
             "unexpected"
         );
 
-        LinuxOpenedFileIdentityResult preparedIdentity =
-            fixture.PreparedIdentityFromDestination();
+        LinuxFileIncarnationIdentity preparedIdentity =
+            fixture.PreparedIncarnationFromDestination();
 
         DataRelativePathRepairFileJournalRecord rolledBack =
             RequireRecord(
@@ -463,7 +532,7 @@ public sealed class
                 DataRelativePathRepairFileJournal
                     .MarkRecoveryConflict(
                         fixture.Prepared(
-                            fixture.FakePreparedIdentity()
+                            fixture.FakePreparedIncarnation()
                         ),
                         "fixture conflict",
                         T0.AddSeconds(2)
@@ -509,7 +578,7 @@ public sealed class
         DataRelativePathRepairFileRecoveryClassification result =
             DataRelativePathRepairFileRecoveryClassifier.Classify(
                 fixture.Prepared(
-                    fixture.FakePreparedIdentity()
+                    fixture.FakePreparedIncarnation()
                 )
             );
 
@@ -534,7 +603,7 @@ public sealed class
 
         DataRelativePathRepairFileJournalRecord prepared =
             fixture.Prepared(
-                fixture.FakePreparedIdentity()
+                fixture.FakePreparedIncarnation()
             );
 
         string moved =
@@ -711,14 +780,12 @@ public sealed class
         }
 
         public DataRelativePathRepairFileJournalRecord Prepared(
-            LinuxOpenedFileIdentityResult preparedIdentity)
+            LinuxFileIncarnationIdentity preparedIdentity)
         {
             return RequireRecord(
                 DataRelativePathRepairFileJournal.MarkPrepared(
                     Intent(),
-                    SyntheticFileJournalIncarnation.FromPhysical(
-                        preparedIdentity
-                    ),
+                    preparedIdentity,
                     T0.AddSeconds(1)
                 )
             );
@@ -726,7 +793,7 @@ public sealed class
 
         public DataRelativePathRepairFileJournalRecord
             RollbackRequested(
-                LinuxOpenedFileIdentityResult preparedIdentity)
+                LinuxFileIncarnationIdentity preparedIdentity)
         {
             DataRelativePathRepairFileJournalRecord prepared =
                 Prepared(
@@ -805,16 +872,16 @@ public sealed class
             );
         }
 
-        public LinuxOpenedFileIdentityResult
-            PreparedIdentityFromDestination()
+        public LinuxFileIncarnationIdentity
+            PreparedIncarnationFromDestination()
         {
-            return PreparedIdentityFromChild(
+            return PreparedIncarnationFromChild(
                 "Final.nif"
             );
         }
 
-        public LinuxOpenedFileIdentityResult
-            PreparedIdentityFromChild(
+        public LinuxFileIncarnationIdentity
+            PreparedIncarnationFromChild(
                 string childName)
         {
             using LinuxNoFollowPathHandle parent =
@@ -827,7 +894,8 @@ public sealed class
                 );
 
             Assert.True(
-                opened.Success
+                opened.Success,
+                opened.Error
             );
 
             using LinuxOpenedChildHandle child =
@@ -837,42 +905,64 @@ public sealed class
                     opened.OpenedChild
                 );
 
-            LinuxOpenedFileIdentityResult identity =
-                LinuxOpenedFileIdentity.Capture(
+            LinuxOpenedFileIncarnationResult capture =
+                LinuxOpenedFileIncarnation.Capture(
                     child
                 );
 
             Assert.True(
-                identity.Success
+                capture.Success,
+                capture.Error
             );
 
+            LinuxFileIncarnationIdentity identity =
+                Assert.IsType<
+                    LinuxFileIncarnationIdentity
+                >(
+                    capture.Identity
+                );
+
+            /*
+             * The live destination is already linked. Journal
+             * Prepared authority represents the same incarnation
+             * immediately before linkat(), when O_TMPFILE still
+             * had link count zero.
+             */
             return identity with
             {
-                LinkCount =
-                    0U
+                PhysicalIdentity =
+                    identity.PhysicalIdentity with
+                    {
+                        LinkCount =
+                            0U
+                    }
             };
         }
 
-        public LinuxOpenedFileIdentityResult
-            FakePreparedIdentity()
+        public LinuxFileIncarnationIdentity
+            FakePreparedIncarnation()
         {
-            return new LinuxOpenedFileIdentityResult(
-                State:
-                    LinuxOpenedFileIdentityState.Captured,
-                DeviceMajor:
-                    8U,
-                DeviceMinor:
-                    1U,
-                Inode:
-                    999999UL,
-                LinkCount:
-                    0U,
-                MountId:
-                    55UL,
-                Errno:
-                    null,
-                Error:
-                    null
+            return SyntheticFileJournalIncarnation.FromPhysical(
+                new LinuxOpenedFileIdentityResult(
+                    State:
+                        LinuxOpenedFileIdentityState.Captured,
+                    DeviceMajor:
+                        8U,
+                    DeviceMinor:
+                        1U,
+                    Inode:
+                        999999UL,
+                    LinkCount:
+                        0U,
+                    MountId:
+                        55UL,
+                    Errno:
+                        null,
+                    Error:
+                        null
+                ),
+                inodeGeneration:
+                    1U
             );
         }
 

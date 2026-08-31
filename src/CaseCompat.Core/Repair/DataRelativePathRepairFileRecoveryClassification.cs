@@ -41,6 +41,18 @@ public sealed record
         string? Error
     )
 {
+    public LinuxOpenedFileIncarnationResult?
+        DestinationIncarnation { get; init; }
+
+    /*
+     * Generation-aware identity view of the opened destination.
+     * DestinationIdentity remains available separately for callers
+     * that still need the physical opened-file identity.
+     */
+    public LinuxFileIncarnationIdentity?
+        DestinationIncarnationIdentity =>
+            DestinationIncarnation?.Identity;
+
     public bool ClassificationAvailable =>
         State is not
             DataRelativePathRepairFileRecoveryState
@@ -51,11 +63,12 @@ public sealed record
                 .DestinationInspectionFailed;
 
     public bool DestinationMatchesPreparedIdentity =>
-        Journal.PreparedFileIdentity is not null &&
-        DestinationIdentity is not null &&
-        Journal.PreparedFileIdentity.SameObjectAs(
-            DestinationIdentity
-        );
+        Journal.PreparedFileIncarnationIdentity is not null &&
+        DestinationIncarnationIdentity is not null &&
+        Journal.PreparedFileIncarnationIdentity
+            .SameIncarnationAs(
+                DestinationIncarnationIdentity
+            );
 
     public bool DestinationContentMatchesSourceSnapshot =>
         DestinationSnapshot is not null &&

@@ -200,7 +200,7 @@ public sealed class
             "source"
         );
 
-        LinuxOpenedFileIdentityResult preparedIdentity =
+        LinuxFileIncarnationIdentity preparedIdentity =
             fixture.PreparedIdentityFromDestination();
 
         fixture.PersistPrepared(
@@ -503,6 +503,16 @@ public sealed class
         public void PersistPrepared(
             LinuxOpenedFileIdentityResult identity)
         {
+            PersistPrepared(
+                SyntheticFileJournalIncarnation.FromPhysical(
+                    identity
+                )
+            );
+        }
+
+        public void PersistPrepared(
+            LinuxFileIncarnationIdentity identity)
+        {
             PersistIntent();
 
             DataRelativePathRepairFileJournalReaderResult current =
@@ -513,9 +523,7 @@ public sealed class
                     DataRelativePathRepairFileJournal
                         .MarkPrepared(
                             current.Record!,
-                            SyntheticFileJournalIncarnation.FromPhysical(
-                                identity
-                            ),
+                            identity,
                             T0.AddSeconds(1)
                         );
 
@@ -604,7 +612,7 @@ public sealed class
             );
         }
 
-        public LinuxOpenedFileIdentityResult
+        public LinuxFileIncarnationIdentity
             PreparedIdentityFromDestination()
         {
             using LinuxNoFollowPathHandle parent =
@@ -617,7 +625,8 @@ public sealed class
                 );
 
             Assert.True(
-                opened.Success
+                opened.Success,
+                opened.Error
             );
 
             using LinuxOpenedChildHandle child =
@@ -627,19 +636,31 @@ public sealed class
                     opened.OpenedChild
                 );
 
-            LinuxOpenedFileIdentityResult identity =
-                LinuxOpenedFileIdentity.Capture(
+            LinuxOpenedFileIncarnationResult capture =
+                LinuxOpenedFileIncarnation.Capture(
                     child
                 );
 
             Assert.True(
-                identity.Success
+                capture.Success,
+                capture.Error
             );
+
+            LinuxFileIncarnationIdentity identity =
+                Assert.IsType<
+                    LinuxFileIncarnationIdentity
+                >(
+                    capture.Identity
+                );
 
             return identity with
             {
-                LinkCount =
-                    0U
+                PhysicalIdentity =
+                    identity.PhysicalIdentity with
+                    {
+                        LinkCount =
+                            0U
+                    }
             };
         }
 
