@@ -152,6 +152,71 @@ public sealed class DataRelativePathRepairPlanCommandTests
         );
 
         /*
+         * repair-plan is the normal product-facing writer. New plans
+         * must persist schema v2 with resolver-derived prefix evidence.
+         */
+        byte[] persistedManifestJson =
+            File.ReadAllBytes(
+                Path.Combine(
+                    journalDirectoryPath,
+                    manifestName
+                )
+            );
+
+        DataRelativePathRepairPlanManifestRecord persistedManifest =
+            Assert.IsType<
+                DataRelativePathRepairPlanManifestRecord
+            >(
+                DataRelativePathRepairPlanManifestJson.Deserialize(
+                    persistedManifestJson
+                )
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanManifestRecord
+                .CurrentSchemaVersion,
+            persistedManifest.SchemaVersion
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanManifestRecord
+                .SchemaVersion2,
+            persistedManifest.SchemaVersion
+        );
+
+        Assert.NotNull(
+            persistedManifest.ResolvedPrefixSteps
+        );
+
+        Assert.Single(
+            persistedManifest.ResolvedPrefixSteps!
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanResolvedPrefixStepKind
+                .ExactSpelling,
+            persistedManifest.ResolvedPrefixSteps![0].Kind
+        );
+
+        Assert.Equal(
+            "meshes",
+            persistedManifest.ResolvedPrefixSteps[0]
+                .RequestedComponent
+        );
+
+        Assert.Equal(
+            "meshes",
+            persistedManifest.ResolvedPrefixSteps[0]
+                .SelectedPhysicalName
+        );
+
+        Assert.Null(
+            DataRelativePathRepairPlanManifest.Validate(
+                persistedManifest
+            )
+        );
+
+        /*
          * Planning may persist metadata in the separate journal
          * directory, but it must not cross into repair execution.
          */

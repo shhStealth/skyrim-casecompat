@@ -185,6 +185,822 @@ public sealed class
     }
 
     [Fact]
+    public void Validate_RequestedPathCaseDifferenceInsideRepairSuffix_IsRejected()
+    {
+        DataRelativePathRepairPlanManifestRecord manifest =
+            RequireManifest(
+                CreateManifest(
+                    Guid.NewGuid()
+                )
+            );
+
+        /*
+         * A future fix may allow case-only differences in the
+         * already-resolved prefix, such as requested "Meshes"
+         * versus physical "meshes".
+         *
+         * It must not weaken the strict repair suffix. The operation
+         * chain creates "Bishop Armor/armor.nif", so changing that
+         * strict suffix to "bishop armor/armor.nif" must remain invalid.
+         */
+        DataRelativePathRepairPlanManifestRecord changed =
+            manifest with
+            {
+                RequestedPath =
+                    "Meshes/Fafny stash/" +
+                    "bishop armor/armor.nif"
+            };
+
+        string? error =
+            DataRelativePathRepairPlanManifest.Validate(
+                changed
+            );
+
+        Assert.NotNull(
+            error
+        );
+
+        Assert.Contains(
+            "final CreateFile destination",
+            error,
+            StringComparison.OrdinalIgnoreCase
+        );
+    }
+
+    [Fact]
+    public void Json_SchemaVersion1_OmitsOptionalResolvedPrefixEvidence()
+    {
+        DataRelativePathRepairPlanManifestRecord manifest =
+            RequireManifest(
+                CreateManifest(
+                    Guid.NewGuid()
+                )
+            );
+
+        Assert.Equal(
+            1,
+            manifest.SchemaVersion
+        );
+
+        Assert.Null(
+            manifest.ResolvedPrefixSteps
+        );
+
+        byte[] json =
+            DataRelativePathRepairPlanManifestJson.Serialize(
+                manifest
+            );
+
+        string jsonText =
+            System.Text.Encoding.UTF8.GetString(
+                json
+            );
+
+        /*
+         * A schema-v1 document predates this property. While the value is
+         * null, serialization must omit it so the v1 wire representation
+         * does not acquire v2-only evidence accidentally.
+         */
+        Assert.DoesNotContain(
+            "\"ResolvedPrefixSteps\"",
+            jsonText
+        );
+
+        DataRelativePathRepairPlanManifestRecord restored =
+            Assert.IsType<
+                DataRelativePathRepairPlanManifestRecord
+            >(
+                DataRelativePathRepairPlanManifestJson.Deserialize(
+                    json
+                )
+            );
+
+        Assert.Equal(
+            1,
+            restored.SchemaVersion
+        );
+
+        Assert.Null(
+            restored.ResolvedPrefixSteps
+        );
+
+        Assert.Null(
+            DataRelativePathRepairPlanManifest.Validate(
+                restored
+            )
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaVersion1_WithResolvedPrefixEvidence_IsRejected()
+    {
+        DataRelativePathRepairPlanManifestRecord manifest =
+            RequireManifest(
+                CreateManifest(
+                    Guid.NewGuid()
+                )
+            );
+
+        DataRelativePathRepairPlanManifestRecord changed =
+            manifest with
+            {
+                ResolvedPrefixSteps =
+                [
+                    new(
+                        ComponentIndex:
+                            0,
+                        RequestedComponent:
+                            "meshes",
+                        ParentPhysicalPath:
+                            "/game/Data",
+                        ParentCasefoldEnabled:
+                            true,
+                        Kind:
+                            DataRelativePathRepairPlanResolvedPrefixStepKind
+                                .ExactSpelling,
+                        SelectedPhysicalName:
+                            "meshes",
+                        EquivalentPhysicalNames:
+                            ["meshes"]
+                    )
+                ]
+            };
+
+        Assert.Equal(
+            1,
+            changed.SchemaVersion
+        );
+
+        string? error =
+            DataRelativePathRepairPlanManifest.Validate(
+                changed
+            );
+
+        Assert.NotNull(
+            error
+        );
+
+        Assert.Contains(
+            "schema",
+            error,
+            StringComparison.OrdinalIgnoreCase
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaVersion2_WithCasefoldPrefixEvidence_IsAccepted()
+    {
+        DataRelativePathRepairPlanManifestRecord manifest =
+            RequireManifest(
+                CreateManifest(
+                    Guid.NewGuid()
+                )
+            );
+
+        /*
+         * Physical operation chain:
+         *
+         *   /game/Data/meshes/Fafny stash/
+         *       Bishop Armor/armor.nif
+         *
+         * Literal Skyrim-facing request:
+         *
+         *   Meshes/Fafny stash/Bishop Armor/armor.nif
+         *
+         * Only component 0 differs, and its durable evidence states that
+         * the containing Data directory was casefold-enabled.
+         */
+        DataRelativePathRepairPlanManifestRecord version2 =
+            manifest with
+            {
+                SchemaVersion =
+                    2,
+                RequestedPath =
+                    "Meshes/Fafny stash/" +
+                    "Bishop Armor/armor.nif",
+                ResolvedPrefixSteps =
+                [
+                    new(
+                        ComponentIndex:
+                            0,
+                        RequestedComponent:
+                            "Meshes",
+                        ParentPhysicalPath:
+                            "/game/Data",
+                        ParentCasefoldEnabled:
+                            true,
+                        Kind:
+                            DataRelativePathRepairPlanResolvedPrefixStepKind
+                                .CasefoldEquivalent,
+                        SelectedPhysicalName:
+                            "meshes",
+                        EquivalentPhysicalNames:
+                            ["meshes"]
+                    )
+                ]
+            };
+
+        string? error =
+            DataRelativePathRepairPlanManifest.Validate(
+                version2
+            );
+
+        Assert.Null(
+            error
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaVersion2_CasefoldEquivalentWithoutCasefoldParent_IsRejected()
+    {
+        DataRelativePathRepairPlanManifestRecord manifest =
+            RequireManifest(
+                CreateManifest(
+                    Guid.NewGuid()
+                )
+            );
+
+        DataRelativePathRepairPlanManifestRecord version2 =
+            manifest with
+            {
+                SchemaVersion =
+                    2,
+                RequestedPath =
+                    "Meshes/Fafny stash/" +
+                    "Bishop Armor/armor.nif",
+                ResolvedPrefixSteps =
+                [
+                    new(
+                        ComponentIndex:
+                            0,
+                        RequestedComponent:
+                            "Meshes",
+                        ParentPhysicalPath:
+                            "/game/Data",
+                        ParentCasefoldEnabled:
+                            false,
+                        Kind:
+                            DataRelativePathRepairPlanResolvedPrefixStepKind
+                                .CasefoldEquivalent,
+                        SelectedPhysicalName:
+                            "meshes",
+                        EquivalentPhysicalNames:
+                            ["meshes"]
+                    )
+                ]
+            };
+
+        string? error =
+            DataRelativePathRepairPlanManifest.Validate(
+                version2
+            );
+
+        Assert.NotNull(
+            error
+        );
+
+        Assert.Contains(
+            "casefold-enabled physical parent",
+            error,
+            StringComparison.OrdinalIgnoreCase
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaVersion2_TruncatedResolvedPrefixEvidence_IsRejected()
+    {
+        DataRelativePathRepairPlanManifestRecord manifest =
+            RequireManifest(
+                CreateManifest(
+                    Guid.NewGuid()
+                )
+            );
+
+        DataRelativePathRepairPlanManifestRecord version2 =
+            manifest with
+            {
+                SchemaVersion =
+                    2,
+                RequestedPath =
+                    "Meshes/Fafny stash/" +
+                    "Bishop Armor/armor.nif",
+                ResolvedPrefixSteps =
+                    []
+            };
+
+        string? error =
+            DataRelativePathRepairPlanManifest.Validate(
+                version2
+            );
+
+        Assert.NotNull(
+            error
+        );
+
+        Assert.Contains(
+            "does not terminate at the initial destination parent",
+            error,
+            StringComparison.OrdinalIgnoreCase
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaVersion2_EquivalentHierarchySplit_IsRejected()
+    {
+        DataRelativePathRepairPlanManifestRecord manifest =
+            RequireManifest(
+                CreateManifest(
+                    Guid.NewGuid()
+                )
+            );
+
+        DataRelativePathRepairPlanManifestRecord version2 =
+            manifest with
+            {
+                SchemaVersion =
+                    2,
+                RequestedPath =
+                    "Meshes/Fafny stash/" +
+                    "Bishop Armor/armor.nif",
+                ResolvedPrefixSteps =
+                [
+                    new(
+                        ComponentIndex:
+                            0,
+                        RequestedComponent:
+                            "Meshes",
+                        ParentPhysicalPath:
+                            "/game/Data",
+                        ParentCasefoldEnabled:
+                            true,
+                        Kind:
+                            DataRelativePathRepairPlanResolvedPrefixStepKind
+                                .CasefoldEquivalent,
+                        SelectedPhysicalName:
+                            "meshes",
+                        EquivalentPhysicalNames:
+                            [
+                                "meshes",
+                                "Meshes"
+                            ]
+                    )
+                ]
+            };
+
+        string? error =
+            DataRelativePathRepairPlanManifest.Validate(
+                version2
+            );
+
+        Assert.NotNull(
+            error
+        );
+
+        Assert.Contains(
+            "exactly one equivalent physical name",
+            error,
+            StringComparison.OrdinalIgnoreCase
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaVersion2_RequestedPrefixEvidenceTamper_IsRejected()
+    {
+        DataRelativePathRepairPlanManifestRecord manifest =
+            RequireManifest(
+                CreateManifest(
+                    Guid.NewGuid()
+                )
+            );
+
+        DataRelativePathRepairPlanManifestRecord version2 =
+            manifest with
+            {
+                SchemaVersion =
+                    2,
+                RequestedPath =
+                    "Meshes/Fafny stash/" +
+                    "Bishop Armor/armor.nif",
+                ResolvedPrefixSteps =
+                [
+                    new(
+                        ComponentIndex:
+                            0,
+                        RequestedComponent:
+                            "MESHES",
+                        ParentPhysicalPath:
+                            "/game/Data",
+                        ParentCasefoldEnabled:
+                            true,
+                        Kind:
+                            DataRelativePathRepairPlanResolvedPrefixStepKind
+                                .CasefoldEquivalent,
+                        SelectedPhysicalName:
+                            "meshes",
+                        EquivalentPhysicalNames:
+                            ["meshes"]
+                    )
+                ]
+            };
+
+        string? error =
+            DataRelativePathRepairPlanManifest.Validate(
+                version2
+            );
+
+        Assert.NotNull(
+            error
+        );
+
+        Assert.Contains(
+            "final CreateFile destination",
+            error,
+            StringComparison.OrdinalIgnoreCase
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaVersion2_ExactSpellingPrefixTamper_IsRejected()
+    {
+        DataRelativePathRepairPlanManifestRecord manifest =
+            RequireManifest(
+                CreateManifest(
+                    Guid.NewGuid()
+                )
+            );
+
+        /*
+         * Tamper both RequestedPath and its durable evidence together.
+         *
+         * This bypasses the earlier RequestedComponent-to-RequestedPath
+         * binding and proves that ExactSpelling itself remains ordinal.
+         */
+        DataRelativePathRepairPlanManifestRecord version2 =
+            manifest with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairPlanManifestRecord
+                        .SchemaVersion2,
+                RequestedPath =
+                    "MESHES/Fafny stash/" +
+                    "Bishop Armor/armor.nif",
+                ResolvedPrefixSteps =
+                [
+                    new(
+                        ComponentIndex:
+                            0,
+                        RequestedComponent:
+                            "MESHES",
+                        ParentPhysicalPath:
+                            "/game/Data",
+                        ParentCasefoldEnabled:
+                            false,
+                        Kind:
+                            DataRelativePathRepairPlanResolvedPrefixStepKind
+                                .ExactSpelling,
+                        SelectedPhysicalName:
+                            "meshes",
+                        EquivalentPhysicalNames:
+                            ["meshes"]
+                    )
+                ]
+            };
+
+        string? error =
+            DataRelativePathRepairPlanManifest.Validate(
+                version2
+            );
+
+        Assert.NotNull(
+            error
+        );
+
+        Assert.Contains(
+            "final CreateFile destination",
+            error,
+            StringComparison.OrdinalIgnoreCase
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaVersion2_ParentPhysicalPathTamper_IsRejected()
+    {
+        DataRelativePathRepairPlanManifestRecord manifest =
+            RequireManifest(
+                CreateManifest(
+                    Guid.NewGuid()
+                )
+            );
+
+        DataRelativePathRepairPlanManifestRecord version2 =
+            manifest with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairPlanManifestRecord
+                        .SchemaVersion2,
+                RequestedPath =
+                    "Meshes/Fafny stash/" +
+                    "Bishop Armor/armor.nif",
+                ResolvedPrefixSteps =
+                [
+                    new(
+                        ComponentIndex:
+                            0,
+                        RequestedComponent:
+                            "Meshes",
+                        ParentPhysicalPath:
+                            "/game/OtherData",
+                        ParentCasefoldEnabled:
+                            true,
+                        Kind:
+                            DataRelativePathRepairPlanResolvedPrefixStepKind
+                                .CasefoldEquivalent,
+                        SelectedPhysicalName:
+                            "meshes",
+                        EquivalentPhysicalNames:
+                            ["meshes"]
+                    )
+                ]
+            };
+
+        string? error =
+            DataRelativePathRepairPlanManifest.Validate(
+                version2
+            );
+
+        Assert.NotNull(
+            error
+        );
+
+        Assert.Contains(
+            "physical parent hierarchy",
+            error,
+            StringComparison.OrdinalIgnoreCase
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaVersion2_NoncontiguousComponentIndex_IsRejected()
+    {
+        DataRelativePathRepairPlanManifestRecord manifest =
+            RequireManifest(
+                CreateManifest(
+                    Guid.NewGuid()
+                )
+            );
+
+        DataRelativePathRepairPlanManifestRecord version2 =
+            manifest with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairPlanManifestRecord
+                        .SchemaVersion2,
+                RequestedPath =
+                    "Meshes/Fafny stash/" +
+                    "Bishop Armor/armor.nif",
+                ResolvedPrefixSteps =
+                [
+                    new(
+                        ComponentIndex:
+                            1,
+                        RequestedComponent:
+                            "Meshes",
+                        ParentPhysicalPath:
+                            "/game/Data",
+                        ParentCasefoldEnabled:
+                            true,
+                        Kind:
+                            DataRelativePathRepairPlanResolvedPrefixStepKind
+                                .CasefoldEquivalent,
+                        SelectedPhysicalName:
+                            "meshes",
+                        EquivalentPhysicalNames:
+                            ["meshes"]
+                    )
+                ]
+            };
+
+        string? error =
+            DataRelativePathRepairPlanManifest.Validate(
+                version2
+            );
+
+        Assert.NotNull(
+            error
+        );
+
+        Assert.Contains(
+            "not contiguous from component zero",
+            error,
+            StringComparison.OrdinalIgnoreCase
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaVersion2_CasefoldEquivalentWithExactSpelling_IsRejected()
+    {
+        DataRelativePathRepairPlanManifestRecord manifest =
+            RequireManifest(
+                CreateManifest(
+                    Guid.NewGuid()
+                )
+            );
+
+        DataRelativePathRepairPlanManifestRecord version2 =
+            manifest with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairPlanManifestRecord
+                        .SchemaVersion2,
+                RequestedPath =
+                    "meshes/Fafny stash/" +
+                    "Bishop Armor/armor.nif",
+                ResolvedPrefixSteps =
+                [
+                    new(
+                        ComponentIndex:
+                            0,
+                        RequestedComponent:
+                            "meshes",
+                        ParentPhysicalPath:
+                            "/game/Data",
+                        ParentCasefoldEnabled:
+                            true,
+                        Kind:
+                            DataRelativePathRepairPlanResolvedPrefixStepKind
+                                .CasefoldEquivalent,
+                        SelectedPhysicalName:
+                            "meshes",
+                        EquivalentPhysicalNames:
+                            ["meshes"]
+                    )
+                ]
+            };
+
+        string? error =
+            DataRelativePathRepairPlanManifest.Validate(
+                version2
+            );
+
+        Assert.NotNull(
+            error
+        );
+
+        Assert.Contains(
+            "different physical spelling",
+            error,
+            StringComparison.OrdinalIgnoreCase
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaVersion2_NonEquivalentCasefoldNames_AreRejected()
+    {
+        DataRelativePathRepairPlanManifestRecord manifest =
+            RequireManifest(
+                CreateManifest(
+                    Guid.NewGuid()
+                )
+            );
+
+        DataRelativePathRepairPlanManifestRecord version2 =
+            manifest with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairPlanManifestRecord
+                        .SchemaVersion2,
+                RequestedPath =
+                    "Mashes/Fafny stash/" +
+                    "Bishop Armor/armor.nif",
+                ResolvedPrefixSteps =
+                [
+                    new(
+                        ComponentIndex:
+                            0,
+                        RequestedComponent:
+                            "Mashes",
+                        ParentPhysicalPath:
+                            "/game/Data",
+                        ParentCasefoldEnabled:
+                            true,
+                        Kind:
+                            DataRelativePathRepairPlanResolvedPrefixStepKind
+                                .CasefoldEquivalent,
+                        SelectedPhysicalName:
+                            "meshes",
+                        EquivalentPhysicalNames:
+                            ["meshes"]
+                    )
+                ]
+            };
+
+        string? error =
+            DataRelativePathRepairPlanManifest.Validate(
+                version2
+            );
+
+        Assert.NotNull(
+            error
+        );
+
+        Assert.Contains(
+            "not Windows-logically equivalent",
+            error,
+            StringComparison.OrdinalIgnoreCase
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaVersion2_UnsupportedPrefixStepKind_IsRejected()
+    {
+        DataRelativePathRepairPlanManifestRecord manifest =
+            RequireManifest(
+                CreateManifest(
+                    Guid.NewGuid()
+                )
+            );
+
+        DataRelativePathRepairPlanManifestRecord version2 =
+            manifest with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairPlanManifestRecord
+                        .SchemaVersion2,
+                RequestedPath =
+                    "meshes/Fafny stash/" +
+                    "Bishop Armor/armor.nif",
+                ResolvedPrefixSteps =
+                [
+                    new(
+                        ComponentIndex:
+                            0,
+                        RequestedComponent:
+                            "meshes",
+                        ParentPhysicalPath:
+                            "/game/Data",
+                        ParentCasefoldEnabled:
+                            false,
+                        Kind:
+                            (DataRelativePathRepairPlanResolvedPrefixStepKind)
+                                999,
+                        SelectedPhysicalName:
+                            "meshes",
+                        EquivalentPhysicalNames:
+                            ["meshes"]
+                    )
+                ]
+            };
+
+        string? error =
+            DataRelativePathRepairPlanManifest.Validate(
+                version2
+            );
+
+        Assert.NotNull(
+            error
+        );
+
+        Assert.Contains(
+            "unsupported step kind",
+            error,
+            StringComparison.OrdinalIgnoreCase
+        );
+    }
+
+    [Fact]
+    public void Validate_UnsupportedSchemaVersion_IsRejected()
+    {
+        DataRelativePathRepairPlanManifestRecord manifest =
+            RequireManifest(
+                CreateManifest(
+                    Guid.NewGuid()
+                )
+            );
+
+        DataRelativePathRepairPlanManifestRecord changed =
+            manifest with
+            {
+                SchemaVersion =
+                    3
+            };
+
+        string? error =
+            DataRelativePathRepairPlanManifest.Validate(
+                changed
+            );
+
+        Assert.NotNull(
+            error
+        );
+
+        Assert.Contains(
+            "Unsupported plan-manifest schema version",
+            error,
+            StringComparison.Ordinal
+        );
+    }
+
+    [Fact]
     public void Json_RoundTrip_PreservesManifestEvidence()
     {
         DataRelativePathRepairPlanManifestRecord manifest =

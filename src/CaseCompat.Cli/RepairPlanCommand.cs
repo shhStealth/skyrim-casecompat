@@ -102,11 +102,10 @@ public static class RepairPlanCommand
         try
         {
             creation =
-                DataRelativePathRepairPlanManifest.Create(
+                DataRelativePathRepairPlanManifest.CreateFromResolution(
                     planId,
                     createdUtc,
-                    resolution.DataRoot,
-                    resolution.RequestedPath,
+                    resolution,
                     sourceSnapshot,
                     parentSnapshot,
                     projection.Operations

@@ -254,6 +254,220 @@ public sealed class DataRelativePathRepairPlanProjectorTests
             projection.Error
         );
 
+        /*
+         * A projected plan must also be representable by the durable
+         * manifest when an already-resolved prefix differs only because
+         * traversal occurred beneath a casefold-enabled parent.
+         *
+         * Here the Skyrim request begins with "Meshes", while the
+         * physical existing directory beneath casefold-enabled Data is
+         * "meshes". The strict mismatch being repaired occurs later at
+         * FreeHorse/freehorse.
+         */
+        DataRelativePathRepairPlanManifestCreation manifestCreation =
+            DataRelativePathRepairPlanManifest.CreateFromResolution(
+                Guid.NewGuid(),
+                DateTimeOffset.UnixEpoch,
+                resolution,
+                snapshot,
+                parentSnapshot,
+                projection.Operations
+            );
+
+        Assert.True(
+            manifestCreation.Success,
+            manifestCreation.Error
+        );
+
+        DataRelativePathRepairPlanManifestRecord manifest =
+            Assert.IsType<
+                DataRelativePathRepairPlanManifestRecord
+            >(
+                manifestCreation.Manifest
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanManifestRecord
+                .SchemaVersion2,
+            manifest.SchemaVersion
+        );
+
+        Assert.NotNull(
+            manifest.ResolvedPrefixSteps
+        );
+
+        Assert.Equal(
+            2,
+            manifest.ResolvedPrefixSteps!.Count
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanResolvedPrefixStepKind
+                .CasefoldEquivalent,
+            manifest.ResolvedPrefixSteps[0].Kind
+        );
+
+        Assert.Equal(
+            "Meshes",
+            manifest.ResolvedPrefixSteps[0].RequestedComponent
+        );
+
+        Assert.Equal(
+            "meshes",
+            manifest.ResolvedPrefixSteps[0].SelectedPhysicalName
+        );
+
+        Assert.True(
+            manifest.ResolvedPrefixSteps[0].ParentCasefoldEnabled
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanResolvedPrefixStepKind
+                .ExactSpelling,
+            manifest.ResolvedPrefixSteps[1].Kind
+        );
+
+        Assert.Equal(
+            "00Taliesin",
+            manifest.ResolvedPrefixSteps[1].RequestedComponent
+        );
+
+        Assert.Equal(
+            "00Taliesin",
+            manifest.ResolvedPrefixSteps[1].SelectedPhysicalName
+        );
+
+        Assert.False(
+            manifest.ResolvedPrefixSteps[1].ParentCasefoldEnabled
+        );
+
+        Assert.Equal(
+            resolution.RequestedPath,
+            manifest.RequestedPath
+        );
+
+        Assert.Equal(
+            createFile.DestinationPath,
+            manifest.Operations[^1].Operation.DestinationPath
+        );
+
+        /*
+         * Schema-v2 prefix evidence is durable plan evidence, not merely
+         * an in-memory creation aid. Prove that the exact resolver-derived
+         * evidence survives the manifest JSON wire format and still
+         * validates after deserialization.
+         */
+        byte[] manifestJson =
+            DataRelativePathRepairPlanManifestJson.Serialize(
+                manifest
+            );
+
+        DataRelativePathRepairPlanManifestRecord restoredManifest =
+            Assert.IsType<
+                DataRelativePathRepairPlanManifestRecord
+            >(
+                DataRelativePathRepairPlanManifestJson.Deserialize(
+                    manifestJson
+                )
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanManifestRecord
+                .SchemaVersion2,
+            restoredManifest.SchemaVersion
+        );
+
+        Assert.NotNull(
+            restoredManifest.ResolvedPrefixSteps
+        );
+
+        Assert.Equal(
+            manifest.ResolvedPrefixSteps!.Count,
+            restoredManifest.ResolvedPrefixSteps!.Count
+        );
+
+        for (
+            int index = 0;
+            index < manifest.ResolvedPrefixSteps.Count;
+            index++)
+        {
+            DataRelativePathRepairPlanResolvedPrefixStep expectedStep =
+                manifest.ResolvedPrefixSteps[index];
+
+            DataRelativePathRepairPlanResolvedPrefixStep actualStep =
+                restoredManifest.ResolvedPrefixSteps[index];
+
+            Assert.Equal(
+                expectedStep.ComponentIndex,
+                actualStep.ComponentIndex
+            );
+
+            Assert.Equal(
+                expectedStep.RequestedComponent,
+                actualStep.RequestedComponent
+            );
+
+            Assert.Equal(
+                expectedStep.ParentPhysicalPath,
+                actualStep.ParentPhysicalPath
+            );
+
+            Assert.Equal(
+                expectedStep.ParentCasefoldEnabled,
+                actualStep.ParentCasefoldEnabled
+            );
+
+            Assert.Equal(
+                expectedStep.Kind,
+                actualStep.Kind
+            );
+
+            Assert.Equal(
+                expectedStep.SelectedPhysicalName,
+                actualStep.SelectedPhysicalName
+            );
+
+            Assert.Equal(
+                expectedStep.EquivalentPhysicalNames.ToArray(),
+                actualStep.EquivalentPhysicalNames.ToArray()
+            );
+        }
+
+        Assert.Null(
+            DataRelativePathRepairPlanManifest.Validate(
+                restoredManifest
+            )
+        );
+
+        /*
+         * Only the component traversed beneath the casefold-enabled Data
+         * root may differ in case. "00Taliesin" is beneath strict "meshes",
+         * so changing its spelling must not be accepted merely because it
+         * lies above the repair-created suffix.
+         */
+        DataRelativePathRepairPlanManifestRecord changedStrictPrefix =
+            manifest with
+            {
+                RequestedPath =
+                    "Meshes/00TALIESIN/FreeHorse/" +
+                    "imperialsaddle.nif"
+            };
+
+        string? strictPrefixError =
+            DataRelativePathRepairPlanManifest.Validate(
+                changedStrictPrefix
+            );
+
+        Assert.NotNull(
+            strictPrefixError
+        );
+
+        Assert.Contains(
+            "final CreateFile destination",
+            strictPrefixError,
+            StringComparison.OrdinalIgnoreCase
+        );
+
         // Projection is strictly read-only.
         Assert.False(
             Directory.Exists(
