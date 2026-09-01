@@ -55,6 +55,9 @@ switch (command)
     case "repair-status":
         return RepairStatusCommand.Run(args);
 
+    case "repair-status-batch":
+        return RepairStatusBatchCommand.Run(args);
+
     case "repair-apply":
         return RepairApplyCommand.Run(args);
 
@@ -387,6 +390,10 @@ static void ShowUsage()
         "  repair-status    Inspect persisted repair state; read-only."
     );
     Console.WriteLine(
+        "  repair-status-batch  Inspect observed batch child plans; " +
+        "read-only."
+    );
+    Console.WriteLine(
         "  repair-apply     Apply a persisted repair plan."
     );
     Console.WriteLine(
@@ -396,6 +403,9 @@ static void ShowUsage()
     Console.WriteLine(
         "  Recommended: repair-plan -> repair-status -> " +
         "repair-apply -> repair-status"
+    );
+    Console.WriteLine(
+        "  Batch:       repair-plan-batch -> repair-status-batch"
     );
     Console.WriteLine(
         "  Recovery:    repair-rollback -> repair-status"
@@ -414,6 +424,10 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat repair-status <journal directory> " +
+        "<manifest file name> <Skyrim Data directory>"
+    );
+    Console.WriteLine(
+        "  casecompat repair-status-batch <batch directory> " +
         "<manifest file name> <Skyrim Data directory>"
     );
     Console.WriteLine(
