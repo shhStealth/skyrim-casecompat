@@ -436,7 +436,7 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat repair-plan-batch <Skyrim Data directory> " +
-        "<path-list file> <batch directory> <manifest file name>"
+        "<path-list file> <batch directory> [manifest file name]"
     );
     Console.WriteLine(
         "  casecompat repair-status <journal directory> " +
@@ -448,7 +448,15 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat repair-status-batch <batch directory> " +
+        "<Skyrim Data directory>"
+    );
+    Console.WriteLine(
+        "  casecompat repair-status-batch <batch directory> " +
         "<manifest file name> <Skyrim Data directory>"
+    );
+    Console.WriteLine(
+        "  casecompat repair-apply-batch <batch directory> " +
+        "<Skyrim Data directory>"
     );
     Console.WriteLine(
         "  casecompat repair-apply-batch <batch directory> " +
@@ -461,6 +469,10 @@ static void ShowUsage()
     Console.WriteLine(
         "  casecompat repair-apply <journal directory> " +
         "<manifest file name> <Skyrim Data directory>"
+    );
+    Console.WriteLine(
+        "  casecompat repair-rollback-batch <batch directory> " +
+        "<Skyrim Data directory>"
     );
     Console.WriteLine(
         "  casecompat repair-rollback-batch <batch directory> " +
@@ -477,7 +489,7 @@ static void ShowUsage()
 
     Console.WriteLine();
     Console.WriteLine(
-        "  Default single-plan manifest file name: repair-plan.json"
+        "  Default repair plan manifest file name: repair-plan.json"
     );
     Console.WriteLine();
 

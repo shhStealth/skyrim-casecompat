@@ -20,24 +20,40 @@ public static class RepairStatusBatchCommand
 
     public static int Run(string[] args)
     {
-        if (args.Length != 4)
+        if (args.Length < 3 ||
+            args.Length > 4)
         {
             Console.Error.WriteLine(
                 "Error: repair-status-batch requires a batch directory, " +
-                "manifest file name, and Skyrim Data directory."
+                "Skyrim Data directory, and optional manifest file name."
             );
 
             Console.Error.WriteLine();
 
+            Console.Error.WriteLine("Usage:");
             Console.Error.WriteLine(
-                "Usage: casecompat repair-status-batch <batch directory> " +
+                "  casecompat repair-status-batch <batch directory> " +
+                "<Skyrim Data directory>"
+            );
+            Console.Error.WriteLine(
+                "  casecompat repair-status-batch <batch directory> " +
                 "<manifest file name> <Skyrim Data directory>"
             );
 
             return 2;
         }
 
-        if (!IsValidManifestChildName(args[2]))
+        string manifestChildName =
+            args.Length == 4
+                ? args[2]
+                : RepairCliDefaults.PlanManifestChildName;
+
+        string trustedDataRoot =
+            args.Length == 4
+                ? args[3]
+                : args[2];
+
+        if (!IsValidManifestChildName(manifestChildName))
         {
             Console.Error.WriteLine(
                 "Repair-status-batch manifest file name must identify " +
@@ -92,8 +108,8 @@ public static class RepairStatusBatchCommand
                 DataRelativePathRepairBatchCompletionInspector.Inspect(
                     batchDirectory,
                     BatchManifestName,
-                    args[2],
-                    args[3]
+                    manifestChildName,
+                    trustedDataRoot
                 );
         }
         catch (Exception ex)
@@ -236,8 +252,8 @@ public static class RepairStatusBatchCommand
                     inspection =
                         DataRelativePathRepairPlanStatusInspector.Inspect(
                             childDirectory,
-                            args[2],
-                            args[3]
+                            manifestChildName,
+                            trustedDataRoot
                         );
                 }
                 catch (Exception ex)
@@ -360,11 +376,11 @@ public static class RepairStatusBatchCommand
         );
 
         Console.WriteLine(
-            $"Manifest:           {args[2]}"
+            $"Manifest:           {manifestChildName}"
         );
 
         Console.WriteLine(
-            $"Trusted Data:       {args[3]}"
+            $"Trusted Data:       {trustedDataRoot}"
         );
 
         Console.WriteLine(

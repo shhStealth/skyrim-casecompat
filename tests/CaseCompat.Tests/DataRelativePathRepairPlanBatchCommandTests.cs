@@ -408,7 +408,6 @@ public sealed class
                     dataRoot,
                     pathList,
                     batchDirectoryPath,
-                    manifestName
                 ]
             );
 

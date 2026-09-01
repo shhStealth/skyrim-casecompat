@@ -9,17 +9,18 @@ public static class RepairPlanBatchCommand
 
     public static int Run(string[] args)
     {
-        if (args.Length != 5)
+        if (args.Length < 4 ||
+            args.Length > 5)
         {
             Console.Error.WriteLine(
                 "Error: repair-plan-batch requires a Skyrim Data directory, " +
-                "path-list file, batch directory, and manifest file name."
+                "path-list file, batch directory, and optional manifest file name."
             );
             Console.Error.WriteLine();
             Console.Error.WriteLine(
                 "Usage: casecompat repair-plan-batch " +
                 "<Skyrim Data directory> <path-list file> " +
-                "<batch directory> <manifest file name>"
+                "<batch directory> [manifest file name]"
             );
 
             return 2;
@@ -35,7 +36,9 @@ public static class RepairPlanBatchCommand
             args[3];
 
         string manifestName =
-            args[4];
+            args.Length == 5
+                ? args[4]
+                : RepairCliDefaults.PlanManifestChildName;
 
         /*
          * Validate the child manifest name before any batch child

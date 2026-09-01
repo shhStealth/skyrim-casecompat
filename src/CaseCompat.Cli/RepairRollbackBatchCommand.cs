@@ -8,24 +8,40 @@ public static class RepairRollbackBatchCommand
 
     public static int Run(string[] args)
     {
-        if (args.Length != 4)
+        if (args.Length < 3 ||
+            args.Length > 4)
         {
             Console.Error.WriteLine(
                 "Error: repair-rollback-batch requires a batch directory, " +
-                "manifest file name, and Skyrim Data directory."
+                "Skyrim Data directory, and optional manifest file name."
             );
 
             Console.Error.WriteLine();
 
+            Console.Error.WriteLine("Usage:");
             Console.Error.WriteLine(
-                "Usage: casecompat repair-rollback-batch <batch directory> " +
+                "  casecompat repair-rollback-batch <batch directory> " +
+                "<Skyrim Data directory>"
+            );
+            Console.Error.WriteLine(
+                "  casecompat repair-rollback-batch <batch directory> " +
                 "<manifest file name> <Skyrim Data directory>"
             );
 
             return 2;
         }
 
-        if (!IsValidManifestChildName(args[2]))
+        string manifestChildName =
+            args.Length == 4
+                ? args[2]
+                : RepairCliDefaults.PlanManifestChildName;
+
+        string trustedDataRoot =
+            args.Length == 4
+                ? args[3]
+                : args[2];
+
+        if (!IsValidManifestChildName(manifestChildName))
         {
             Console.Error.WriteLine(
                 "Repair-rollback-batch manifest file name must identify " +
@@ -93,8 +109,8 @@ public static class RepairRollbackBatchCommand
                 DataRelativePathRepairBatchCompletionInspector.Inspect(
                     batchDirectory,
                     BatchManifestName,
-                    args[2],
-                    args[3]
+                    manifestChildName,
+                    trustedDataRoot
                 );
         }
         catch (Exception ex)
@@ -284,8 +300,8 @@ public static class RepairRollbackBatchCommand
                     DataRelativePathRepairPlanRollbackExecutor
                         .ExecuteExpectedManifest(
                             childDirectory,
-                            args[2],
-                            args[3],
+                            manifestChildName,
+                            trustedDataRoot,
                             DateTimeOffset.UtcNow,
                             expectedChild.PlanId,
                             expectedChild.ManifestSha256

@@ -231,7 +231,7 @@ public sealed class
 
         Assert.Equal(
             0,
-            fixture.RunBatchRollback()
+            fixture.RunBatchRollbackShort()
         );
 
         Assert.True(
@@ -255,6 +255,79 @@ public sealed class
         Assert.False(
             File.Exists(
                 second.DestinationPath
+            )
+        );
+    }
+
+    [Fact]
+    public void
+        Run_DefaultManifestMismatch_RefusesBeforeAnyChildRollback()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            Fixture.Create(
+                "custom-plan.json"
+            );
+
+        PlanSpec plan =
+            fixture.CreatePlan(
+                index:
+                    1,
+                physicalComponent:
+                    "alpha",
+                requestedComponent:
+                    "Alpha"
+            );
+
+        fixture.ApplyPlan(
+            plan
+        );
+
+        fixture.WriteBatchManifest(
+            fixture.BuildBatchManifest(
+                [
+                    plan
+                ]
+            )
+        );
+
+        Assert.Equal(
+            "custom-plan.json",
+            fixture.ManifestName
+        );
+
+        Assert.True(
+            File.Exists(
+                plan.DestinationPath
+            )
+        );
+
+        Assert.Equal(
+            plan.Payload,
+            File.ReadAllText(
+                plan.DestinationPath
+            )
+        );
+
+        Assert.Equal(
+            4,
+            fixture.RunBatchRollbackShort()
+        );
+
+        Assert.True(
+            File.Exists(
+                plan.DestinationPath
+            )
+        );
+
+        Assert.Equal(
+            plan.Payload,
+            File.ReadAllText(
+                plan.DestinationPath
             )
         );
     }
@@ -612,7 +685,8 @@ public sealed class
             get;
         }
 
-        public static Fixture Create()
+        public static Fixture Create(
+            string manifestName = "repair-plan.json")
         {
             string rootPath =
                 Path.Combine(
@@ -648,7 +722,7 @@ public sealed class
                 rootPath,
                 dataRoot,
                 batchRoot,
-                "repair-plan.json"
+                manifestName
             );
         }
 
@@ -894,6 +968,18 @@ public sealed class
                         "repair-rollback-batch",
                         BatchRoot,
                         ManifestName,
+                        DataRoot
+                    ]
+                );
+        }
+
+        public int RunBatchRollbackShort()
+        {
+            return
+                global::RepairRollbackBatchCommand.Run(
+                    [
+                        "repair-rollback-batch",
+                        BatchRoot,
                         DataRoot
                     ]
                 );

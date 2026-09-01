@@ -157,7 +157,7 @@ public sealed class
 
         Assert.Equal(
             0,
-            fixture.RunBatchApply()
+            fixture.RunBatchApplyShort()
         );
 
         Assert.Equal(
@@ -171,6 +171,68 @@ public sealed class
             second.Payload,
             File.ReadAllText(
                 second.DestinationPath
+            )
+        );
+    }
+
+    [Fact]
+    public void
+        Run_DefaultManifestMismatch_RefusesBeforeAnyChildMutation()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            Fixture.Create(
+                "custom-plan.json"
+            );
+
+        PlanSpec plan =
+            fixture.CreatePlan(
+                index:
+                    1,
+                physicalComponent:
+                    "alpha",
+                requestedComponent:
+                    "Alpha"
+            );
+
+        fixture.WriteBatchManifest(
+            fixture.BuildBatchManifest(
+                [
+                    plan
+                ]
+            )
+        );
+
+        Assert.Equal(
+            "custom-plan.json",
+            fixture.ManifestName
+        );
+
+        Assert.False(
+            File.Exists(
+                plan.DestinationPath
+            )
+        );
+
+        Assert.Equal(
+            4,
+            fixture.RunBatchApplyShort()
+        );
+
+        Assert.False(
+            File.Exists(
+                plan.DestinationPath
+            )
+        );
+
+        Assert.Empty(
+            Directory.EnumerateFiles(
+                plan.ChildDirectoryPath,
+                ".casecompat-plan-*-op-*.json"
             )
         );
     }
@@ -482,7 +544,8 @@ public sealed class
             get;
         }
 
-        public static Fixture Create()
+        public static Fixture Create(
+            string manifestName = "repair-plan.json")
         {
             string rootPath =
                 Path.Combine(
@@ -518,7 +581,7 @@ public sealed class
                 rootPath,
                 dataRoot,
                 batchRoot,
-                "repair-plan.json"
+                manifestName
             );
         }
 
@@ -735,6 +798,18 @@ public sealed class
                         "repair-apply-batch",
                         BatchRoot,
                         ManifestName,
+                        DataRoot
+                    ]
+                );
+        }
+
+        public int RunBatchApplyShort()
+        {
+            return
+                global::RepairApplyBatchCommand.Run(
+                    [
+                        "repair-apply-batch",
+                        BatchRoot,
                         DataRoot
                     ]
                 );

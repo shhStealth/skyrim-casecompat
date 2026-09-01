@@ -360,7 +360,7 @@ public sealed class DataRelativePathRepairStatusBatchCommandTests
         );
 
         int result =
-            fixture.RunBatchStatus();
+            fixture.RunBatchStatusShort();
 
         Assert.Equal(
             0,
@@ -982,6 +982,18 @@ public sealed class DataRelativePathRepairStatusBatchCommandTests
                         "repair-status-batch",
                         BatchRoot,
                         ManifestName,
+                        DataRoot
+                    ]
+                );
+        }
+
+        public int RunBatchStatusShort()
+        {
+            return
+                RepairStatusBatchCommand.Run(
+                    [
+                        "repair-status-batch",
+                        BatchRoot,
                         DataRoot
                     ]
                 );

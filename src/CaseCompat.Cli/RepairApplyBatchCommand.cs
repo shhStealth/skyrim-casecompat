@@ -8,24 +8,40 @@ public static class RepairApplyBatchCommand
 
     public static int Run(string[] args)
     {
-        if (args.Length != 4)
+        if (args.Length < 3 ||
+            args.Length > 4)
         {
             Console.Error.WriteLine(
                 "Error: repair-apply-batch requires a batch directory, " +
-                "manifest file name, and Skyrim Data directory."
+                "Skyrim Data directory, and optional manifest file name."
             );
 
             Console.Error.WriteLine();
 
+            Console.Error.WriteLine("Usage:");
             Console.Error.WriteLine(
-                "Usage: casecompat repair-apply-batch <batch directory> " +
+                "  casecompat repair-apply-batch <batch directory> " +
+                "<Skyrim Data directory>"
+            );
+            Console.Error.WriteLine(
+                "  casecompat repair-apply-batch <batch directory> " +
                 "<manifest file name> <Skyrim Data directory>"
             );
 
             return 2;
         }
 
-        if (!IsValidManifestChildName(args[2]))
+        string manifestChildName =
+            args.Length == 4
+                ? args[2]
+                : RepairCliDefaults.PlanManifestChildName;
+
+        string trustedDataRoot =
+            args.Length == 4
+                ? args[3]
+                : args[2];
+
+        if (!IsValidManifestChildName(manifestChildName))
         {
             Console.Error.WriteLine(
                 "Repair-apply-batch manifest file name must identify " +
@@ -94,8 +110,8 @@ public static class RepairApplyBatchCommand
                 DataRelativePathRepairBatchCompletionInspector.Inspect(
                     batchDirectory,
                     BatchManifestName,
-                    args[2],
-                    args[3]
+                    manifestChildName,
+                    trustedDataRoot
                 );
         }
         catch (Exception ex)
@@ -285,8 +301,8 @@ public static class RepairApplyBatchCommand
                     DataRelativePathRepairPlanForwardExecutor
                         .ExecuteExpectedManifest(
                             childDirectory,
-                            args[2],
-                            args[3],
+                            manifestChildName,
+                            trustedDataRoot,
                             DateTimeOffset.UtcNow,
                             expectedChild.PlanId,
                             expectedChild.ManifestSha256
