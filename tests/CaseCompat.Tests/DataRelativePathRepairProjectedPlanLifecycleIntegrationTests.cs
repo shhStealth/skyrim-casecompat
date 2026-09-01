@@ -4285,6 +4285,48 @@ public sealed class
                 .RolledBack,
             firstRead.Record!.State
         );
+
+        /*
+         * Whole-plan rollback succeeded even though operations 1 and 2
+         * never started.  Independent read-only status must therefore
+         * describe the plan as ROLLED BACK, not ROLLBACK IN PROGRESS.
+         */
+        DataRelativePathRepairPlanStatusInspection status =
+            DataRelativePathRepairPlanStatusInspector.Inspect(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot
+            );
+
+        Assert.True(
+            status.Success,
+            status.Error
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanOverallStatus.RolledBack,
+            status.OverallStatus
+        );
+
+        Assert.Equal(
+            new[]
+            {
+                DataRelativePathRepairPlanObservedOperationState
+                    .RolledBack,
+
+                DataRelativePathRepairPlanObservedOperationState
+                    .NotStarted,
+
+                DataRelativePathRepairPlanObservedOperationState
+                    .NotStarted
+            },
+            status.OperationStatuses
+                .Select(
+                    operation =>
+                        operation.State
+                )
+                .ToArray()
+        );
     }
 
     [Fact]

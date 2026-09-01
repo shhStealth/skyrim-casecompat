@@ -463,10 +463,8 @@ public static class DataRelativePathRepairPlanStatusInspector
         }
 
         if (
-            statuses.All(status =>
-                status.State ==
-                DataRelativePathRepairPlanObservedOperationState
-                    .RolledBack
+            IsCompletedRollback(
+                statuses
             ))
         {
             return
@@ -491,6 +489,67 @@ public static class DataRelativePathRepairPlanStatusInspector
         return
             DataRelativePathRepairPlanOverallStatus
                 .InProgress;
+    }
+
+    /*
+     * A successfully rolled-back partial forward plan has a durable
+     * RolledBack prefix followed by an untouched suffix whose journals
+     * were never created.
+     *
+     * Example:
+     *
+     *     RolledBack, NotStarted, NotStarted
+     *
+     * That is a completed rollback, not rollback-in-progress.
+     *
+     * Preserve ordering here.  A NotStarted entry followed later by a
+     * RolledBack entry is not the same valid shape and must not be
+     * promoted to RolledBack by this descriptive status classifier.
+     */
+    private static bool IsCompletedRollback(
+        IReadOnlyList<
+            DataRelativePathRepairPlanOperationStatus
+        > statuses)
+    {
+        bool sawRolledBack =
+            false;
+
+        bool sawUntouchedSuffix =
+            false;
+
+        foreach (
+            DataRelativePathRepairPlanOperationStatus status
+            in statuses)
+        {
+            switch (status.State)
+            {
+                case
+                    DataRelativePathRepairPlanObservedOperationState
+                        .RolledBack:
+                    if (sawUntouchedSuffix)
+                    {
+                        return false;
+                    }
+
+                    sawRolledBack =
+                        true;
+
+                    break;
+
+                case
+                    DataRelativePathRepairPlanObservedOperationState
+                        .NotStarted:
+                    sawUntouchedSuffix =
+                        true;
+
+                    break;
+
+                default:
+                    return false;
+            }
+        }
+
+        return sawRolledBack;
     }
 
     private static DataRelativePathRepairPlanStatusInspection
