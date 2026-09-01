@@ -141,8 +141,7 @@ public sealed class DataRelativePathRepairPlanCommandTests
                     "repair-plan",
                     dataRoot,
                     requestedPath,
-                    journalDirectoryPath,
-                    manifestName
+                    journalDirectoryPath
                 ]
             );
 

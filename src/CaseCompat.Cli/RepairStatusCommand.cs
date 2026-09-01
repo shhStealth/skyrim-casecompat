@@ -5,20 +5,36 @@ public static class RepairStatusCommand
 {
     public static int Run(string[] args)
     {
-        if (args.Length != 4)
+        if (args.Length < 3 ||
+            args.Length > 4)
         {
             Console.Error.WriteLine(
                 "Error: repair-status requires a journal directory, " +
-                "manifest file name, and Skyrim Data directory."
+                "Skyrim Data directory, and optional manifest file name."
             );
             Console.Error.WriteLine();
+            Console.Error.WriteLine("Usage:");
             Console.Error.WriteLine(
-                "Usage: casecompat repair-status <journal directory> " +
+                "  casecompat repair-status <journal directory> " +
+                "<Skyrim Data directory>"
+            );
+            Console.Error.WriteLine(
+                "  casecompat repair-status <journal directory> " +
                 "<manifest file name> <Skyrim Data directory>"
             );
 
             return 2;
         }
+
+        string manifestChildName =
+            args.Length == 4
+                ? args[2]
+                : RepairCliDefaults.PlanManifestChildName;
+
+        string trustedDataRoot =
+            args.Length == 4
+                ? args[3]
+                : args[2];
 
         LinuxNoFollowPathOpenResult journalOpen;
 
@@ -61,8 +77,8 @@ public static class RepairStatusCommand
             inspection =
                 DataRelativePathRepairPlanStatusInspector.Inspect(
                     journalDirectory,
-                    args[2],
-                    args[3]
+                    manifestChildName,
+                    trustedDataRoot
                 );
         }
         catch (Exception ex)
@@ -115,7 +131,7 @@ public static class RepairStatusCommand
             $"Manifest Data:     {manifest.DataRoot}"
         );
         Console.WriteLine(
-            $"Trusted Data:      {Path.GetFullPath(args[3])}"
+            $"Trusted Data:      {Path.GetFullPath(trustedDataRoot)}"
         );
         Console.WriteLine(
             $"Requested path:    {manifest.RequestedPath}"

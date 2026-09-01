@@ -6,22 +6,28 @@ public static class RepairPlanCommand
 {
     public static int Run(string[] args)
     {
-        if (args.Length != 5)
+        if (args.Length < 4 ||
+            args.Length > 5)
         {
             Console.Error.WriteLine(
                 "Error: repair-plan requires a Skyrim Data directory, " +
                 "Data-relative file path, journal directory, " +
-                "and manifest file name."
+                "and optional manifest file name."
             );
             Console.Error.WriteLine();
             Console.Error.WriteLine(
                 "Usage: casecompat repair-plan <Skyrim Data directory> " +
                 "<Data-relative file path> <journal directory> " +
-                "<manifest file name>"
+                "[manifest file name]"
             );
 
             return 2;
         }
+
+        string manifestChildName =
+            args.Length == 5
+                ? args[4]
+                : RepairCliDefaults.PlanManifestChildName;
 
         DataRelativePathResolution resolution;
 
@@ -177,7 +183,7 @@ public static class RepairPlanCommand
             write =
                 DataRelativePathRepairPlanManifestWriter.CreateInitial(
                     journalDirectory,
-                    args[4],
+                    manifestChildName,
                     manifest
                 );
         }
@@ -217,7 +223,7 @@ public static class RepairPlanCommand
             verify =
                 DataRelativePathRepairPlanManifestReader.Read(
                     journalDirectory,
-                    args[4]
+                    manifestChildName
                 );
         }
         catch (Exception ex)
@@ -291,7 +297,7 @@ public static class RepairPlanCommand
             $"Journal dir:      {journalDirectory.FullPath}"
         );
         Console.WriteLine(
-            $"Manifest:         {args[4]}"
+            $"Manifest:         {manifestChildName}"
         );
 
         Console.WriteLine();

@@ -157,7 +157,6 @@ public sealed class DataRelativePathRepairApplyCommandTests
                 [
                     "repair-apply",
                     fixture.JournalDirectoryPath,
-                    Fixture.ManifestName,
                     fixture.DataRoot
                 ]
             );

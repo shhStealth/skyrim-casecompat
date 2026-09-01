@@ -46,7 +46,6 @@ public sealed class DataRelativePathRepairStatusCommandTests
                 [
                     "repair-status",
                     fixture.JournalDirectoryPath,
-                    Fixture.ManifestName,
                     fixture.DataRoot
                 ]
             );

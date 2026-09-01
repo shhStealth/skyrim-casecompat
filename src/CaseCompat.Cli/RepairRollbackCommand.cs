@@ -5,20 +5,36 @@ public static class RepairRollbackCommand
 {
     public static int Run(string[] args)
     {
-        if (args.Length != 4)
+        if (args.Length < 3 ||
+            args.Length > 4)
         {
             Console.Error.WriteLine(
                 "Error: repair-rollback requires a journal directory, " +
-                "manifest file name, and Skyrim Data directory."
+                "Skyrim Data directory, and optional manifest file name."
             );
             Console.Error.WriteLine();
+            Console.Error.WriteLine("Usage:");
             Console.Error.WriteLine(
-                "Usage: casecompat repair-rollback <journal directory> " +
+                "  casecompat repair-rollback <journal directory> " +
+                "<Skyrim Data directory>"
+            );
+            Console.Error.WriteLine(
+                "  casecompat repair-rollback <journal directory> " +
                 "<manifest file name> <Skyrim Data directory>"
             );
 
             return 2;
         }
+
+        string manifestChildName =
+            args.Length == 4
+                ? args[2]
+                : RepairCliDefaults.PlanManifestChildName;
+
+        string trustedDataRoot =
+            args.Length == 4
+                ? args[3]
+                : args[2];
 
         LinuxNoFollowPathOpenResult journalOpen;
 
@@ -70,8 +86,8 @@ public static class RepairRollbackCommand
             execution =
                 DataRelativePathRepairPlanRollbackExecutor.Execute(
                     journalDirectory,
-                    args[2],
-                    args[3],
+                    manifestChildName,
+                    trustedDataRoot,
                     DateTimeOffset.UtcNow
                 );
         }

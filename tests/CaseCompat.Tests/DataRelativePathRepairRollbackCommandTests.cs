@@ -64,7 +64,6 @@ public sealed class DataRelativePathRepairRollbackCommandTests
                 [
                     "repair-rollback",
                     fixture.JournalDirectoryPath,
-                    Fixture.ManifestName,
                     fixture.DataRoot
                 ]
             );
