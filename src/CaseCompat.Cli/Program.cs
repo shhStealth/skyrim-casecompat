@@ -43,6 +43,9 @@ switch (command)
     case "repair-plan":
         return RepairPlanCommand.Run(args);
 
+    case "repair-status":
+        return RepairStatusCommand.Run(args);
+
     case "resolve-armor-addon-models":
         return ResolveArmorAddonModelsCommand.Run(args);
 
@@ -383,6 +386,9 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat repair-plan <Data root> <Data-relative file path> <journal directory> <manifest child name>"
+    );
+    Console.WriteLine(
+        "  casecompat repair-status <journal directory> <manifest child name> <trusted Data root>"
     );
     Console.WriteLine(
         "  casecompat resolve-armor-addon-models <Data root> <plugin path> [path search]"
