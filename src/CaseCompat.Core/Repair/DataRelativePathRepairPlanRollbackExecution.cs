@@ -22,6 +22,7 @@ public enum DataRelativePathRepairPlanRollbackOperationExecutionState
     JournalReadFailed,
     JournalMismatch,
     JournalGap,
+    CausalHistoryConflict,
 
     DirectoryRollbackRequestFailed,
     DirectoryRollbackRecoveryFailed,

@@ -299,6 +299,39 @@ public static class DataRelativePathRepairPlanRollbackExecutor
             null;
 
         /*
+         * Rollback executes the contiguous journal prefix in reverse
+         * order, but preflight scans it in forward index order.
+         *
+         * Therefore valid durable histories have one of these shapes:
+         *
+         *     Applied*
+         *     Applied* Prepared
+         *     Applied* RolledBack+
+         *     Applied* RollbackRequested RolledBack*
+         *
+         * Prepared is an unfinished forward tail. Once seen, no later
+         * journal may exist.
+         *
+         * RollbackRequested or RolledBack starts rollback progress.
+         * From that point onward every later existing journal in forward
+         * index order must already be RolledBack.
+         *
+         * This is causal-history validation only. Individual journal
+         * binding, filesystem classification, and destructive authority
+         * remain independently validated below.
+         */
+        DataRelativePathRepairPlanManifestOperation?
+            preparedTailEntry =
+                null;
+
+        DataRelativePathRepairPlanManifestOperation?
+            rollbackProgressEntry =
+                null;
+
+        string? rollbackProgressDurableState =
+            null;
+
+        /*
          * A directly classified RolledBack directory whose final name
          * is absent proves that every lexical descendant is absent at
          * this instant as well.
@@ -482,6 +515,44 @@ public static class DataRelativePathRepairPlanRollbackExecutor
                         );
                     }
 
+                    string? causalHistoryError =
+                        AdvanceRollbackCausalHistory(
+                            entry,
+                            journal.State.ToString(),
+                            isPrepared:
+                                journal.State ==
+                                DataRelativePathRepairDirectoryJournalState
+                                    .Prepared,
+                            isRollbackRequested:
+                                journal.State ==
+                                DataRelativePathRepairDirectoryJournalState
+                                    .RollbackRequested,
+                            isRolledBack:
+                                journal.State ==
+                                DataRelativePathRepairDirectoryJournalState
+                                    .RolledBack,
+                            ref preparedTailEntry,
+                            ref rollbackProgressEntry,
+                            ref rollbackProgressDurableState
+                        );
+
+                    if (causalHistoryError is not null)
+                    {
+                        return PreflightResult.Failed(
+                            OperationResult(
+                                entry,
+                                DataRelativePathRepairPlanRollbackOperationExecutionState
+                                    .CausalHistoryConflict,
+                                directoryJournalRead:
+                                    read,
+                                directoryClassification:
+                                    classification,
+                                error:
+                                    causalHistoryError
+                            )
+                        );
+                    }
+
                     if (
                         classification.State ==
                         DataRelativePathRepairDirectoryRecoveryState
@@ -638,6 +709,44 @@ public static class DataRelativePathRepairPlanRollbackExecutor
                         );
                     }
 
+                    string? causalHistoryError =
+                        AdvanceRollbackCausalHistory(
+                            entry,
+                            journal.State.ToString(),
+                            isPrepared:
+                                journal.State ==
+                                DataRelativePathRepairFileJournalState
+                                    .Prepared,
+                            isRollbackRequested:
+                                journal.State ==
+                                DataRelativePathRepairFileJournalState
+                                    .RollbackRequested,
+                            isRolledBack:
+                                journal.State ==
+                                DataRelativePathRepairFileJournalState
+                                    .RolledBack,
+                            ref preparedTailEntry,
+                            ref rollbackProgressEntry,
+                            ref rollbackProgressDurableState
+                        );
+
+                    if (causalHistoryError is not null)
+                    {
+                        return PreflightResult.Failed(
+                            OperationResult(
+                                entry,
+                                DataRelativePathRepairPlanRollbackOperationExecutionState
+                                    .CausalHistoryConflict,
+                                fileJournalRead:
+                                    read,
+                                fileClassification:
+                                    classification,
+                                error:
+                                    causalHistoryError
+                            )
+                        );
+                    }
+
                     break;
                 }
 
@@ -746,6 +855,91 @@ public static class DataRelativePathRepairPlanRollbackExecutor
         {
             return false;
         }
+    }
+
+    private static string? AdvanceRollbackCausalHistory(
+        DataRelativePathRepairPlanManifestOperation entry,
+        string durableState,
+        bool isPrepared,
+        bool isRollbackRequested,
+        bool isRolledBack,
+        ref DataRelativePathRepairPlanManifestOperation?
+            preparedTailEntry,
+        ref DataRelativePathRepairPlanManifestOperation?
+            rollbackProgressEntry,
+        ref string? rollbackProgressDurableState)
+    {
+        ArgumentNullException.ThrowIfNull(
+            entry
+        );
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(
+            durableState
+        );
+
+        /*
+         * A durable Prepared journal is an unfinished forward tail.
+         * Forward execution cannot have created any later operation
+         * journal until this one first reached Applied.
+         */
+        if (preparedTailEntry is not null)
+        {
+            return
+                $"Operation journal {entry.JournalChildName} at index " +
+                $"{entry.Index} exists after earlier durable Prepared " +
+                $"journal {preparedTailEntry.JournalChildName} at index " +
+                $"{preparedTailEntry.Index}. A Prepared journal must be " +
+                "the final existing journal before rollback begins.";
+        }
+
+        /*
+         * Rollback progresses from the highest existing index toward
+         * zero. Once any operation has entered RollbackRequested or
+         * RolledBack, every later journal in forward index order must
+         * already be RolledBack.
+         *
+         * Thus these are impossible, for example:
+         *
+         *     RollbackRequested, Applied
+         *     RolledBack, Applied
+         *     RollbackRequested, RollbackRequested
+         *     RolledBack, RollbackRequested
+         */
+        if (
+            rollbackProgressEntry is not null &&
+            !isRolledBack)
+        {
+            return
+                $"Operation journal {entry.JournalChildName} at index " +
+                $"{entry.Index} is durable state {durableState} after " +
+                $"rollback progress began at journal " +
+                $"{rollbackProgressEntry.JournalChildName} at index " +
+                $"{rollbackProgressEntry.Index} in durable state " +
+                $"{rollbackProgressDurableState}. Once rollback progress " +
+                "begins, every later existing journal in forward index " +
+                "order must already be RolledBack.";
+        }
+
+        if (isPrepared)
+        {
+            preparedTailEntry =
+                entry;
+
+            return null;
+        }
+
+        if (
+            rollbackProgressEntry is null &&
+            (isRollbackRequested || isRolledBack))
+        {
+            rollbackProgressEntry =
+                entry;
+
+            rollbackProgressDurableState =
+                durableState;
+        }
+
+        return null;
     }
 
     private static bool IsDirectoryRollbackSafe(
