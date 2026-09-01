@@ -49,6 +49,9 @@ switch (command)
     case "repair-plan":
         return RepairPlanCommand.Run(args);
 
+    case "repair-plan-batch":
+        return RepairPlanBatchCommand.Run(args);
+
     case "repair-status":
         return RepairStatusCommand.Run(args);
 
@@ -377,6 +380,10 @@ static void ShowUsage()
         "does not modify Skyrim Data."
     );
     Console.WriteLine(
+        "  repair-plan-batch  Preflight multiple paths and persist " +
+        "independent safe repair plans; does not modify Skyrim Data."
+    );
+    Console.WriteLine(
         "  repair-status    Inspect persisted repair state; read-only."
     );
     Console.WriteLine(
@@ -400,6 +407,10 @@ static void ShowUsage()
         "  casecompat repair-plan <Skyrim Data directory> " +
         "<Data-relative file path> <journal directory> " +
         "<manifest file name>"
+    );
+    Console.WriteLine(
+        "  casecompat repair-plan-batch <Skyrim Data directory> " +
+        "<path-list file> <batch directory> <manifest file name>"
     );
     Console.WriteLine(
         "  casecompat repair-status <journal directory> " +
