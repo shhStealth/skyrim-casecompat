@@ -71,6 +71,22 @@ public static class DataRelativePathRepairPlanStatusInspector
             journalDirectory
         );
 
+        return Inspect(
+            (ILinuxOpenedHandle)journalDirectory,
+            manifestChildName,
+            trustedDataRoot
+        );
+    }
+
+    public static DataRelativePathRepairPlanStatusInspection Inspect(
+        ILinuxOpenedHandle journalDirectory,
+        string manifestChildName,
+        string trustedDataRoot)
+    {
+        ArgumentNullException.ThrowIfNull(
+            journalDirectory
+        );
+
         DataRelativePathRepairPlanManifestReaderResult manifestRead =
             DataRelativePathRepairPlanManifestReader.Read(
                 journalDirectory,

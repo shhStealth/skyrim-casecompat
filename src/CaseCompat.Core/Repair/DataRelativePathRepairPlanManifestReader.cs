@@ -68,6 +68,21 @@ public static class DataRelativePathRepairPlanManifestReader
             manifestDirectory
         );
 
+        return Read(
+            (ILinuxOpenedHandle)manifestDirectory,
+            manifestChildName
+        );
+    }
+
+    public static DataRelativePathRepairPlanManifestReaderResult
+        Read(
+            ILinuxOpenedHandle manifestDirectory,
+            string manifestChildName)
+    {
+        ArgumentNullException.ThrowIfNull(
+            manifestDirectory
+        );
+
         if (
             !IsValidChildName(
                 manifestChildName))

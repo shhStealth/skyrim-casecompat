@@ -23,6 +23,22 @@ public static class DataRelativePathRepairFileJournalReader
             journalDirectory
         );
 
+        return Read(
+            (ILinuxOpenedHandle)journalDirectory,
+            journalChildName
+        );
+    }
+
+    public static
+        DataRelativePathRepairFileJournalReaderResult
+        Read(
+            ILinuxOpenedHandle journalDirectory,
+            string journalChildName)
+    {
+        ArgumentNullException.ThrowIfNull(
+            journalDirectory
+        );
+
         if (!IsValidChildName(journalChildName))
         {
             return Result(
