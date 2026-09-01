@@ -19,6 +19,60 @@ public static class DataRelativePathRepairPlanForwardExecutor
         string trustedDataRoot,
         DateTimeOffset nowUtc)
     {
+        return ExecuteCore(
+            journalDirectory,
+            manifestChildName,
+            trustedDataRoot,
+            nowUtc,
+            expectedPlanId:
+                null,
+            expectedManifestSha256:
+                null
+        );
+    }
+
+    /*
+     * Execute the persisted plan only if the authoritative manifest
+     * reread under the existing per-PlanId execution lock matches an
+     * independently supplied logical PlanId and exact manifest-byte
+     * SHA-256.
+     *
+     * This strengthens caller binding without changing the existing
+     * single-plan Execute(...) contract. The expectation itself grants
+     * no filesystem authority.
+     */
+    public static DataRelativePathRepairPlanForwardExecution
+        ExecuteExpectedManifest(
+            LinuxNoFollowPathHandle journalDirectory,
+            string manifestChildName,
+            string trustedDataRoot,
+            DateTimeOffset nowUtc,
+            Guid expectedPlanId,
+            string expectedManifestSha256)
+    {
+        ArgumentNullException.ThrowIfNull(
+            expectedManifestSha256
+        );
+
+        return ExecuteCore(
+            journalDirectory,
+            manifestChildName,
+            trustedDataRoot,
+            nowUtc,
+            expectedPlanId,
+            expectedManifestSha256
+        );
+    }
+
+    private static DataRelativePathRepairPlanForwardExecution
+        ExecuteCore(
+            LinuxNoFollowPathHandle journalDirectory,
+            string manifestChildName,
+            string trustedDataRoot,
+            DateTimeOffset nowUtc,
+            Guid? expectedPlanId,
+            string? expectedManifestSha256)
+    {
         ArgumentNullException.ThrowIfNull(
             journalDirectory
         );
@@ -38,6 +92,43 @@ public static class DataRelativePathRepairPlanForwardExecutor
                 [],
                 manifestRead.Error ??
                     manifestRead.State.ToString()
+            );
+        }
+
+        /*
+         * If the caller supplied an expected immutable manifest, reject
+         * an already-obvious mismatch before acquiring the persistent
+         * per-PlanId execution lock.
+         *
+         * This preliminary comparison is only a side-effect guard. It is
+         * not authoritative for execution: the same expectation is
+         * checked again against the locked manifest reread below so a
+         * replacement or in-place content change cannot race this check.
+         */
+        if (
+            expectedPlanId.HasValue &&
+            (
+                manifestRead.Manifest!.PlanId != expectedPlanId.Value ||
+                expectedManifestSha256 is null ||
+                !string.Equals(
+                    manifestRead.ManifestSha256,
+                    expectedManifestSha256,
+                    StringComparison.OrdinalIgnoreCase
+                )
+            ))
+        {
+            return PlanResult(
+                DataRelativePathRepairPlanForwardExecutionState
+                    .ExpectedManifestMismatch,
+                manifestRead,
+                [],
+                $"The initially read plan manifest does not match the " +
+                $"caller expectation. Expected PlanId " +
+                $"{expectedPlanId.Value}, observed " +
+                $"{manifestRead.Manifest.PlanId}; expected manifest " +
+                $"SHA-256 {expectedManifestSha256 ?? "<missing>"}, " +
+                $"observed " +
+                $"{manifestRead.ManifestSha256 ?? "<missing>"}."
             );
         }
 
@@ -86,6 +177,45 @@ public static class DataRelativePathRepairPlanForwardExecutor
 
         DataRelativePathRepairPlanManifestRecord manifest =
             manifestRead.Manifest!;
+
+        /*
+         * An optional caller expectation is metadata binding only.
+         *
+         * The comparison deliberately occurs after the existing
+         * per-PlanId lock has re-read and revalidated the manifest.
+         * Therefore the exact bytes compared here are the same locked
+         * bytes that become authoritative for all later preflight and
+         * execution.
+         *
+         * Do not move this check to a preceding CLI/status inspection:
+         * doing so would recreate a manifest-replacement race between
+         * membership verification and mutation.
+         */
+        if (
+            expectedPlanId.HasValue &&
+            (
+                manifest.PlanId != expectedPlanId.Value ||
+                expectedManifestSha256 is null ||
+                !string.Equals(
+                    manifestRead.ManifestSha256,
+                    expectedManifestSha256,
+                    StringComparison.OrdinalIgnoreCase
+                )
+            ))
+        {
+            return PlanResult(
+                DataRelativePathRepairPlanForwardExecutionState
+                    .ExpectedManifestMismatch,
+                manifestRead,
+                [],
+                $"The authoritative locked plan manifest does not match " +
+                $"the caller expectation. Expected PlanId " +
+                $"{expectedPlanId.Value}, observed {manifest.PlanId}; " +
+                $"expected manifest SHA-256 " +
+                $"{expectedManifestSha256 ?? "<missing>"}, observed " +
+                $"{manifestRead.ManifestSha256 ?? "<missing>"}."
+            );
+        }
 
         /*
          * A durable manifest is historical plan data, not filesystem

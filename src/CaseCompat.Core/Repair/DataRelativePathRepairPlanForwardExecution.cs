@@ -10,6 +10,7 @@ public enum DataRelativePathRepairPlanForwardExecutionState
 
     PlanExecutionLockUnavailable,
     ManifestRevalidationFailed,
+    ExpectedManifestMismatch,
 
     PreflightFailed,
     OperationFailed

@@ -5137,6 +5137,396 @@ public sealed class
 
     [Fact]
     public void
+        ExecuteExpectedManifest_MatchingPlanIdAndSha256_AppliesDurably()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathResolution resolution =
+            fixture.ResolveRequestedPath();
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector.Project(
+                resolution
+            );
+
+        Assert.True(
+            projection.HasPlan,
+            projection.Error
+        );
+
+        DataRelativePathRepairPlanManifestRecord manifest =
+            fixture.PersistManifest(
+                resolution,
+                projection
+            );
+
+        DataRelativePathRepairPlanManifestReaderResult manifestRead =
+            DataRelativePathRepairPlanManifestReader.Read(
+                fixture.JournalDirectory,
+                Fixture.ManifestName
+            );
+
+        Assert.True(
+            manifestRead.Success,
+            manifestRead.Error
+        );
+
+        string manifestSha256 =
+            Assert.IsType<string>(
+                manifestRead.ManifestSha256
+            );
+
+        DataRelativePathRepairPlanForwardExecution execution =
+            DataRelativePathRepairPlanForwardExecutor
+                .ExecuteExpectedManifest(
+                    fixture.JournalDirectory,
+                    Fixture.ManifestName,
+                    fixture.DataRoot,
+                    T0.AddSeconds(10),
+                    manifest.PlanId,
+                    manifestSha256
+                );
+
+        Assert.True(
+            execution.Success,
+            execution.Error
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanForwardExecutionState
+                .AppliedDurably,
+            execution.State
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.SourcePath
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.DestinationPath
+            )
+        );
+
+        fixture.AssertAllOperationJournalsApplied(
+            manifest
+        );
+    }
+
+    [Fact]
+    public void
+        ExecuteExpectedManifest_PlanIdMismatch_RejectsBeforeOperationExecution()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathResolution resolution =
+            fixture.ResolveRequestedPath();
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector.Project(
+                resolution
+            );
+
+        Assert.True(
+            projection.HasPlan,
+            projection.Error
+        );
+
+        DataRelativePathRepairPlanManifestRecord manifest =
+            fixture.PersistManifest(
+                resolution,
+                projection
+            );
+
+        DataRelativePathRepairPlanManifestReaderResult manifestRead =
+            DataRelativePathRepairPlanManifestReader.Read(
+                fixture.JournalDirectory,
+                Fixture.ManifestName
+            );
+
+        Assert.True(
+            manifestRead.Success,
+            manifestRead.Error
+        );
+
+        string manifestSha256 =
+            Assert.IsType<string>(
+                manifestRead.ManifestSha256
+            );
+
+        Guid wrongPlanId;
+
+        do
+        {
+            wrongPlanId =
+                Guid.NewGuid();
+        }
+        while (wrongPlanId == manifest.PlanId);
+
+        DataRelativePathRepairPlanForwardExecution execution =
+            DataRelativePathRepairPlanForwardExecutor
+                .ExecuteExpectedManifest(
+                    fixture.JournalDirectory,
+                    Fixture.ManifestName,
+                    fixture.DataRoot,
+                    T0.AddSeconds(10),
+                    wrongPlanId,
+                    manifestSha256
+                );
+
+        Assert.False(
+            execution.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanForwardExecutionState
+                .ExpectedManifestMismatch,
+            execution.State
+        );
+
+        Assert.Empty(
+            execution.OperationResults
+        );
+
+        string executionLockChildName =
+            DataRelativePathRepairPlanExecutionLock
+                .CreateLockChildName(
+                    manifest.PlanId
+                );
+
+        Assert.False(
+            File.Exists(
+                Path.Combine(
+                    fixture.JournalDirectoryPath,
+                    executionLockChildName
+                )
+            )
+        );
+
+        Assert.Equal(
+            manifest.PlanId,
+            execution.ManifestRead!.Manifest!.PlanId
+        );
+
+        Assert.Equal(
+            manifestSha256,
+            execution.ManifestRead.ManifestSha256,
+            StringComparer.OrdinalIgnoreCase
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.SourcePath
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.RequestedTopDirectoryPath
+            )
+        );
+
+        Assert.False(
+            File.Exists(
+                fixture.DestinationPath
+            )
+        );
+
+        foreach (
+            DataRelativePathRepairPlanManifestOperation entry
+            in manifest.Operations)
+        {
+            Assert.False(
+                File.Exists(
+                    Path.Combine(
+                        fixture.JournalDirectoryPath,
+                        entry.JournalChildName
+                    )
+                )
+            );
+        }
+    }
+
+    [Fact]
+    public void
+        ExecuteExpectedManifest_Sha256Mismatch_RejectsBeforeOperationExecution()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathResolution resolution =
+            fixture.ResolveRequestedPath();
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector.Project(
+                resolution
+            );
+
+        Assert.True(
+            projection.HasPlan,
+            projection.Error
+        );
+
+        DataRelativePathRepairPlanManifestRecord manifest =
+            fixture.PersistManifest(
+                resolution,
+                projection
+            );
+
+        DataRelativePathRepairPlanManifestReaderResult manifestRead =
+            DataRelativePathRepairPlanManifestReader.Read(
+                fixture.JournalDirectory,
+                Fixture.ManifestName
+            );
+
+        Assert.True(
+            manifestRead.Success,
+            manifestRead.Error
+        );
+
+        string manifestSha256 =
+            Assert.IsType<string>(
+                manifestRead.ManifestSha256
+            );
+
+        char replacementFirst =
+            manifestSha256[0] == '0'
+                ? '1'
+                : '0';
+
+        string wrongManifestSha256 =
+            $"{replacementFirst}{manifestSha256[1..]}";
+
+        Assert.Equal(
+            64,
+            wrongManifestSha256.Length
+        );
+
+        Assert.NotEqual(
+            manifestSha256,
+            wrongManifestSha256
+        );
+
+        DataRelativePathRepairPlanForwardExecution execution =
+            DataRelativePathRepairPlanForwardExecutor
+                .ExecuteExpectedManifest(
+                    fixture.JournalDirectory,
+                    Fixture.ManifestName,
+                    fixture.DataRoot,
+                    T0.AddSeconds(10),
+                    manifest.PlanId,
+                    wrongManifestSha256
+                );
+
+        Assert.False(
+            execution.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanForwardExecutionState
+                .ExpectedManifestMismatch,
+            execution.State
+        );
+
+        Assert.Empty(
+            execution.OperationResults
+        );
+
+        string executionLockChildName =
+            DataRelativePathRepairPlanExecutionLock
+                .CreateLockChildName(
+                    manifest.PlanId
+                );
+
+        Assert.False(
+            File.Exists(
+                Path.Combine(
+                    fixture.JournalDirectoryPath,
+                    executionLockChildName
+                )
+            )
+        );
+
+        Assert.Equal(
+            manifest.PlanId,
+            execution.ManifestRead!.Manifest!.PlanId
+        );
+
+        Assert.Equal(
+            manifestSha256,
+            execution.ManifestRead.ManifestSha256,
+            StringComparer.OrdinalIgnoreCase
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.SourcePath
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.RequestedTopDirectoryPath
+            )
+        );
+
+        Assert.False(
+            File.Exists(
+                fixture.DestinationPath
+            )
+        );
+
+        foreach (
+            DataRelativePathRepairPlanManifestOperation entry
+            in manifest.Operations)
+        {
+            Assert.False(
+                File.Exists(
+                    Path.Combine(
+                        fixture.JournalDirectoryPath,
+                        entry.JournalChildName
+                    )
+                )
+            );
+        }
+    }
+
+    [Fact]
+    public void
         PlanExecutionLock_ManifestReplacedAfterInitialRead_IsRejectedAndLockReleased()
     {
         if (!OperatingSystem.IsLinux())
