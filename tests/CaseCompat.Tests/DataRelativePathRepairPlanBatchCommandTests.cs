@@ -6,6 +6,9 @@ namespace CaseCompat.Tests;
 public sealed class
     DataRelativePathRepairPlanBatchCommandTests
 {
+    private const string BatchManifestName =
+        "batch-manifest.json";
+
     [Fact]
     public void Run_MissingArguments_ReturnsUsageError()
     {
@@ -529,6 +532,323 @@ public sealed class
 
         Assert.NotEmpty(
             manifest.Operations
+        );
+
+        Assert.NotNull(
+            read.ManifestSha256
+        );
+
+        Assert.True(
+            File.Exists(
+                Path.Combine(
+                    batchDirectoryPath,
+                    BatchManifestName
+                )
+            )
+        );
+
+        LinuxNoFollowPathOpenResult batchOpened =
+            LinuxNoFollowPath.OpenRootReadOnly(
+                batchDirectoryPath
+            );
+
+        Assert.True(
+            batchOpened.Success,
+            batchOpened.Error
+        );
+
+        using LinuxNoFollowPathHandle batchDirectory =
+            Assert.IsType<
+                LinuxNoFollowPathHandle
+            >(
+                batchOpened.OpenedPath
+            );
+
+        DataRelativePathRepairBatchManifestReaderResult
+            batchRead =
+                DataRelativePathRepairBatchManifestReader.Read(
+                    batchDirectory,
+                    BatchManifestName
+                );
+
+        Assert.True(
+            batchRead.Success,
+            batchRead.Error
+        );
+
+        DataRelativePathRepairBatchManifestRecord
+            batchManifest =
+                Assert.IsType<
+                    DataRelativePathRepairBatchManifestRecord
+                >(
+                    batchRead.Manifest
+                );
+
+        Assert.Equal(
+            dataRoot,
+            batchManifest.DataRoot
+        );
+
+        Assert.Equal(
+            manifestName,
+            batchManifest.ChildManifestName
+        );
+
+        Assert.Equal(
+            2,
+            batchManifest.InputPathCount
+        );
+
+        Assert.Equal(
+            1,
+            batchManifest.SafeRejectionCount
+        );
+
+        DataRelativePathRepairBatchManifestChild
+            batchChild =
+                Assert.Single(
+                    batchManifest.Children
+                );
+
+        Assert.Equal(
+            "plan-000001",
+            batchChild.ChildName
+        );
+
+        Assert.Equal(
+            manifest.PlanId,
+            batchChild.PlanId
+        );
+
+        Assert.Equal(
+            read.ManifestSha256,
+            batchChild.ManifestSha256,
+            StringComparer.OrdinalIgnoreCase
+        );
+
+        int statusResult =
+            global::RepairStatusBatchCommand.Run(
+                [
+                    "repair-status-batch",
+                    batchDirectoryPath,
+                    manifestName,
+                    dataRoot
+                ]
+            );
+
+        Assert.Equal(
+            0,
+            statusResult
+        );
+    }
+
+    [Fact]
+    public void
+        Run_AllSafeRejected_PublishesZeroChildCompletionManifest()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var temp =
+            new TemporaryDirectory();
+
+        string dataRoot =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    temp.RootPath,
+                    "Data"
+                )
+            ).FullName;
+
+        string meshes =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    dataRoot,
+                    "meshes"
+                )
+            ).FullName;
+
+        string example =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    meshes,
+                    "example"
+                )
+            ).FullName;
+
+        string sourcePath =
+            Path.Combine(
+                example,
+                "file.nif"
+            );
+
+        File.WriteAllText(
+            sourcePath,
+            "already-resolvable"
+        );
+
+        const string requestedPath =
+            "meshes/example/file.nif";
+
+        string pathList =
+            Path.Combine(
+                temp.RootPath,
+                "paths.txt"
+            );
+
+        File.WriteAllLines(
+            pathList,
+            [
+                requestedPath
+            ]
+        );
+
+        string batchDirectoryPath =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    temp.RootPath,
+                    "Batch"
+                )
+            ).FullName;
+
+        if (
+            !SupportsManifestPublication(
+                batchDirectoryPath))
+        {
+            return;
+        }
+
+        const string manifestName =
+            "repair-plan.json";
+
+        int result =
+            global::RepairPlanBatchCommand.Run(
+                [
+                    "repair-plan-batch",
+                    dataRoot,
+                    pathList,
+                    batchDirectoryPath,
+                    manifestName
+                ]
+            );
+
+        Assert.Equal(
+            0,
+            result
+        );
+
+        Assert.Empty(
+            Directory.GetDirectories(
+                batchDirectoryPath
+            )
+        );
+
+        string[] rootFiles =
+            Directory
+                .GetFiles(
+                    batchDirectoryPath
+                )
+                .Select(
+                    path =>
+                        Path.GetFileName(
+                            path
+                        )!
+                )
+                .OrderBy(
+                    name =>
+                        name,
+                    StringComparer.Ordinal
+                )
+                .ToArray();
+
+        Assert.Equal(
+            [
+                BatchManifestName
+            ],
+            rootFiles
+        );
+
+        Assert.Equal(
+            "already-resolvable",
+            File.ReadAllText(
+                sourcePath
+            )
+        );
+
+        LinuxNoFollowPathOpenResult opened =
+            LinuxNoFollowPath.OpenRootReadOnly(
+                batchDirectoryPath
+            );
+
+        Assert.True(
+            opened.Success,
+            opened.Error
+        );
+
+        using LinuxNoFollowPathHandle batchDirectory =
+            Assert.IsType<
+                LinuxNoFollowPathHandle
+            >(
+                opened.OpenedPath
+            );
+
+        DataRelativePathRepairBatchManifestReaderResult read =
+            DataRelativePathRepairBatchManifestReader.Read(
+                batchDirectory,
+                BatchManifestName
+            );
+
+        Assert.True(
+            read.Success,
+            read.Error
+        );
+
+        DataRelativePathRepairBatchManifestRecord manifest =
+            Assert.IsType<
+                DataRelativePathRepairBatchManifestRecord
+            >(
+                read.Manifest
+            );
+
+        Assert.Equal(
+            dataRoot,
+            manifest.DataRoot
+        );
+
+        Assert.Equal(
+            manifestName,
+            manifest.ChildManifestName
+        );
+
+        Assert.Equal(
+            1,
+            manifest.InputPathCount
+        );
+
+        Assert.Equal(
+            1,
+            manifest.SafeRejectionCount
+        );
+
+        Assert.Empty(
+            manifest.Children
+        );
+
+        int statusResult =
+            global::RepairStatusBatchCommand.Run(
+                [
+                    "repair-status-batch",
+                    batchDirectoryPath,
+                    manifestName,
+                    dataRoot
+                ]
+            );
+
+        Assert.Equal(
+            0,
+            statusResult
         );
     }
 

@@ -4,6 +4,9 @@ using CaseCompat.Filesystem.Linux;
 
 public static class RepairPlanBatchCommand
 {
+    private const string BatchManifestName =
+        "batch-manifest.json";
+
     public static int Run(string[] args)
     {
         if (args.Length != 5)
@@ -378,22 +381,26 @@ public static class RepairPlanBatchCommand
                 "No safe repair plans were projected."
             );
             Console.WriteLine(
-                "Repair operations executed: NO"
+                "No child plan directories will be created."
             );
-            Console.WriteLine(
-                "Batch plan metadata created: 0"
-            );
-
-            return 0;
         }
-
-        Console.WriteLine();
-        Console.WriteLine(
-            "Persisting safe child plans:"
-        );
+        else
+        {
+            Console.WriteLine();
+            Console.WriteLine(
+                "Persisting safe child plans:"
+            );
+        }
 
         int persistedCount =
             0;
+
+        var batchChildren =
+            new List<
+                DataRelativePathRepairBatchManifestChild
+            >(
+                projectedCount
+            );
 
         foreach (
             var entry
@@ -513,7 +520,370 @@ public static class RepairPlanBatchCommand
                 return 7;
             }
 
+            /*
+             * The nested command reports only an exit code. Bind the
+             * completed batch to the actual child manifest that is now
+             * reachable descriptor-relatively from the retained batch
+             * directory.
+             *
+             * Count the child as persisted before this readback so any
+             * subsequent failure reports that its durable standalone
+             * plan may already exist.
+             */
             persistedCount++;
+
+            LinuxOpenChildReadOnlyAtResult childOpen;
+
+            try
+            {
+                childOpen =
+                    LinuxOpenChildReadOnlyAt.Open(
+                        batchDirectory,
+                        childName
+                    );
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine();
+                Console.Error.WriteLine(
+                    $"Repair-plan-batch could not reopen {childName} " +
+                    $"descriptor-relatively after persistence: " +
+                    $"{ex.Message}"
+                );
+
+                WritePartialMetadataWarning(
+                    persistedCount
+                );
+
+                return 8;
+            }
+
+            if (!childOpen.Success)
+            {
+                Console.Error.WriteLine();
+                Console.Error.WriteLine(
+                    $"Repair-plan-batch could not safely reopen " +
+                    $"{childName} after persistence."
+                );
+
+                Console.Error.WriteLine(
+                    childOpen.Error ??
+                    childOpen.State.ToString()
+                );
+
+                WritePartialMetadataWarning(
+                    persistedCount
+                );
+
+                return 8;
+            }
+
+            using LinuxOpenedChildHandle childDirectory =
+                childOpen.OpenedChild!;
+
+            DataRelativePathRepairPlanStatusInspection
+                childInspection;
+
+            try
+            {
+                childInspection =
+                    DataRelativePathRepairPlanStatusInspector
+                        .Inspect(
+                            childDirectory,
+                            manifestName,
+                            fullDataRoot
+                        );
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine();
+                Console.Error.WriteLine(
+                    $"Repair-plan-batch could not inspect persisted " +
+                    $"{childName}: {ex.Message}"
+                );
+
+                WritePartialMetadataWarning(
+                    persistedCount
+                );
+
+                return 8;
+            }
+
+            if (
+                !childInspection.Success ||
+                childInspection.Manifest is null ||
+                childInspection.ManifestRead is null ||
+                !childInspection.ManifestRead.Success ||
+                childInspection.ManifestRead.ManifestSha256 is null)
+            {
+                Console.Error.WriteLine();
+                Console.Error.WriteLine(
+                    $"Repair-plan-batch could not bind persisted child " +
+                    $"{childName} to a validated exact-byte manifest."
+                );
+
+                Console.Error.WriteLine(
+                    childInspection.Error ??
+                    childInspection.State.ToString()
+                );
+
+                WritePartialMetadataWarning(
+                    persistedCount
+                );
+
+                return 8;
+            }
+
+            DataRelativePathRepairPlanManifestRecord
+                persistedManifest =
+                    childInspection.Manifest;
+
+            if (
+                persistedManifest.SchemaVersion !=
+                    DataRelativePathRepairPlanManifestRecord
+                        .SchemaVersion2 ||
+                !string.Equals(
+                    persistedManifest.RequestedPath,
+                    entry.RequestedPath,
+                    StringComparison.Ordinal))
+            {
+                Console.Error.WriteLine();
+                Console.Error.WriteLine(
+                    $"Repair-plan-batch persisted child {childName} " +
+                    "no longer matches the plan this batch invocation " +
+                    "requested."
+                );
+
+                Console.Error.WriteLine(
+                    $"Expected requested path: {entry.RequestedPath}"
+                );
+
+                Console.Error.WriteLine(
+                    $"Observed requested path: " +
+                    $"{persistedManifest.RequestedPath}"
+                );
+
+                Console.Error.WriteLine(
+                    $"Observed schema version: " +
+                    $"{persistedManifest.SchemaVersion}"
+                );
+
+                WritePartialMetadataWarning(
+                    persistedCount
+                );
+
+                return 8;
+            }
+
+            batchChildren.Add(
+                new(
+                    ChildName:
+                        childName,
+                    PlanId:
+                        persistedManifest.PlanId,
+                    ManifestSha256:
+                        childInspection
+                            .ManifestRead
+                            .ManifestSha256
+                )
+            );
+        }
+
+        /*
+         * The durable root-level batch manifest is the completion
+         * boundary.
+         *
+         * Nothing above this point represents a complete batch. Child
+         * plans remain valid standalone plans, but the original intended
+         * set is not complete until this immutable membership record has
+         * itself been durably published.
+         *
+         * This also applies to the zero-child case: an all-safe-rejected
+         * invocation records its input/rejection accounting with an empty
+         * child set instead of returning with no durable completion
+         * evidence.
+         */
+        DataRelativePathRepairBatchManifestCreation
+            batchCreation;
+
+        try
+        {
+            batchCreation =
+                DataRelativePathRepairBatchManifest.Create(
+                    batchId:
+                        Guid.NewGuid(),
+                    createdUtc:
+                        DateTimeOffset.UtcNow,
+                    dataRoot:
+                        fullDataRoot,
+                    childManifestName:
+                        manifestName,
+                    inputPathCount:
+                        preflight.Count,
+                    safeRejectionCount:
+                        rejectedCount,
+                    children:
+                        batchChildren
+                );
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(
+                "Repair-plan-batch could not create the batch " +
+                $"completion record: {ex.Message}"
+            );
+
+            WritePartialMetadataWarning(
+                persistedCount
+            );
+
+            return 9;
+        }
+
+        if (!batchCreation.Success)
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(
+                "Repair-plan-batch could not create the batch " +
+                "completion record."
+            );
+
+            Console.Error.WriteLine(
+                batchCreation.Error ??
+                batchCreation.State.ToString()
+            );
+
+            WritePartialMetadataWarning(
+                persistedCount
+            );
+
+            return 9;
+        }
+
+        DataRelativePathRepairBatchManifestRecord batchManifest =
+            batchCreation.Manifest!;
+
+        DataRelativePathRepairBatchManifestWriterResult
+            batchWrite;
+
+        try
+        {
+            batchWrite =
+                DataRelativePathRepairBatchManifestWriter
+                    .CreateInitial(
+                        batchDirectory,
+                        BatchManifestName,
+                        batchManifest
+                    );
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(
+                "Repair-plan-batch batch-completion write error: " +
+                ex.Message
+            );
+
+            WritePartialMetadataWarning(
+                persistedCount
+            );
+
+            return 9;
+        }
+
+        if (!batchWrite.Success)
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(
+                "Repair-plan-batch did not establish durable batch " +
+                "completion."
+            );
+
+            Console.Error.WriteLine(
+                $"Batch-manifest write state: {batchWrite.State}"
+            );
+
+            if (!string.IsNullOrWhiteSpace(
+                    batchWrite.Error))
+            {
+                Console.Error.WriteLine(
+                    $"Error: {batchWrite.Error}"
+                );
+            }
+
+            if (batchWrite.ManifestEntryChanged)
+            {
+                WriteUncertainBatchCompletionWarning(
+                    persistedCount
+                );
+            }
+            else
+            {
+                WritePartialMetadataWarning(
+                    persistedCount
+                );
+            }
+
+            return 9;
+        }
+
+        /*
+         * Match the single-plan command's durability/readback pattern.
+         *
+         * Writer success is the durable publication boundary. The
+         * independent readback makes the command fail loudly instead of
+         * claiming success if the newly durable completion record cannot
+         * immediately be reopened and validated.
+         */
+        DataRelativePathRepairBatchManifestReaderResult
+            batchVerify;
+
+        try
+        {
+            batchVerify =
+                DataRelativePathRepairBatchManifestReader.Read(
+                    batchDirectory,
+                    BatchManifestName
+                );
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(
+                "Repair-plan-batch batch-completion verification read " +
+                $"error: {ex.Message}"
+            );
+
+            WriteBatchVerificationFailureWarning(
+                persistedCount
+            );
+
+            return 10;
+        }
+
+        if (
+            !batchVerify.Success ||
+            batchVerify.Manifest is null ||
+            !BatchManifestMatchesExpected(
+                batchManifest,
+                batchVerify.Manifest))
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(
+                "Repair-plan-batch batch-completion verification failed."
+            );
+
+            Console.Error.WriteLine(
+                batchVerify.Error ??
+                batchVerify.State.ToString()
+            );
+
+            WriteBatchVerificationFailureWarning(
+                persistedCount
+            );
+
+            return 10;
         }
 
         Console.WriteLine();
@@ -534,6 +904,15 @@ public static class RepairPlanBatchCommand
             $"Plans persisted:   {persistedCount:N0}"
         );
         Console.WriteLine(
+            $"Batch manifest:    {BatchManifestName}"
+        );
+        Console.WriteLine(
+            $"Batch ID:          {batchManifest.BatchId}"
+        );
+        Console.WriteLine(
+            "Batch completion:   DURABLE AND READ BACK"
+        );
+        Console.WriteLine(
             "Repair operations executed: NO"
         );
         Console.WriteLine(
@@ -541,10 +920,71 @@ public static class RepairPlanBatchCommand
             "single-path repair plan."
         );
         Console.WriteLine(
-            "No batch apply authority was created."
+            "The batch manifest records completed planning membership " +
+            "and safe-rejection accounting only."
+        );
+        Console.WriteLine();
+        Console.WriteLine(
+            "Next step: run repair-status-batch to independently verify " +
+            "the completed batch topology and child membership."
         );
 
         return 0;
+    }
+
+    private static bool BatchManifestMatchesExpected(
+        DataRelativePathRepairBatchManifestRecord expected,
+        DataRelativePathRepairBatchManifestRecord observed)
+    {
+        if (
+            expected.SchemaVersion != observed.SchemaVersion ||
+            expected.BatchId != observed.BatchId ||
+            expected.CreatedUtc != observed.CreatedUtc ||
+            !string.Equals(
+                expected.DataRoot,
+                observed.DataRoot,
+                StringComparison.Ordinal) ||
+            !string.Equals(
+                expected.ChildManifestName,
+                observed.ChildManifestName,
+                StringComparison.Ordinal) ||
+            expected.InputPathCount != observed.InputPathCount ||
+            expected.SafeRejectionCount !=
+                observed.SafeRejectionCount ||
+            expected.Children.Count != observed.Children.Count)
+        {
+            return false;
+        }
+
+        for (
+            int index = 0;
+            index < expected.Children.Count;
+            index++)
+        {
+            DataRelativePathRepairBatchManifestChild
+                expectedChild =
+                    expected.Children[index];
+
+            DataRelativePathRepairBatchManifestChild
+                observedChild =
+                    observed.Children[index];
+
+            if (
+                !string.Equals(
+                    expectedChild.ChildName,
+                    observedChild.ChildName,
+                    StringComparison.Ordinal) ||
+                expectedChild.PlanId != observedChild.PlanId ||
+                !string.Equals(
+                    expectedChild.ManifestSha256,
+                    observedChild.ManifestSha256,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool IsPathAtOrBelow(
@@ -609,19 +1049,79 @@ public static class RepairPlanBatchCommand
             !childName.Contains('\0');
     }
 
+    private static void
+        WriteUncertainBatchCompletionWarning(
+            int persistedCount)
+    {
+        Console.Error.WriteLine();
+        Console.Error.WriteLine(
+            "IMPORTANT: batch-completion publication changed the batch " +
+            "directory namespace before the writer reported failure."
+        );
+        Console.Error.WriteLine(
+            $"Previously persisted child plans: {persistedCount:N0}"
+        );
+        Console.Error.WriteLine(
+            $"The named completion entry {BatchManifestName} may now " +
+            "exist, but this invocation did not establish durable success."
+        );
+        Console.Error.WriteLine(
+            "Do not blindly rerun repair-plan-batch against this " +
+            "directory."
+        );
+        Console.Error.WriteLine(
+            "Inspect it with repair-status-batch before deciding what " +
+            "to do next."
+        );
+        Console.Error.WriteLine(
+            "No repair operations were requested by repair-plan-batch."
+        );
+    }
+
+    private static void
+        WriteBatchVerificationFailureWarning(
+            int persistedCount)
+    {
+        Console.Error.WriteLine();
+        Console.Error.WriteLine(
+            "IMPORTANT: the batch-completion writer reported durable " +
+            "success before independent readback verification failed."
+        );
+        Console.Error.WriteLine(
+            $"Previously persisted child plans: {persistedCount:N0}"
+        );
+        Console.Error.WriteLine(
+            $"The durable completion entry {BatchManifestName} may be " +
+            "present."
+        );
+        Console.Error.WriteLine(
+            "Do not blindly rerun repair-plan-batch with the same batch " +
+            "directory."
+        );
+        Console.Error.WriteLine(
+            "Use repair-status-batch to independently inspect the batch."
+        );
+        Console.Error.WriteLine(
+            "No repair operations were requested by repair-plan-batch."
+        );
+    }
+
     private static void WritePartialMetadataWarning(
         int persistedCount)
     {
         Console.Error.WriteLine();
         Console.Error.WriteLine(
-            "IMPORTANT: batch planning stopped after metadata " +
-            "publication had begun."
+            "IMPORTANT: batch planning stopped before durable " +
+            "batch completion."
         );
         Console.Error.WriteLine(
             $"Previously persisted child plans: {persistedCount:N0}"
         );
         Console.Error.WriteLine(
             "Do not assume the batch directory is empty."
+        );
+        Console.Error.WriteLine(
+            "This invocation did not establish durable batch completion."
         );
         Console.Error.WriteLine(
             "No repair operations were requested by " +
