@@ -3,6 +3,9 @@ using CaseCompat.Filesystem.Linux;
 
 public static class RepairStatusBatchCommand
 {
+    private const string BatchManifestName =
+        "batch-manifest.json";
+
     private static readonly
         DataRelativePathRepairPlanOverallStatus[]
         OverallStatusOrder =
@@ -113,19 +116,208 @@ public static class RepairStatusBatchCommand
             return 4;
         }
 
-        string? topologyError =
-            ValidateTopology(
-                enumeration.ChildNames
-            );
+        /*
+         * A durable batch manifest is the completion marker for the
+         * new batch format.
+         *
+         * Read it from the retained batch-directory descriptor rather
+         * than inferring its presence from pathname state.
+         *
+         * Only an exact ManifestUnavailable result means this is a
+         * legacy observational batch. Any present-but-invalid,
+         * substituted, symlinked, or otherwise unreadable completion
+         * manifest fails closed.
+         */
+        DataRelativePathRepairBatchManifestReaderResult
+            batchManifestRead;
 
-        if (topologyError is not null)
+        try
+        {
+            batchManifestRead =
+                DataRelativePathRepairBatchManifestReader.Read(
+                    batchDirectory,
+                    BatchManifestName
+                );
+        }
+        catch (Exception ex)
         {
             Console.Error.WriteLine(
-                "Repair-status-batch batch topology is invalid."
+                "Repair-status-batch batch-manifest read error: " +
+                ex.Message
             );
 
             Console.Error.WriteLine(
-                topologyError
+                "No batch aggregate was published."
+            );
+
+            return 4;
+        }
+
+        DataRelativePathRepairBatchManifestRecord? batchManifest =
+            null;
+
+        IReadOnlyList<string> planChildNames;
+
+        if (batchManifestRead.Success)
+        {
+            batchManifest =
+                batchManifestRead.Manifest!;
+
+            string? batchRootBindingError;
+
+            try
+            {
+                batchRootBindingError =
+                    DataRelativePathRepairBatchManifest
+                        .ValidateTrustedDataRoot(
+                            batchManifest,
+                            args[3]
+                        );
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(
+                    "Repair-status-batch could not validate the trusted " +
+                    "Skyrim Data root against the durable batch manifest."
+                );
+
+                Console.Error.WriteLine(
+                    ex.Message
+                );
+
+                Console.Error.WriteLine(
+                    "No batch aggregate was published."
+                );
+
+                return 4;
+            }
+
+            if (batchRootBindingError is not null)
+            {
+                Console.Error.WriteLine(
+                    "Repair-status-batch batch manifest does not match " +
+                    "the independently supplied trusted Skyrim Data root."
+                );
+
+                Console.Error.WriteLine(
+                    batchRootBindingError
+                );
+
+                Console.Error.WriteLine(
+                    "No batch aggregate was published."
+                );
+
+                return 4;
+            }
+
+            if (
+                !string.Equals(
+                    batchManifest.ChildManifestName,
+                    args[2],
+                    StringComparison.Ordinal))
+            {
+                Console.Error.WriteLine(
+                    "Repair-status-batch child-manifest name does not " +
+                    "match the durable batch manifest."
+                );
+
+                Console.Error.WriteLine(
+                    $"Requested child manifest: {args[2]}"
+                );
+
+                Console.Error.WriteLine(
+                    "Recorded child manifest:  " +
+                    batchManifest.ChildManifestName
+                );
+
+                Console.Error.WriteLine(
+                    "No batch aggregate was published."
+                );
+
+                return 4;
+            }
+
+            string? topologyError =
+                ValidateManifestBackedTopology(
+                    enumeration.ChildNames,
+                    batchManifest
+                );
+
+            if (topologyError is not null)
+            {
+                Console.Error.WriteLine(
+                    "Repair-status-batch batch topology is invalid."
+                );
+
+                Console.Error.WriteLine(
+                    topologyError
+                );
+
+                Console.Error.WriteLine(
+                    "No batch aggregate was published."
+                );
+
+                return 4;
+            }
+
+            planChildNames =
+                batchManifest.Children
+                    .Select(child => child.ChildName)
+                    .ToArray();
+        }
+        else if (
+            batchManifestRead.State ==
+            DataRelativePathRepairBatchManifestReadState
+                .ManifestUnavailable)
+        {
+            /*
+             * Legacy batches predate durable batch-completion metadata.
+             * Preserve their existing observational behavior exactly:
+             * every direct child must itself be a contiguous plan-* child.
+             */
+            string? topologyError =
+                ValidateTopology(
+                    enumeration.ChildNames
+                );
+
+            if (topologyError is not null)
+            {
+                Console.Error.WriteLine(
+                    "Repair-status-batch batch topology is invalid."
+                );
+
+                Console.Error.WriteLine(
+                    topologyError
+                );
+
+                return 4;
+            }
+
+            planChildNames =
+                enumeration.ChildNames;
+        }
+        else
+        {
+            Console.Error.WriteLine(
+                "Repair-status-batch found a batch completion manifest " +
+                "but could not validate it."
+            );
+
+            Console.Error.WriteLine(
+                $"Batch-manifest state (internal): " +
+                $"{batchManifestRead.State}"
+            );
+
+            if (!string.IsNullOrWhiteSpace(
+                    batchManifestRead.Error))
+            {
+                Console.Error.WriteLine(
+                    $"Error: {batchManifestRead.Error}"
+                );
+            }
+
+            Console.Error.WriteLine(
+                "No batch aggregate was published."
             );
 
             return 4;
@@ -139,7 +331,7 @@ public static class RepairStatusBatchCommand
                         Inspection
                 )
             >(
-                enumeration.ChildNames.Count
+                planChildNames.Count
             );
 
         /*
@@ -149,7 +341,7 @@ public static class RepairStatusBatchCommand
          * open and inspect successfully before any batch-level status
          * result is published.
          */
-        foreach (string childName in enumeration.ChildNames)
+        foreach (string childName in planChildNames)
         {
             LinuxOpenChildReadOnlyAtResult childOpen;
 
@@ -236,6 +428,80 @@ public static class RepairStatusBatchCommand
                 return 4;
             }
 
+            if (batchManifest is not null)
+            {
+                DataRelativePathRepairBatchManifestChild
+                    expectedChild =
+                        batchManifest.Children[
+                            inspectedPlans.Count
+                        ];
+
+                DataRelativePathRepairPlanManifestReaderResult?
+                    manifestRead =
+                        inspection.ManifestRead;
+
+                if (
+                    manifestRead is null ||
+                    !manifestRead.Success ||
+                    manifestRead.ManifestSha256 is null)
+                {
+                    Console.Error.WriteLine(
+                        "Repair-status-batch could not bind the inspected " +
+                        $"manifest bytes for {childName} to the durable " +
+                        "batch manifest."
+                    );
+
+                    Console.Error.WriteLine(
+                        "No batch aggregate was published."
+                    );
+
+                    return 4;
+                }
+
+                if (
+                    inspection.Manifest!.PlanId !=
+                    expectedChild.PlanId)
+                {
+                    Console.Error.WriteLine(
+                        $"Repair-status-batch PlanId mismatch for " +
+                        $"{childName}."
+                    );
+
+                    Console.Error.WriteLine(
+                        $"Recorded PlanId: {expectedChild.PlanId}"
+                    );
+
+                    Console.Error.WriteLine(
+                        $"Observed PlanId: " +
+                        $"{inspection.Manifest.PlanId}"
+                    );
+
+                    Console.Error.WriteLine(
+                        "No batch aggregate was published."
+                    );
+
+                    return 4;
+                }
+
+                if (
+                    !string.Equals(
+                        manifestRead.ManifestSha256,
+                        expectedChild.ManifestSha256,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.Error.WriteLine(
+                        $"Repair-status-batch manifest SHA-256 mismatch " +
+                        $"for {childName}."
+                    );
+
+                    Console.Error.WriteLine(
+                        "No batch aggregate was published."
+                    );
+
+                    return 4;
+                }
+            }
+
             inspectedPlans.Add(
                 (
                     childName,
@@ -292,23 +558,66 @@ public static class RepairStatusBatchCommand
             $"Observed plans:     {inspectedPlans.Count:N0}"
         );
 
-        Console.WriteLine(
-            "Original batch completeness: NOT RECORDED"
-        );
+        if (batchManifest is null)
+        {
+            Console.WriteLine(
+                "Original batch completeness: NOT RECORDED"
+            );
 
-        Console.WriteLine();
+            Console.WriteLine();
 
-        Console.WriteLine(
-            "The current batch format has no durable batch-summary " +
-            "manifest."
-        );
+            Console.WriteLine(
+                "The current batch format has no durable batch-summary " +
+                "manifest."
+            );
 
-        Console.WriteLine(
-            "This command reports every contiguous plan-* child observed " +
-            "during descriptor-relative enumeration of the retained batch " +
-            "directory, but cannot prove how many plans the original " +
-            "batch-planning invocation intended to persist."
-        );
+            Console.WriteLine(
+                "This command reports every contiguous plan-* child " +
+                "observed during descriptor-relative enumeration of the " +
+                "retained batch directory, but cannot prove how many " +
+                "plans the original batch-planning invocation intended " +
+                "to persist."
+            );
+        }
+        else
+        {
+            Console.WriteLine(
+                "Original batch completeness: RECORDED AND VERIFIED"
+            );
+
+            Console.WriteLine();
+
+            Console.WriteLine(
+                $"Batch manifest:      {BatchManifestName}"
+            );
+
+            Console.WriteLine(
+                $"Batch ID:            {batchManifest.BatchId}"
+            );
+
+            Console.WriteLine(
+                $"Input paths:         " +
+                $"{batchManifest.InputPathCount:N0}"
+            );
+
+            Console.WriteLine(
+                $"Safe rejections:     " +
+                $"{batchManifest.SafeRejectionCount:N0}"
+            );
+
+            Console.WriteLine(
+                $"Recorded plans:      " +
+                $"{batchManifest.Children.Count:N0}"
+            );
+
+            Console.WriteLine();
+
+            Console.WriteLine(
+                "Every recorded child plan matched the durable batch " +
+                "manifest by literal child name, PlanId, and exact " +
+                "manifest-byte SHA-256."
+            );
+        }
 
         if (inspectedPlans.Count > 0)
         {
@@ -386,6 +695,58 @@ public static class RepairStatusBatchCommand
         );
 
         return 0;
+    }
+
+    private static string? ValidateManifestBackedTopology(
+        IReadOnlyList<string> childNames,
+        DataRelativePathRepairBatchManifestRecord manifest)
+    {
+        var names =
+            new HashSet<string>(
+                childNames,
+                StringComparer.Ordinal
+            );
+
+        if (names.Count != childNames.Count)
+        {
+            return
+                "The retained batch directory enumeration contained " +
+                "duplicate literal child names.";
+        }
+
+        int expectedEntryCount =
+            manifest.Children.Count + 1;
+
+        if (names.Count != expectedEntryCount)
+        {
+            return
+                $"The completed batch requires exactly " +
+                $"{expectedEntryCount:N0} direct entries: the durable " +
+                $"batch manifest plus {manifest.Children.Count:N0} " +
+                "recorded plan children. " +
+                $"Observed {names.Count:N0}.";
+        }
+
+        if (!names.Contains(BatchManifestName))
+        {
+            return
+                $"The completed batch is missing the exact durable " +
+                $"completion child {BatchManifestName}.";
+        }
+
+        foreach (
+            DataRelativePathRepairBatchManifestChild child
+            in manifest.Children)
+        {
+            if (!names.Contains(child.ChildName))
+            {
+                return
+                    $"The completed batch is missing recorded child " +
+                    $"{child.ChildName}.";
+            }
+        }
+
+        return null;
     }
 
     private static string? ValidateTopology(

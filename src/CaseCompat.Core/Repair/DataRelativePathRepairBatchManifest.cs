@@ -111,6 +111,50 @@ public static class DataRelativePathRepairBatchManifest
         );
     }
 
+    /*
+     * Bind durable batch metadata to an independently supplied trusted
+     * Skyrim Data root without exposing the generic repair-authority
+     * helper outside Core.
+     *
+     * This is metadata validation only. It grants no filesystem handle,
+     * mutation authority, or historical object ownership.
+     */
+    public static string? ValidateTrustedDataRoot(
+        DataRelativePathRepairBatchManifestRecord manifest,
+        string trustedDataRoot)
+    {
+        ArgumentNullException.ThrowIfNull(
+            manifest
+        );
+
+        string? validationError =
+            Validate(
+                manifest
+            );
+
+        if (validationError is not null)
+        {
+            return
+                "The batch manifest is invalid: " +
+                validationError;
+        }
+
+        if (
+            !DataRelativePathRepairDataRootAuthority.Matches(
+                trustedDataRoot,
+                manifest.DataRoot,
+                out string? rootBindingError
+            ))
+        {
+            return
+                rootBindingError ??
+                "The batch manifest Data root does not match the " +
+                "independently supplied trusted Data root.";
+        }
+
+        return null;
+    }
+
     public static string? Validate(
         DataRelativePathRepairBatchManifestRecord manifest)
     {
