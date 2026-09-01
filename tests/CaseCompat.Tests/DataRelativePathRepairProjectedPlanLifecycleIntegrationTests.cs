@@ -5527,6 +5527,508 @@ public sealed class
 
     [Fact]
     public void
+        RollbackExecuteExpectedManifest_MatchingPlanIdAndSha256_RollsBackDurably()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathResolution resolution =
+            fixture.ResolveRequestedPath();
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector.Project(
+                resolution
+            );
+
+        Assert.True(
+            projection.HasPlan,
+            projection.Error
+        );
+
+        DataRelativePathRepairPlanManifestRecord manifest =
+            fixture.PersistManifest(
+                resolution,
+                projection
+            );
+
+        DataRelativePathRepairPlanManifestReaderResult manifestRead =
+            DataRelativePathRepairPlanManifestReader.Read(
+                fixture.JournalDirectory,
+                Fixture.ManifestName
+            );
+
+        Assert.True(
+            manifestRead.Success,
+            manifestRead.Error
+        );
+
+        string manifestSha256 =
+            Assert.IsType<string>(
+                manifestRead.ManifestSha256
+            );
+
+        DataRelativePathRepairPlanForwardExecution forward =
+            DataRelativePathRepairPlanForwardExecutor.Execute(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot,
+                T0.AddSeconds(10)
+            );
+
+        if (NoReplaceUnsupported(forward))
+        {
+            return;
+        }
+
+        Assert.True(
+            forward.Success,
+            forward.Error
+        );
+
+        fixture.AssertAllOperationJournalsApplied(
+            manifest
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.DestinationPath
+            )
+        );
+
+        DataRelativePathRepairPlanRollbackExecution rollback =
+            DataRelativePathRepairPlanRollbackExecutor
+                .ExecuteExpectedManifest(
+                    fixture.JournalDirectory,
+                    Fixture.ManifestName,
+                    fixture.DataRoot,
+                    T0.AddSeconds(20),
+                    manifest.PlanId,
+                    manifestSha256
+                );
+
+        Assert.True(
+            rollback.Success,
+            rollback.Error
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanRollbackExecutionState
+                .RolledBackDurably,
+            rollback.State
+        );
+
+        Assert.Equal(
+            manifest.Operations.Count,
+            rollback.OperationResults.Count
+        );
+
+        Assert.All(
+            rollback.OperationResults,
+            result =>
+                Assert.True(
+                    result.Success,
+                    result.Error
+                )
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.SourcePath
+            )
+        );
+
+        Assert.False(
+            File.Exists(
+                fixture.DestinationPath
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.RequestedTopDirectoryPath
+            )
+        );
+    }
+
+    [Fact]
+    public void
+        RollbackExecuteExpectedManifest_PlanIdMismatch_RejectsBeforeRollbackExecution()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathResolution resolution =
+            fixture.ResolveRequestedPath();
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector.Project(
+                resolution
+            );
+
+        Assert.True(
+            projection.HasPlan,
+            projection.Error
+        );
+
+        DataRelativePathRepairPlanManifestRecord manifest =
+            fixture.PersistManifest(
+                resolution,
+                projection
+            );
+
+        DataRelativePathRepairPlanManifestReaderResult manifestRead =
+            DataRelativePathRepairPlanManifestReader.Read(
+                fixture.JournalDirectory,
+                Fixture.ManifestName
+            );
+
+        Assert.True(
+            manifestRead.Success,
+            manifestRead.Error
+        );
+
+        string manifestSha256 =
+            Assert.IsType<string>(
+                manifestRead.ManifestSha256
+            );
+
+        DataRelativePathRepairPlanForwardExecution forward =
+            DataRelativePathRepairPlanForwardExecutor.Execute(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot,
+                T0.AddSeconds(10)
+            );
+
+        if (NoReplaceUnsupported(forward))
+        {
+            return;
+        }
+
+        Assert.True(
+            forward.Success,
+            forward.Error
+        );
+
+        fixture.AssertAllOperationJournalsApplied(
+            manifest
+        );
+
+        Guid wrongPlanId;
+
+        do
+        {
+            wrongPlanId =
+                Guid.NewGuid();
+        }
+        while (wrongPlanId == manifest.PlanId);
+
+        /*
+         * Prove this mismatch is rejected by the PRE-LOCK guard.
+         *
+         * Forward execution has already created the persistent lock
+         * child, so absence of the lock file cannot prove this property.
+         * Hold flock() ourselves instead: if rollback tried to acquire
+         * the plan lock, it would fail as PlanExecutionLockUnavailable.
+         * ExpectedManifestMismatch while this lease is held proves the
+         * caller expectation was rejected before lock acquisition.
+         */
+        string lockChildName =
+            DataRelativePathRepairPlanExecutionLock
+                .CreateLockChildName(
+                    manifest.PlanId
+                );
+
+        LinuxExclusiveChildFileLockResult held =
+            LinuxExclusiveChildFileLock.Acquire(
+                fixture.JournalDirectory,
+                lockChildName
+            );
+
+        Assert.True(
+            held.Success,
+            held.Error
+        );
+
+        using LinuxExclusiveChildFileLockLease heldLease =
+            Assert.IsType<
+                LinuxExclusiveChildFileLockLease
+            >(
+                held.Lease
+            );
+
+        DataRelativePathRepairPlanRollbackExecution rollback =
+            DataRelativePathRepairPlanRollbackExecutor
+                .ExecuteExpectedManifest(
+                    fixture.JournalDirectory,
+                    Fixture.ManifestName,
+                    fixture.DataRoot,
+                    T0.AddSeconds(20),
+                    wrongPlanId,
+                    manifestSha256
+                );
+
+        Assert.False(
+            rollback.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanRollbackExecutionState
+                .ExpectedManifestMismatch,
+            rollback.State
+        );
+
+        Assert.Empty(
+            rollback.OperationResults
+        );
+
+        Assert.Equal(
+            manifest.PlanId,
+            rollback.ManifestRead!.Manifest!.PlanId
+        );
+
+        Assert.Equal(
+            manifestSha256,
+            rollback.ManifestRead.ManifestSha256,
+            StringComparer.OrdinalIgnoreCase
+        );
+
+        /*
+         * The mismatch must not cross into destructive rollback.
+         */
+        Assert.True(
+            File.Exists(
+                fixture.SourcePath
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.DestinationPath
+            )
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.RequestedTopDirectoryPath
+            )
+        );
+
+        fixture.AssertAllOperationJournalsApplied(
+            manifest
+        );
+    }
+
+    [Fact]
+    public void
+        RollbackExecuteExpectedManifest_Sha256Mismatch_RejectsBeforeRollbackExecution()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathResolution resolution =
+            fixture.ResolveRequestedPath();
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector.Project(
+                resolution
+            );
+
+        Assert.True(
+            projection.HasPlan,
+            projection.Error
+        );
+
+        DataRelativePathRepairPlanManifestRecord manifest =
+            fixture.PersistManifest(
+                resolution,
+                projection
+            );
+
+        DataRelativePathRepairPlanManifestReaderResult manifestRead =
+            DataRelativePathRepairPlanManifestReader.Read(
+                fixture.JournalDirectory,
+                Fixture.ManifestName
+            );
+
+        Assert.True(
+            manifestRead.Success,
+            manifestRead.Error
+        );
+
+        string manifestSha256 =
+            Assert.IsType<string>(
+                manifestRead.ManifestSha256
+            );
+
+        char replacementFirst =
+            manifestSha256[0] == '0'
+                ? '1'
+                : '0';
+
+        string wrongManifestSha256 =
+            $"{replacementFirst}{manifestSha256[1..]}";
+
+        Assert.Equal(
+            64,
+            wrongManifestSha256.Length
+        );
+
+        Assert.NotEqual(
+            manifestSha256,
+            wrongManifestSha256
+        );
+
+        DataRelativePathRepairPlanForwardExecution forward =
+            DataRelativePathRepairPlanForwardExecutor.Execute(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot,
+                T0.AddSeconds(10)
+            );
+
+        if (NoReplaceUnsupported(forward))
+        {
+            return;
+        }
+
+        Assert.True(
+            forward.Success,
+            forward.Error
+        );
+
+        fixture.AssertAllOperationJournalsApplied(
+            manifest
+        );
+
+        /*
+         * Prove this mismatch is rejected by the PRE-LOCK guard.
+         *
+         * Forward execution has already created the persistent lock
+         * child, so absence of the lock file cannot prove this property.
+         * Hold flock() ourselves instead: if rollback tried to acquire
+         * the plan lock, it would fail as PlanExecutionLockUnavailable.
+         * ExpectedManifestMismatch while this lease is held proves the
+         * caller expectation was rejected before lock acquisition.
+         */
+        string lockChildName =
+            DataRelativePathRepairPlanExecutionLock
+                .CreateLockChildName(
+                    manifest.PlanId
+                );
+
+        LinuxExclusiveChildFileLockResult held =
+            LinuxExclusiveChildFileLock.Acquire(
+                fixture.JournalDirectory,
+                lockChildName
+            );
+
+        Assert.True(
+            held.Success,
+            held.Error
+        );
+
+        using LinuxExclusiveChildFileLockLease heldLease =
+            Assert.IsType<
+                LinuxExclusiveChildFileLockLease
+            >(
+                held.Lease
+            );
+
+        DataRelativePathRepairPlanRollbackExecution rollback =
+            DataRelativePathRepairPlanRollbackExecutor
+                .ExecuteExpectedManifest(
+                    fixture.JournalDirectory,
+                    Fixture.ManifestName,
+                    fixture.DataRoot,
+                    T0.AddSeconds(20),
+                    manifest.PlanId,
+                    wrongManifestSha256
+                );
+
+        Assert.False(
+            rollback.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanRollbackExecutionState
+                .ExpectedManifestMismatch,
+            rollback.State
+        );
+
+        Assert.Empty(
+            rollback.OperationResults
+        );
+
+        Assert.Equal(
+            manifest.PlanId,
+            rollback.ManifestRead!.Manifest!.PlanId
+        );
+
+        Assert.Equal(
+            manifestSha256,
+            rollback.ManifestRead.ManifestSha256,
+            StringComparer.OrdinalIgnoreCase
+        );
+
+        /*
+         * The mismatch must not cross into destructive rollback.
+         */
+        Assert.True(
+            File.Exists(
+                fixture.SourcePath
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.DestinationPath
+            )
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.RequestedTopDirectoryPath
+            )
+        );
+
+        fixture.AssertAllOperationJournalsApplied(
+            manifest
+        );
+    }
+
+    [Fact]
+    public void
         PlanExecutionLock_ManifestReplacedAfterInitialRead_IsRejectedAndLockReleased()
     {
         if (!OperatingSystem.IsLinux())

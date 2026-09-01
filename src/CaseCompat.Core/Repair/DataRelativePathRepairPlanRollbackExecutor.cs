@@ -18,6 +18,63 @@ public static class DataRelativePathRepairPlanRollbackExecutor
         string trustedDataRoot,
         DateTimeOffset nowUtc)
     {
+        return ExecuteCore(
+            journalDirectory,
+            manifestChildName,
+            trustedDataRoot,
+            nowUtc,
+            expectedPlanId:
+                null,
+            expectedManifestSha256:
+                null
+        );
+    }
+
+    /*
+     * Roll back the persisted plan only if the authoritative manifest
+     * reread under the existing per-PlanId execution lock matches an
+     * independently supplied logical PlanId and exact manifest-byte
+     * SHA-256.
+     *
+     * This strengthens caller binding without changing the existing
+     * single-plan Execute(...) contract.
+     *
+     * The expectation is metadata binding only. It grants no filesystem
+     * removal authority; destructive authority remains entirely in the
+     * existing journal/incarnation-aware rollback machinery.
+     */
+    public static DataRelativePathRepairPlanRollbackExecution
+        ExecuteExpectedManifest(
+            LinuxNoFollowPathHandle journalDirectory,
+            string manifestChildName,
+            string trustedDataRoot,
+            DateTimeOffset nowUtc,
+            Guid expectedPlanId,
+            string expectedManifestSha256)
+    {
+        ArgumentNullException.ThrowIfNull(
+            expectedManifestSha256
+        );
+
+        return ExecuteCore(
+            journalDirectory,
+            manifestChildName,
+            trustedDataRoot,
+            nowUtc,
+            expectedPlanId,
+            expectedManifestSha256
+        );
+    }
+
+    private static DataRelativePathRepairPlanRollbackExecution
+        ExecuteCore(
+            LinuxNoFollowPathHandle journalDirectory,
+            string manifestChildName,
+            string trustedDataRoot,
+            DateTimeOffset nowUtc,
+            Guid? expectedPlanId,
+            string? expectedManifestSha256)
+    {
         ArgumentNullException.ThrowIfNull(
             journalDirectory
         );
@@ -37,6 +94,44 @@ public static class DataRelativePathRepairPlanRollbackExecutor
                 [],
                 manifestRead.Error ??
                     manifestRead.State.ToString()
+            );
+        }
+
+        /*
+         * If a caller supplied a durable batch-membership expectation,
+         * reject an obvious mismatch before acquiring/creating the
+         * persistent execution-lock child.
+         *
+         * This is side-effect minimization only. The authoritative
+         * mutation-time binding occurs again after the existing locked
+         * manifest reread.
+         */
+        if (
+            expectedPlanId is not null &&
+            (
+                manifestRead.Manifest!.PlanId !=
+                    expectedPlanId.Value ||
+                manifestRead.ManifestSha256 is null ||
+                expectedManifestSha256 is null ||
+                !string.Equals(
+                    manifestRead.ManifestSha256,
+                    expectedManifestSha256,
+                    StringComparison.OrdinalIgnoreCase
+                )
+            ))
+        {
+            return PlanResult(
+                DataRelativePathRepairPlanRollbackExecutionState
+                    .ExpectedManifestMismatch,
+                manifestRead,
+                [],
+                $"The initially read plan manifest does not match the " +
+                $"caller expectation. Expected PlanId " +
+                $"{expectedPlanId.Value}, observed " +
+                $"{manifestRead.Manifest.PlanId}; expected manifest " +
+                $"SHA-256 {expectedManifestSha256 ?? "<missing>"}, " +
+                $"observed " +
+                $"{manifestRead.ManifestSha256 ?? "<missing>"}."
             );
         }
 
@@ -84,6 +179,45 @@ public static class DataRelativePathRepairPlanRollbackExecutor
 
         DataRelativePathRepairPlanManifestRecord manifest =
             manifestRead.Manifest!;
+
+        /*
+         * Bind an optional caller expectation to the exact manifest
+         * bytes that became authoritative under the existing per-PlanId
+         * execution lock.
+         *
+         * Do not move this check to a preceding CLI/status inspection:
+         * that would recreate a manifest race between observation and
+         * destructive rollback.
+         *
+         * The expectation itself still grants no filesystem authority.
+         */
+        if (
+            expectedPlanId is not null &&
+            (
+                manifest.PlanId !=
+                    expectedPlanId.Value ||
+                manifestRead.ManifestSha256 is null ||
+                expectedManifestSha256 is null ||
+                !string.Equals(
+                    manifestRead.ManifestSha256,
+                    expectedManifestSha256,
+                    StringComparison.OrdinalIgnoreCase
+                )
+            ))
+        {
+            return PlanResult(
+                DataRelativePathRepairPlanRollbackExecutionState
+                    .ExpectedManifestMismatch,
+                manifestRead,
+                [],
+                $"The authoritative locked plan manifest does not match " +
+                $"the caller expectation. Expected PlanId " +
+                $"{expectedPlanId.Value}, observed {manifest.PlanId}; " +
+                $"expected manifest SHA-256 " +
+                $"{expectedManifestSha256 ?? "<missing>"}, observed " +
+                $"{manifestRead.ManifestSha256 ?? "<missing>"}."
+            );
+        }
 
         /*
          * A manifest is durable historical plan data. It does not
