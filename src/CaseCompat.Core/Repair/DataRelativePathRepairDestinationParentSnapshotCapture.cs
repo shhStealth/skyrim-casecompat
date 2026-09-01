@@ -163,9 +163,218 @@ public static class
         using LinuxNoFollowPathHandle openedParent =
             opened.OpenedPath;
 
+        return CaptureOpenedParent(
+            dataRoot,
+            fullParentPath,
+            opened.State,
+            openedParent
+        );
+    }
+
+    /*
+     * Capture a destination-parent snapshot relative to a Data-root
+     * descriptor that the caller already opened and retained.
+     *
+     * This overload deliberately never reopens the Data-root pathname.
+     * Every descendant component is opened with openat() through
+     * LinuxOpenChildReadOnlyAt, beginning from the retained descriptor.
+     *
+     * The retained root itself remains owned by the caller.
+     */
+    public static
+        DataRelativePathRepairDestinationParentSnapshotCaptureResult
+        Capture(
+            LinuxNoFollowPathHandle trustedDataRoot,
+            string parentPath)
+    {
+        ArgumentNullException.ThrowIfNull(
+            trustedDataRoot
+        );
+
+        if (
+            !TryNormalizeAbsolutePath(
+                trustedDataRoot.RootPath,
+                out string dataRoot))
+        {
+            return Result(
+                DataRelativePathRepairDestinationParentSnapshotCaptureState
+                    .InvalidDataRoot,
+                trustedDataRoot.RootPath,
+                parentPath,
+                error:
+                    "The retained trusted Data root must describe " +
+                    "an absolute valid path."
+            );
+        }
+
+        if (
+            !TryNormalizeAbsolutePath(
+                parentPath,
+                out string fullParentPath))
+        {
+            return Result(
+                DataRelativePathRepairDestinationParentSnapshotCaptureState
+                    .InvalidParentPath,
+                dataRoot,
+                parentPath,
+                error:
+                    "The destination parent must be an absolute valid path."
+            );
+        }
+
+        string relativePath;
+
+        try
+        {
+            relativePath =
+                Path.GetRelativePath(
+                    dataRoot,
+                    fullParentPath
+                );
+        }
+        catch (
+            Exception ex)
+            when (
+                ex is ArgumentException or
+                NotSupportedException or
+                PathTooLongException)
+        {
+            return Result(
+                DataRelativePathRepairDestinationParentSnapshotCaptureState
+                    .InvalidParentPath,
+                dataRoot,
+                fullParentPath,
+                error:
+                    ex.Message
+            );
+        }
+
+        if (
+            IsOutsideRoot(
+                relativePath))
+        {
+            return Result(
+                DataRelativePathRepairDestinationParentSnapshotCaptureState
+                    .ParentOutsideDataRoot,
+                dataRoot,
+                fullParentPath,
+                error:
+                    "The destination parent is outside the retained " +
+                    "trusted Data root."
+            );
+        }
+
+        if (relativePath == ".")
+        {
+            return CaptureOpenedParent(
+                dataRoot,
+                fullParentPath,
+                LinuxNoFollowPathOpenState.Opened,
+                trustedDataRoot
+            );
+        }
+
+        string[] components =
+            relativePath.Split(
+                ['/', '\\'],
+                StringSplitOptions
+                    .RemoveEmptyEntries
+            );
+
+        if (
+            components.Length == 0 ||
+            components.Any(component =>
+                component is "." or ".." ||
+                component.Contains('\0')))
+        {
+            return Result(
+                DataRelativePathRepairDestinationParentSnapshotCaptureState
+                    .InvalidParentPath,
+                dataRoot,
+                fullParentPath,
+                error:
+                    "The destination parent contains an invalid " +
+                    "relative path component."
+            );
+        }
+
+        ILinuxOpenedHandle current =
+            trustedDataRoot;
+
+        LinuxOpenedChildHandle? ownedCurrent =
+            null;
+
+        try
+        {
+            foreach (string component in components)
+            {
+                LinuxOpenChildReadOnlyAtResult opened =
+                    LinuxOpenChildReadOnlyAt.Open(
+                        current,
+                        component
+                    );
+
+                if (
+                    !opened.Success ||
+                    opened.OpenedChild is null)
+                {
+                    return Result(
+                        DataRelativePathRepairDestinationParentSnapshotCaptureState
+                            .ParentOpenFailed,
+                        dataRoot,
+                        fullParentPath,
+                        error:
+                            opened.Error ??
+                            opened.State.ToString()
+                    );
+                }
+
+                LinuxOpenedChildHandle next =
+                    opened.OpenedChild;
+
+                /*
+                 * next owns an independent descriptor. Once it has been
+                 * obtained through openat(), an earlier intermediate
+                 * descriptor can be closed without changing what next
+                 * references.
+                 *
+                 * The caller-owned trustedDataRoot is never disposed here.
+                 */
+                ownedCurrent?.Dispose();
+
+                ownedCurrent =
+                    next;
+
+                current =
+                    next;
+            }
+
+            return CaptureOpenedParent(
+                dataRoot,
+                fullParentPath,
+                openState:
+                    null,
+                current
+            );
+        }
+        finally
+        {
+            ownedCurrent?.Dispose();
+        }
+    }
+
+    private static
+        DataRelativePathRepairDestinationParentSnapshotCaptureResult
+        CaptureOpenedParent(
+            string dataRoot,
+            string fullParentPath,
+            LinuxNoFollowPathOpenState? openState,
+            ILinuxOpenedHandle openedParent)
+    {
         LinuxOpenedDirectorySnapshotResult openedSnapshot =
             LinuxOpenedDirectorySnapshot.Capture(
-                openedParent
+                openedParent,
+                fullParentPath
             );
 
         if (
@@ -181,9 +390,9 @@ public static class
                 DataRelativePathRepairDestinationParentSnapshotCaptureState
                     .SnapshotFailed,
                 dataRoot,
-                openedParent.FullPath,
+                fullParentPath,
                 openState:
-                    opened.State,
+                    openState,
                 openedSnapshot:
                     openedSnapshot,
                 error:
@@ -198,9 +407,9 @@ public static class
                 DataRelativePathRepairDestinationParentSnapshotCaptureState
                     .ParentCasefoldNotStrict,
                 dataRoot,
-                openedParent.FullPath,
+                fullParentPath,
                 openState:
-                    opened.State,
+                    openState,
                 openedSnapshot:
                     openedSnapshot,
                 error:
@@ -212,7 +421,7 @@ public static class
         var snapshot =
             new DataRelativePathRepairDestinationParentSnapshot(
                 PhysicalPath:
-                    openedParent.FullPath,
+                    fullParentPath,
                 Identity:
                     identity,
                 CasefoldEnabled:
@@ -225,9 +434,9 @@ public static class
             DataRelativePathRepairDestinationParentSnapshotCaptureState
                 .Captured,
             dataRoot,
-            openedParent.FullPath,
+            fullParentPath,
             openState:
-                opened.State,
+                openState,
             openedSnapshot:
                 openedSnapshot,
             snapshot:

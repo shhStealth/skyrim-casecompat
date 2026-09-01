@@ -109,6 +109,43 @@ public static class DataRelativePathRepairPlanForwardExecutor
         }
 
         /*
+         * Retain the exact trusted Data-root directory descriptor for
+         * this whole invocation.
+         *
+         * Later operations that have no durable journal yet must derive
+         * their initial destination-parent snapshot from this descriptor,
+         * not by reopening the trustedDataRoot pathname.
+         *
+         * If that pathname is replaced while execution is in progress,
+         * the retained capability still identifies the originally opened
+         * filesystem object. Existing operation-level identity checks may
+         * then fail closed, but a replacement root cannot silently become
+         * new repair authority.
+         */
+        LinuxNoFollowPathOpenResult trustedDataRootOpen =
+            LinuxNoFollowPath.OpenRootReadOnly(
+                trustedDataRoot
+            );
+
+        if (
+            !trustedDataRootOpen.Success ||
+            trustedDataRootOpen.OpenedPath is null)
+        {
+            return PlanResult(
+                DataRelativePathRepairPlanForwardExecutionState
+                    .TrustedDataRootOpenFailed,
+                manifestRead,
+                [],
+                trustedDataRootOpen.Error ??
+                    $"The trusted Data root could not be opened: " +
+                    $"{trustedDataRootOpen.State}."
+            );
+        }
+
+        using LinuxNoFollowPathHandle trustedDataRootHandle =
+            trustedDataRootOpen.OpenedPath;
+
+        /*
          * Validate all durable plan history before starting or
          * recovering any individual operation.
          *
@@ -170,6 +207,7 @@ public static class DataRelativePathRepairPlanForwardExecutor
                                     journalDirectory,
                                     manifest,
                                     entry,
+                                    trustedDataRootHandle,
                                     trustedDataRoot,
                                     nowUtc
                                 ),
@@ -180,6 +218,7 @@ public static class DataRelativePathRepairPlanForwardExecutor
                                     journalDirectory,
                                     manifest,
                                     entry,
+                                    trustedDataRootHandle,
                                     trustedDataRoot,
                                     nowUtc
                                 ),
@@ -637,6 +676,7 @@ public static class DataRelativePathRepairPlanForwardExecutor
             LinuxNoFollowPathHandle journalDirectory,
             DataRelativePathRepairPlanManifestRecord manifest,
             DataRelativePathRepairPlanManifestOperation entry,
+            LinuxNoFollowPathHandle trustedDataRootHandle,
             string trustedDataRoot,
             DateTimeOffset nowUtc)
     {
@@ -696,7 +736,7 @@ public static class DataRelativePathRepairPlanForwardExecutor
                         GetStartParentSnapshot(
                             manifest,
                             entry,
-                            trustedDataRoot,
+                            trustedDataRootHandle,
                             out parentCapture
                         );
 
@@ -1091,6 +1131,7 @@ public static class DataRelativePathRepairPlanForwardExecutor
             LinuxNoFollowPathHandle journalDirectory,
             DataRelativePathRepairPlanManifestRecord manifest,
             DataRelativePathRepairPlanManifestOperation entry,
+            LinuxNoFollowPathHandle trustedDataRootHandle,
             string trustedDataRoot,
             DateTimeOffset nowUtc)
     {
@@ -1146,7 +1187,7 @@ public static class DataRelativePathRepairPlanForwardExecutor
                         GetStartParentSnapshot(
                             manifest,
                             entry,
-                            trustedDataRoot,
+                            trustedDataRootHandle,
                             out parentCapture
                         );
 
@@ -1474,7 +1515,7 @@ public static class DataRelativePathRepairPlanForwardExecutor
         GetStartParentSnapshot(
             DataRelativePathRepairPlanManifestRecord manifest,
             DataRelativePathRepairPlanManifestOperation entry,
-            string trustedDataRoot,
+            LinuxNoFollowPathHandle trustedDataRootHandle,
             out
                 DataRelativePathRepairDestinationParentSnapshotCaptureResult?
                     capture)
@@ -1500,7 +1541,7 @@ public static class DataRelativePathRepairPlanForwardExecutor
         capture =
             DataRelativePathRepairDestinationParentSnapshotCapture
                 .Capture(
-                    trustedDataRoot,
+                    trustedDataRootHandle,
                     parentPath
                 );
 

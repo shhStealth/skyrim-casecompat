@@ -4525,6 +4525,124 @@ public sealed class
         }
     }
 
+    [Fact]
+    public void
+        Execute_TrustedDataRootUnavailable_FailsBeforeOperationExecution()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathResolution resolution =
+            fixture.ResolveRequestedPath();
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector.Project(
+                resolution
+            );
+
+        Assert.True(
+            projection.HasPlan,
+            projection.Error
+        );
+
+        DataRelativePathRepairPlanManifestRecord manifest =
+            fixture.PersistManifest(
+                resolution,
+                projection
+            );
+
+        string sourceRelativePath =
+            Path.GetRelativePath(
+                fixture.DataRoot,
+                fixture.SourcePath
+            );
+
+        string movedDataRoot =
+            Path.Combine(
+                fixture.RootPath,
+                "Data-original"
+            );
+
+        Directory.Move(
+            fixture.DataRoot,
+            movedDataRoot
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.DataRoot
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                Path.Combine(
+                    movedDataRoot,
+                    sourceRelativePath
+                )
+            )
+        );
+
+        DataRelativePathRepairPlanForwardExecution execution =
+            DataRelativePathRepairPlanForwardExecutor.Execute(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot,
+                T0.AddSeconds(10)
+            );
+
+        Assert.False(
+            execution.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanForwardExecutionState
+                .TrustedDataRootOpenFailed,
+            execution.State
+        );
+
+        Assert.Empty(
+            execution.OperationResults
+        );
+
+        /*
+         * The per-plan coordination lock may exist, but no operation
+         * journal may be created after trusted-root acquisition fails.
+         */
+        foreach (
+            DataRelativePathRepairPlanManifestOperation entry
+            in manifest.Operations)
+        {
+            Assert.False(
+                File.Exists(
+                    Path.Combine(
+                        fixture.JournalDirectoryPath,
+                        entry.JournalChildName
+                    )
+                )
+            );
+        }
+
+        Assert.True(
+            File.Exists(
+                Path.Combine(
+                    movedDataRoot,
+                    sourceRelativePath
+                )
+            )
+        );
+    }
+
     private sealed record JournalCheckpoint(
         Guid JournalId,
         int Revision

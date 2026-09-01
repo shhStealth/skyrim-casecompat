@@ -101,6 +101,205 @@ public sealed class
     }
 
     [Fact]
+    public void
+        Capture_RetainedRootPathReplaced_UsesOriginalRootDescriptor()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        LinuxNoFollowPathOpenResult rootOpen =
+            LinuxNoFollowPath.OpenRootReadOnly(
+                fixture.DataRoot
+            );
+
+        Assert.True(
+            rootOpen.Success,
+            rootOpen.Error
+        );
+
+        using LinuxNoFollowPathHandle retainedRoot =
+            Assert.IsType<
+                LinuxNoFollowPathHandle
+            >(
+                rootOpen.OpenedPath
+            );
+
+        string movedDataRoot =
+            Path.Combine(
+                fixture.RootPath,
+                "Data-original"
+            );
+
+        Directory.Move(
+            fixture.DataRoot,
+            movedDataRoot
+        );
+
+        string movedParent =
+            Path.Combine(
+                movedDataRoot,
+                "Parent"
+            );
+
+        string replacementParent =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    fixture.DataRoot,
+                    "Parent"
+                )
+            ).FullName;
+
+        DataRelativePathRepairDestinationParentSnapshotCaptureResult
+            captured =
+                DataRelativePathRepairDestinationParentSnapshotCapture
+                    .Capture(
+                        retainedRoot,
+                        fixture.ParentPath
+                    );
+
+        Assert.True(
+            captured.Success,
+            captured.Error
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDestinationParentSnapshotCaptureState
+                .Captured,
+            captured.State
+        );
+
+        DataRelativePathRepairDestinationParentSnapshot snapshot =
+            Assert.IsType<
+                DataRelativePathRepairDestinationParentSnapshot
+            >(
+                captured.Snapshot
+            );
+
+        LinuxFileIdentityResult movedIdentity =
+            LinuxFileIdentity.Inspect(
+                movedParent
+            );
+
+        LinuxFileIdentityResult replacementIdentity =
+            LinuxFileIdentity.Inspect(
+                replacementParent
+            );
+
+        Assert.True(
+            movedIdentity.Success
+        );
+
+        Assert.True(
+            replacementIdentity.Success
+        );
+
+        Assert.True(
+            snapshot.Identity.SameObjectAs(
+                movedIdentity
+            )
+        );
+
+        Assert.False(
+            snapshot.Identity.SameObjectAs(
+                replacementIdentity
+            )
+        );
+    }
+
+    [Fact]
+    public void
+        Capture_RetainedRootSymbolicLinkComponent_IsRejected()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        LinuxNoFollowPathOpenResult rootOpen =
+            LinuxNoFollowPath.OpenRootReadOnly(
+                fixture.DataRoot
+            );
+
+        Assert.True(
+            rootOpen.Success,
+            rootOpen.Error
+        );
+
+        using LinuxNoFollowPathHandle retainedRoot =
+            Assert.IsType<
+                LinuxNoFollowPathHandle
+            >(
+                rootOpen.OpenedPath
+            );
+
+        string real =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    fixture.DataRoot,
+                    "Real",
+                    "Nested"
+                )
+            ).FullName;
+
+        Assert.True(
+            Directory.Exists(
+                real
+            )
+        );
+
+        string link =
+            Path.Combine(
+                fixture.DataRoot,
+                "Link"
+            );
+
+        Directory.CreateSymbolicLink(
+            link,
+            Path.Combine(
+                fixture.DataRoot,
+                "Real"
+            )
+        );
+
+        DataRelativePathRepairDestinationParentSnapshotCaptureResult
+            captured =
+                DataRelativePathRepairDestinationParentSnapshotCapture
+                    .Capture(
+                        retainedRoot,
+                        Path.Combine(
+                            link,
+                            "Nested"
+                        )
+                    );
+
+        Assert.False(
+            captured.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDestinationParentSnapshotCaptureState
+                .ParentOpenFailed,
+            captured.State
+        );
+
+        Assert.Null(
+            captured.OpenedSnapshot
+        );
+
+        Assert.Null(
+            captured.Snapshot
+        );
+    }
+
+    [Fact]
     public void Capture_OutsideTrustedDataRoot_IsRejectedBeforeOpen()
     {
         if (!OperatingSystem.IsLinux())
