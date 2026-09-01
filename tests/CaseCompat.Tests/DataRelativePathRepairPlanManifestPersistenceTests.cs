@@ -1,5 +1,6 @@
 using CaseCompat.Core.Repair;
 using CaseCompat.Filesystem.Linux;
+using System.Security.Cryptography;
 using Xunit;
 
 namespace CaseCompat.Tests;
@@ -1152,6 +1153,99 @@ public sealed class
             DataRelativePathRepairPlanManifest.Validate(
                 read.Manifest
             )
+        );
+    }
+
+    [Fact]
+    public void Read_ReturnsSha256OfExactPersistedManifestBytes()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsUnnamedFiles())
+        {
+            return;
+        }
+
+        DataRelativePathRepairPlanManifestRecord manifest =
+            RequireManifest(
+                CreateManifest(
+                    Guid.NewGuid()
+                )
+            );
+
+        DataRelativePathRepairPlanManifestWriterResult write =
+            DataRelativePathRepairPlanManifestWriter.CreateInitial(
+                fixture.ManifestDirectory,
+                "plan.json",
+                manifest
+            );
+
+        Assert.True(
+            write.Success,
+            write.Error
+        );
+
+        /*
+         * Add semantically insignificant JSON whitespace after durable
+         * publication.
+         *
+         * A canonical re-serialization hash would ignore this byte-level
+         * difference. The reader contract must instead bind the exact
+         * persisted byte sequence that it actually deserializes.
+         */
+        string manifestPath =
+            Path.Combine(
+                fixture.ManifestDirectoryPath,
+                "plan.json"
+            );
+
+        File.AppendAllText(
+            manifestPath,
+            "\n \t"
+        );
+
+        byte[] exactBytes =
+            File.ReadAllBytes(
+                manifestPath
+            );
+
+        string expectedSha256 =
+            Convert.ToHexString(
+                SHA256.HashData(
+                    exactBytes
+                )
+            );
+
+        DataRelativePathRepairPlanManifestReaderResult read =
+            DataRelativePathRepairPlanManifestReader.Read(
+                fixture.ManifestDirectory,
+                "plan.json"
+            );
+
+        Assert.True(
+            read.Success,
+            read.Error
+        );
+
+        Assert.Equal(
+            manifest.PlanId,
+            read.Manifest!.PlanId
+        );
+
+        Assert.Equal(
+            exactBytes.LongLength,
+            read.Length
+        );
+
+        Assert.Equal(
+            expectedSha256,
+            read.ManifestSha256
         );
     }
 

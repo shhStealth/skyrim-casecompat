@@ -1,4 +1,5 @@
 using CaseCompat.Filesystem.Linux;
+using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace CaseCompat.Core.Repair;
@@ -36,13 +37,15 @@ public sealed record DataRelativePathRepairPlanManifestReaderResult(
     LinuxOpenedFileIncarnationResult?
         ManifestIncarnation,
     long? Length,
+    string? ManifestSha256,
     string? Error
 )
 {
     public bool Success =>
         State ==
         DataRelativePathRepairPlanManifestReadState.Read &&
-        Manifest is not null;
+        Manifest is not null &&
+        ManifestSha256 is not null;
 
     public LinuxFileIncarnationIdentity?
         ManifestIncarnationIdentity =>
@@ -398,6 +401,22 @@ public static class DataRelativePathRepairPlanManifestReader
             );
         }
 
+        /*
+         * Hash the exact in-memory byte sequence that was deserialized
+         * and validated above.
+         *
+         * Do not perform a second descriptor read here: a separate hash
+         * pass could observe different same-length contents after an
+         * in-place modification and would no longer prove which bytes
+         * produced the validated manifest record.
+         */
+        string manifestSha256 =
+            Convert.ToHexString(
+                SHA256.HashData(
+                    bytes
+                )
+            );
+
         return Result(
             DataRelativePathRepairPlanManifestReadState.Read,
             manifestChildName,
@@ -406,7 +425,9 @@ public static class DataRelativePathRepairPlanManifestReader
             manifestIncarnation:
                 incarnation,
             length:
-                length
+                length,
+            manifestSha256:
+                manifestSha256
         );
     }
 
@@ -438,6 +459,7 @@ public static class DataRelativePathRepairPlanManifestReader
             LinuxOpenedFileIncarnationResult?
                 manifestIncarnation = null,
             long? length = null,
+            string? manifestSha256 = null,
             string? error = null)
     {
         return new(
@@ -452,6 +474,8 @@ public static class DataRelativePathRepairPlanManifestReader
                 manifestIncarnation,
             Length:
                 length,
+            ManifestSha256:
+                manifestSha256,
             Error:
                 error
         );
