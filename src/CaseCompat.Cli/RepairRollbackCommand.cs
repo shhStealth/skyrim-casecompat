@@ -9,7 +9,12 @@ public static class RepairRollbackCommand
         {
             Console.Error.WriteLine(
                 "Error: repair-rollback requires a journal directory, " +
-                "manifest child name, and trusted Data root."
+                "manifest file name, and Skyrim Data directory."
+            );
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(
+                "Usage: casecompat repair-rollback <journal directory> " +
+                "<manifest file name> <Skyrim Data directory>"
             );
 
             return 2;

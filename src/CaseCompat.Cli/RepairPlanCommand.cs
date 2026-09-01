@@ -9,9 +9,15 @@ public static class RepairPlanCommand
         if (args.Length != 5)
         {
             Console.Error.WriteLine(
-                "Error: repair-plan requires a Data root, " +
+                "Error: repair-plan requires a Skyrim Data directory, " +
                 "Data-relative file path, journal directory, " +
-                "and manifest child name."
+                "and manifest file name."
+            );
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(
+                "Usage: casecompat repair-plan <Skyrim Data directory> " +
+                "<Data-relative file path> <journal directory> " +
+                "<manifest file name>"
             );
 
             return 2;
@@ -220,6 +226,7 @@ public static class RepairPlanCommand
             Console.Error.WriteLine(
                 $"Repair-plan verification read error: {ex.Message}"
             );
+            WriteVerificationFailureWarning();
 
             return 8;
         }
@@ -236,6 +243,7 @@ public static class RepairPlanCommand
                 verify.Error ??
                 verify.State.ToString()
             );
+            WriteVerificationFailureWarning();
 
             return 8;
         }
@@ -328,7 +336,29 @@ public static class RepairPlanCommand
         Console.WriteLine(
             "Only plan metadata was written to the journal directory."
         );
+        Console.WriteLine();
+        Console.WriteLine(
+            "Next step: run repair-status to independently inspect the " +
+            "persisted plan before repair-apply."
+        );
 
         return 0;
+    }
+
+    private static void WriteVerificationFailureWarning()
+    {
+        Console.Error.WriteLine();
+        Console.Error.WriteLine(
+            "IMPORTANT: the manifest write reported success before " +
+            "verification failed."
+        );
+        Console.Error.WriteLine(
+            "Do not assume no plan metadata was created, and do not " +
+            "blindly rerun repair-plan with the same manifest file name."
+        );
+        Console.Error.WriteLine(
+            "Inspect the journal directory and use repair-status if the " +
+            "manifest can be read."
+        );
     }
 }

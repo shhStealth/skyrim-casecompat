@@ -9,7 +9,12 @@ public static class RepairStatusCommand
         {
             Console.Error.WriteLine(
                 "Error: repair-status requires a journal directory, " +
-                "manifest child name, and trusted Data root."
+                "manifest file name, and Skyrim Data directory."
+            );
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(
+                "Usage: casecompat repair-status <journal directory> " +
+                "<manifest file name> <Skyrim Data directory>"
             );
 
             return 2;

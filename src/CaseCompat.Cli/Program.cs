@@ -10,6 +10,12 @@ string command = args[0].ToLowerInvariant();
 
 switch (command)
 {
+    case "help":
+    case "--help":
+    case "-h":
+        ShowUsage();
+        return 0;
+
     case "doctor":
         return RunDoctor(args);
 
@@ -360,6 +366,57 @@ static void ShowUsage()
     Console.WriteLine();
     Console.WriteLine("Usage:");
     Console.WriteLine(
+        "  casecompat --help"
+    );
+
+    Console.WriteLine();
+    Console.WriteLine("Repair workflow");
+    Console.WriteLine("---------------");
+    Console.WriteLine(
+        "  repair-plan      Create and persist a repair plan; " +
+        "does not modify Skyrim Data."
+    );
+    Console.WriteLine(
+        "  repair-status    Inspect persisted repair state; read-only."
+    );
+    Console.WriteLine(
+        "  repair-apply     Apply a persisted repair plan."
+    );
+    Console.WriteLine(
+        "  repair-rollback  Roll back CaseCompat-owned repair changes."
+    );
+    Console.WriteLine();
+    Console.WriteLine(
+        "  Recommended: repair-plan -> repair-status -> " +
+        "repair-apply -> repair-status"
+    );
+    Console.WriteLine(
+        "  Recovery:    repair-rollback -> repair-status"
+    );
+
+    Console.WriteLine();
+    Console.WriteLine("Repair command usage:");
+    Console.WriteLine(
+        "  casecompat repair-plan <Skyrim Data directory> " +
+        "<Data-relative file path> <journal directory> " +
+        "<manifest file name>"
+    );
+    Console.WriteLine(
+        "  casecompat repair-status <journal directory> " +
+        "<manifest file name> <Skyrim Data directory>"
+    );
+    Console.WriteLine(
+        "  casecompat repair-apply <journal directory> " +
+        "<manifest file name> <Skyrim Data directory>"
+    );
+    Console.WriteLine(
+        "  casecompat repair-rollback <journal directory> " +
+        "<manifest file name> <Skyrim Data directory>"
+    );
+
+    Console.WriteLine();
+    Console.WriteLine("Other commands:");
+    Console.WriteLine(
         "  casecompat doctor <Skyrim Data directory>"
     );
     Console.WriteLine(
@@ -368,7 +425,6 @@ static void ShowUsage()
     Console.WriteLine(
         "  casecompat collision-tree <directory>"
     );
-
     Console.WriteLine(
         "  casecompat compare-branches <directory A> <directory B>"
     );
@@ -388,22 +444,12 @@ static void ShowUsage()
         "  casecompat armor-addon-models <plugin path> [search]"
     );
     Console.WriteLine(
-        "  casecompat resolve-data-path <Data root> <Data-relative file path>"
+        "  casecompat resolve-data-path <Data root> " +
+        "<Data-relative file path>"
     );
     Console.WriteLine(
-        "  casecompat repair-plan <Data root> <Data-relative file path> <journal directory> <manifest child name>"
-    );
-    Console.WriteLine(
-        "  casecompat repair-status <journal directory> <manifest child name> <trusted Data root>"
-    );
-    Console.WriteLine(
-        "  casecompat repair-apply <journal directory> <manifest child name> <trusted Data root>"
-    );
-    Console.WriteLine(
-        "  casecompat repair-rollback <journal directory> <manifest child name> <trusted Data root>"
-    );
-    Console.WriteLine(
-        "  casecompat resolve-armor-addon-models <Data root> <plugin path> [path search]"
+        "  casecompat resolve-armor-addon-models <Data root> " +
+        "<plugin path> [path search]"
     );
     Console.WriteLine(
         "  casecompat armor-records <plugin path>"
@@ -412,27 +458,37 @@ static void ShowUsage()
         "  casecompat load-order-probe <Plugins.txt> <loadorder.txt>"
     );
     Console.WriteLine(
-        "  casecompat armor-addon-winner <Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> <FormKey>"
+        "  casecompat armor-addon-winner <Data root> <Plugins.txt> " +
+        "<loadorder.txt> <Skyrim.ccc> <FormKey>"
     );
     Console.WriteLine(
-        "  casecompat effective-armor-addon-models <Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> <FormKey> [path search]"
+        "  casecompat effective-armor-addon-models <Data root> " +
+        "<Plugins.txt> <loadorder.txt> <Skyrim.ccc> <FormKey> " +
+        "[path search]"
     );
     Console.WriteLine(
-        "  casecompat winning-armor-addon-inventory <Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> [path search]"
+        "  casecompat winning-armor-addon-inventory <Data root> " +
+        "<Plugins.txt> <loadorder.txt> <Skyrim.ccc> [path search]"
     );
     Console.WriteLine(
-        "  casecompat effective-armor-addon-scan <Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> [path search]"
+        "  casecompat effective-armor-addon-scan <Data root> " +
+        "<Plugins.txt> <loadorder.txt> <Skyrim.ccc> [path search]"
     );
     Console.WriteLine(
-        "  casecompat archive-candidate-index <Data root> [requested asset path]"
+        "  casecompat archive-candidate-index <Data root> " +
+        "[requested asset path]"
     );
     Console.WriteLine(
-        "  casecompat runtime-plugin-set <Plugins.txt> <loadorder.txt> <Skyrim.ccc>"
+        "  casecompat runtime-plugin-set <Plugins.txt> " +
+        "<loadorder.txt> <Skyrim.ccc>"
     );
     Console.WriteLine(
-        "  casecompat runtime-archive-evidence <Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> <INI directory>"
+        "  casecompat runtime-archive-evidence <Data root> " +
+        "<Plugins.txt> <loadorder.txt> <Skyrim.ccc> <INI directory>"
     );
     Console.WriteLine(
-        "  casecompat effective-armor-addon-archive-candidates <Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> <INI directory> [path search]"
+        "  casecompat effective-armor-addon-archive-candidates " +
+        "<Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> " +
+        "<INI directory> [path search]"
     );
 }
