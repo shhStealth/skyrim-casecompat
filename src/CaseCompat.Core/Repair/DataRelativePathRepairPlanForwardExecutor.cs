@@ -41,6 +41,49 @@ public static class DataRelativePathRepairPlanForwardExecutor
             );
         }
 
+        /*
+         * The first manifest read discovers the immutable PlanId and
+         * exact manifest incarnation only.
+         *
+         * Acquire the persistent per-PlanId execution lock, then
+         * re-read and revalidate that exact manifest while the lock is
+         * held. The locked read becomes authoritative below.
+         */
+        DataRelativePathRepairPlanExecutionLockAcquisition
+            executionLockAcquisition =
+                DataRelativePathRepairPlanExecutionLock.Acquire(
+                    journalDirectory,
+                    manifestChildName,
+                    manifestRead
+                );
+
+        if (!executionLockAcquisition.Success)
+        {
+            DataRelativePathRepairPlanForwardExecutionState failureState =
+                executionLockAcquisition.State ==
+                DataRelativePathRepairPlanExecutionLockState
+                    .LockUnavailable
+                    ? DataRelativePathRepairPlanForwardExecutionState
+                        .PlanExecutionLockUnavailable
+                    : DataRelativePathRepairPlanForwardExecutionState
+                        .ManifestRevalidationFailed;
+
+            return PlanResult(
+                failureState,
+                executionLockAcquisition.LockedManifestRead ??
+                    manifestRead,
+                [],
+                executionLockAcquisition.Error ??
+                    executionLockAcquisition.State.ToString()
+            );
+        }
+
+        using LinuxExclusiveChildFileLockLease executionLock =
+            executionLockAcquisition.Lease!;
+
+        manifestRead =
+            executionLockAcquisition.LockedManifestRead!;
+
         DataRelativePathRepairPlanManifestRecord manifest =
             manifestRead.Manifest!;
 
@@ -69,11 +112,16 @@ public static class DataRelativePathRepairPlanForwardExecutor
          * Validate all durable plan history before starting or
          * recovering any individual operation.
          *
-         * This preflight is deliberately read/classify only. It is not
-         * a global plan lock and grants no mutation authority. Every
-         * later operation still performs its normal fresh journal read,
-         * classification, lock/re-read, and incarnation-aware guarded
-         * action.
+         * This preflight is deliberately read/classify only.
+         *
+         * The per-PlanId execution lock is already held for this whole
+         * invocation. It serializes cooperating whole-plan forward and
+         * rollback executors, but grants no filesystem mutation
+         * authority.
+         *
+         * Every operation still performs its normal fresh journal read,
+         * classification, directory lock/re-read, and
+         * incarnation-aware guarded action.
          *
          * Existing journals must form one contiguous prefix. Every
          * existing journal must also cross-bind to the immutable plan

@@ -40,6 +40,48 @@ public static class DataRelativePathRepairPlanRollbackExecutor
             );
         }
 
+        /*
+         * Forward and rollback use the same immutable PlanId lock name.
+         *
+         * Re-read the manifest after that lock is held and refuse a
+         * replaced or differently identified manifest before preflight
+         * or destructive rollback work begins.
+         */
+        DataRelativePathRepairPlanExecutionLockAcquisition
+            executionLockAcquisition =
+                DataRelativePathRepairPlanExecutionLock.Acquire(
+                    journalDirectory,
+                    manifestChildName,
+                    manifestRead
+                );
+
+        if (!executionLockAcquisition.Success)
+        {
+            DataRelativePathRepairPlanRollbackExecutionState failureState =
+                executionLockAcquisition.State ==
+                DataRelativePathRepairPlanExecutionLockState
+                    .LockUnavailable
+                    ? DataRelativePathRepairPlanRollbackExecutionState
+                        .PlanExecutionLockUnavailable
+                    : DataRelativePathRepairPlanRollbackExecutionState
+                        .ManifestRevalidationFailed;
+
+            return PlanResult(
+                failureState,
+                executionLockAcquisition.LockedManifestRead ??
+                    manifestRead,
+                [],
+                executionLockAcquisition.Error ??
+                    executionLockAcquisition.State.ToString()
+            );
+        }
+
+        using LinuxExclusiveChildFileLockLease executionLock =
+            executionLockAcquisition.Lease!;
+
+        manifestRead =
+            executionLockAcquisition.LockedManifestRead!;
+
         DataRelativePathRepairPlanManifestRecord manifest =
             manifestRead.Manifest!;
 
@@ -71,9 +113,14 @@ public static class DataRelativePathRepairPlanRollbackExecutor
          * and must already be in a state that this rollback executor
          * understands safely.
          *
-         * This is not a global transaction lock. Each later mutation
-         * still performs a fresh exact journal read and carries that
-         * strong journal incarnation into the guarded action.
+         * The per-PlanId execution lock is already held for this
+         * whole invocation. It serializes cooperating forward and
+         * rollback executors for this plan.
+         *
+         * It does not weaken destructive authority: every later
+         * mutation still performs a fresh exact journal read and
+         * carries that strong journal incarnation into the guarded
+         * action.
          */
         PreflightResult preflight =
             Preflight(

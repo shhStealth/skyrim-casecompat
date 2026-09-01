@@ -3213,6 +3213,472 @@ public sealed class
         );
     }
 
+    [Fact]
+    public void
+        Execute_PlanExecutionLockHeld_IsRejectedBeforeFilesystemMutation()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathResolution resolution =
+            fixture.ResolveRequestedPath();
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector.Project(
+                resolution
+            );
+
+        Assert.True(
+            projection.HasPlan,
+            projection.Error
+        );
+
+        DataRelativePathRepairPlanManifestRecord manifest =
+            fixture.PersistManifest(
+                resolution,
+                projection
+            );
+
+        string lockChildName =
+            DataRelativePathRepairPlanExecutionLock
+                .CreateLockChildName(
+                    manifest.PlanId
+                );
+
+        LinuxExclusiveChildFileLockResult held =
+            LinuxExclusiveChildFileLock.Acquire(
+                fixture.JournalDirectory,
+                lockChildName
+            );
+
+        Assert.True(
+            held.Success,
+            held.Error
+        );
+
+        using LinuxExclusiveChildFileLockLease heldLease =
+            Assert.IsType<
+                LinuxExclusiveChildFileLockLease
+            >(
+                held.Lease
+            );
+
+        DataRelativePathRepairPlanForwardExecution execution =
+            DataRelativePathRepairPlanForwardExecutor.Execute(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot,
+                T0.AddSeconds(10)
+            );
+
+        Assert.False(
+            execution.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanForwardExecutionState
+                .PlanExecutionLockUnavailable,
+            execution.State
+        );
+
+        Assert.Empty(
+            execution.OperationResults
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.RequestedTopDirectoryPath
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.RequestedParentPath
+            )
+        );
+
+        Assert.False(
+            File.Exists(
+                fixture.DestinationPath
+            )
+        );
+
+        foreach (
+            DataRelativePathRepairPlanManifestOperation entry
+            in manifest.Operations)
+        {
+            Assert.False(
+                File.Exists(
+                    Path.Combine(
+                        fixture.JournalDirectoryPath,
+                        entry.JournalChildName
+                    )
+                )
+            );
+        }
+    }
+
+    [Fact]
+    public void
+        Rollback_PlanExecutionLockHeld_IsRejectedBeforeFilesystemMutation()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathResolution resolution =
+            fixture.ResolveRequestedPath();
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector.Project(
+                resolution
+            );
+
+        Assert.True(
+            projection.HasPlan,
+            projection.Error
+        );
+
+        DataRelativePathRepairPlanManifestRecord manifest =
+            fixture.PersistManifest(
+                resolution,
+                projection
+            );
+
+        DataRelativePathRepairPlanForwardExecution forward =
+            DataRelativePathRepairPlanForwardExecutor.Execute(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot,
+                T0.AddSeconds(10)
+            );
+
+        Assert.True(
+            forward.Success,
+            forward.Error
+        );
+
+        fixture.AssertAllOperationJournalsApplied(
+            manifest
+        );
+
+        JournalCheckpoint[] before =
+            fixture.CaptureJournalCheckpoints(
+                manifest
+            );
+
+        byte[] destinationBefore =
+            File.ReadAllBytes(
+                fixture.DestinationPath
+            );
+
+        string lockChildName =
+            DataRelativePathRepairPlanExecutionLock
+                .CreateLockChildName(
+                    manifest.PlanId
+                );
+
+        LinuxExclusiveChildFileLockResult held =
+            LinuxExclusiveChildFileLock.Acquire(
+                fixture.JournalDirectory,
+                lockChildName
+            );
+
+        Assert.True(
+            held.Success,
+            held.Error
+        );
+
+        using LinuxExclusiveChildFileLockLease heldLease =
+            Assert.IsType<
+                LinuxExclusiveChildFileLockLease
+            >(
+                held.Lease
+            );
+
+        DataRelativePathRepairPlanRollbackExecution rollback =
+            DataRelativePathRepairPlanRollbackExecutor.Execute(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot,
+                T0.AddSeconds(20)
+            );
+
+        Assert.False(
+            rollback.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanRollbackExecutionState
+                .PlanExecutionLockUnavailable,
+            rollback.State
+        );
+
+        Assert.Empty(
+            rollback.OperationResults
+        );
+
+        JournalCheckpoint[] after =
+            fixture.CaptureJournalCheckpoints(
+                manifest
+            );
+
+        Assert.Equal(
+            before,
+            after
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.DestinationPath
+            )
+        );
+
+        Assert.Equal(
+            destinationBefore,
+            File.ReadAllBytes(
+                fixture.DestinationPath
+            )
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.RequestedTopDirectoryPath
+            )
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.RequestedParentPath
+            )
+        );
+    }
+
+    [Fact]
+    public void
+        PlanExecutionLock_ManifestReplacedAfterInitialRead_IsRejectedAndLockReleased()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathResolution resolution =
+            fixture.ResolveRequestedPath();
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector.Project(
+                resolution
+            );
+
+        Assert.True(
+            projection.HasPlan,
+            projection.Error
+        );
+
+        DataRelativePathRepairPlanManifestRecord manifest =
+            fixture.PersistManifest(
+                resolution,
+                projection
+            );
+
+        DataRelativePathRepairPlanManifestReaderResult initialRead =
+            DataRelativePathRepairPlanManifestReader.Read(
+                fixture.JournalDirectory,
+                Fixture.ManifestName
+            );
+
+        Assert.True(
+            initialRead.Success,
+            initialRead.Error
+        );
+
+        Assert.True(
+            initialRead.ManifestIncarnation?.Success,
+            initialRead.ManifestIncarnation?.Error
+        );
+
+        DataRelativePathRepairSourceSnapshot sourceSnapshot =
+            Assert.IsType<
+                DataRelativePathRepairSourceSnapshot
+            >(
+                projection.SourceSnapshot
+            );
+
+        DataRelativePathRepairDestinationParentSnapshot
+            parentSnapshot =
+                Assert.IsType<
+                    DataRelativePathRepairDestinationParentSnapshot
+                >(
+                    projection.DestinationParentSnapshot
+                );
+
+        /*
+         * Deliberately reuse the same PlanId.
+         *
+         * The lock name therefore remains correct, so only the strong
+         * manifest incarnation check can detect this replacement.
+         */
+        DataRelativePathRepairPlanManifestCreation replacementCreation =
+            DataRelativePathRepairPlanManifest.Create(
+                manifest.PlanId,
+                T0.AddSeconds(1),
+                fixture.DataRoot,
+                resolution.RequestedPath,
+                sourceSnapshot,
+                parentSnapshot,
+                projection.Operations
+            );
+
+        Assert.True(
+            replacementCreation.Success,
+            replacementCreation.Error
+        );
+
+        File.Delete(
+            Path.Combine(
+                fixture.JournalDirectoryPath,
+                Fixture.ManifestName
+            )
+        );
+
+        DataRelativePathRepairPlanManifestWriterResult replacementWrite =
+            DataRelativePathRepairPlanManifestWriter.CreateInitial(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                replacementCreation.Manifest!
+            );
+
+        Assert.True(
+            replacementWrite.Success,
+            replacementWrite.Error
+        );
+
+        DataRelativePathRepairPlanManifestReaderResult replacementRead =
+            DataRelativePathRepairPlanManifestReader.Read(
+                fixture.JournalDirectory,
+                Fixture.ManifestName
+            );
+
+        Assert.True(
+            replacementRead.Success,
+            replacementRead.Error
+        );
+
+        Assert.True(
+            replacementRead.ManifestIncarnation?.Success,
+            replacementRead.ManifestIncarnation?.Error
+        );
+
+        Assert.False(
+            initialRead.ManifestIncarnationIdentity!
+                .SameIncarnationAs(
+                    replacementRead.ManifestIncarnationIdentity!
+                )
+        );
+
+        DataRelativePathRepairPlanExecutionLockAcquisition acquisition =
+            DataRelativePathRepairPlanExecutionLock.Acquire(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                initialRead
+            );
+
+        Assert.False(
+            acquisition.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanExecutionLockState
+                .ManifestIncarnationChanged,
+            acquisition.State
+        );
+
+        Assert.Null(
+            acquisition.Lease
+        );
+
+        /*
+         * Failure after the locked re-read must release flock().
+         */
+        string lockChildName =
+            DataRelativePathRepairPlanExecutionLock
+                .CreateLockChildName(
+                    manifest.PlanId
+                );
+
+        LinuxExclusiveChildFileLockResult reacquired =
+            LinuxExclusiveChildFileLock.Acquire(
+                fixture.JournalDirectory,
+                lockChildName
+            );
+
+        Assert.True(
+            reacquired.Success,
+            reacquired.Error
+        );
+
+        using LinuxExclusiveChildFileLockLease reacquiredLease =
+            Assert.IsType<
+                LinuxExclusiveChildFileLockLease
+            >(
+                reacquired.Lease
+            );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.RequestedTopDirectoryPath
+            )
+        );
+
+        Assert.False(
+            File.Exists(
+                fixture.DestinationPath
+            )
+        );
+
+        foreach (
+            DataRelativePathRepairPlanManifestOperation entry
+            in manifest.Operations)
+        {
+            Assert.False(
+                File.Exists(
+                    Path.Combine(
+                        fixture.JournalDirectoryPath,
+                        entry.JournalChildName
+                    )
+                )
+            );
+        }
+    }
+
     private sealed record JournalCheckpoint(
         Guid JournalId,
         int Revision
