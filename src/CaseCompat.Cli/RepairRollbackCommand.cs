@@ -92,7 +92,7 @@ public static class RepairRollbackCommand
                 "Repair rollback did not reach whole-plan durable success."
             );
             Console.Error.WriteLine(
-                $"Execution state: {execution.State}"
+                $"Execution state (internal): {execution.State}"
             );
 
             if (
@@ -126,7 +126,7 @@ public static class RepairRollbackCommand
                 {
                     Console.Error.WriteLine(
                         $"[{result.Index}] {result.Kind}: " +
-                        $"{result.State}"
+                        $"{result.State} (internal state)"
                     );
                     Console.Error.WriteLine(
                         $"  Journal: {result.JournalChildName}"
@@ -198,8 +198,15 @@ public static class RepairRollbackCommand
             );
         }
 
+        bool noStartedOperations =
+            rolledBackCount == 0 &&
+            notStartedCount ==
+                execution.OperationResults.Count;
+
         Console.WriteLine(
-            $"Execution state:  {execution.State}"
+            noStartedOperations
+                ? "Execution state:  COMPLETED (NO STARTED OPERATIONS)"
+                : "Execution state:  ROLLED BACK DURABLY"
         );
         Console.WriteLine(
             $"Operation count:  {execution.OperationResults.Count}"
@@ -221,7 +228,8 @@ public static class RepairRollbackCommand
             in execution.OperationResults)
         {
             Console.WriteLine(
-                $"[{result.Index}] {result.Kind}: {result.State}"
+                $"[{result.Index}] {result.Kind}: " +
+                $"{FormatOperation(result.State)}"
             );
             Console.WriteLine(
                 $"  Journal: {result.JournalChildName}"
@@ -230,10 +238,7 @@ public static class RepairRollbackCommand
 
         Console.WriteLine();
 
-        if (
-            rolledBackCount == 0 &&
-            notStartedCount ==
-                execution.OperationResults.Count)
+        if (noStartedOperations)
         {
             Console.WriteLine(
                 "Rollback result: NO STARTED OPERATIONS"
@@ -253,15 +258,14 @@ public static class RepairRollbackCommand
                 "Rollback result: ROLLED BACK DURABLY"
             );
             Console.WriteLine(
-                "All started plan operations reported " +
-                "RolledBackDurably."
+                "All started plan operations were rolled back durably."
             );
 
             if (notStartedCount > 0)
             {
                 Console.WriteLine(
-                    "Untouched suffix operations were reported " +
-                    "NotStartedSkipped."
+                    "Untouched suffix operations were not started, " +
+                    "so no rollback was needed."
                 );
             }
 
@@ -272,6 +276,24 @@ public static class RepairRollbackCommand
         }
 
         return 0;
+    }
+
+    private static string FormatOperation(
+        DataRelativePathRepairPlanRollbackOperationExecutionState state)
+    {
+        return state switch
+        {
+            DataRelativePathRepairPlanRollbackOperationExecutionState
+                .RolledBackDurably =>
+                    "ROLLED BACK DURABLY",
+
+            DataRelativePathRepairPlanRollbackOperationExecutionState
+                .NotStartedSkipped =>
+                    "NOT STARTED (NO ROLLBACK NEEDED)",
+
+            _ =>
+                state.ToString()
+        };
     }
 
     private static void WriteFailureWarning()

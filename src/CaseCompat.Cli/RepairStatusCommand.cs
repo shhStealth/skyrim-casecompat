@@ -80,7 +80,7 @@ public static class RepairStatusCommand
                 "Repair-status inspection failed."
             );
             Console.Error.WriteLine(
-                $"Inspection state: {inspection.State}"
+                $"Inspection state (internal): {inspection.State}"
             );
 
             if (!string.IsNullOrWhiteSpace(
@@ -210,6 +210,30 @@ public static class RepairStatusCommand
             DataRelativePathRepairPlanObservedOperationState
                 .NotStarted =>
                     "NOT STARTED (journal absent)",
+
+            DataRelativePathRepairPlanObservedOperationState
+                .IntentRecorded =>
+                    "INTENT RECORDED",
+
+            DataRelativePathRepairPlanObservedOperationState
+                .Prepared =>
+                    "PREPARED",
+
+            DataRelativePathRepairPlanObservedOperationState
+                .Applied =>
+                    "APPLIED",
+
+            DataRelativePathRepairPlanObservedOperationState
+                .RollbackRequested =>
+                    "ROLLBACK REQUESTED",
+
+            DataRelativePathRepairPlanObservedOperationState
+                .RolledBack =>
+                    "ROLLED BACK",
+
+            DataRelativePathRepairPlanObservedOperationState
+                .RecoveryConflict =>
+                    "RECOVERY CONFLICT",
 
             _ =>
                 state.ToString()

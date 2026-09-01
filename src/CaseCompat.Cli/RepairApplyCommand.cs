@@ -92,7 +92,7 @@ public static class RepairApplyCommand
                 "Repair apply did not reach whole-plan durable success."
             );
             Console.Error.WriteLine(
-                $"Execution state: {execution.State}"
+                $"Execution state (internal): {execution.State}"
             );
 
             if (
@@ -126,7 +126,7 @@ public static class RepairApplyCommand
                 {
                     Console.Error.WriteLine(
                         $"[{result.Index}] {result.Kind}: " +
-                        $"{result.State}"
+                        $"{result.State} (internal state)"
                     );
                     Console.Error.WriteLine(
                         $"  Journal: {result.JournalChildName}"
@@ -173,7 +173,7 @@ public static class RepairApplyCommand
         }
 
         Console.WriteLine(
-            $"Execution state:  {execution.State}"
+            "Execution state:  APPLIED DURABLY"
         );
         Console.WriteLine(
             $"Operation count:  {execution.OperationResults.Count}"
@@ -189,7 +189,8 @@ public static class RepairApplyCommand
             in execution.OperationResults)
         {
             Console.WriteLine(
-                $"[{result.Index}] {result.Kind}: {result.State}"
+                $"[{result.Index}] {result.Kind}: " +
+                $"{FormatOperation(result.State)}"
             );
             Console.WriteLine(
                 $"  Journal: {result.JournalChildName}"
@@ -201,7 +202,7 @@ public static class RepairApplyCommand
             "Repair result: APPLIED DURABLY"
         );
         Console.WriteLine(
-            "All plan operations reported AppliedDurably."
+            "All plan operations were applied durably."
         );
         Console.WriteLine(
             "Run repair-status to independently inspect the persisted " +
@@ -209,6 +210,20 @@ public static class RepairApplyCommand
         );
 
         return 0;
+    }
+
+    private static string FormatOperation(
+        DataRelativePathRepairPlanForwardOperationExecutionState state)
+    {
+        return state switch
+        {
+            DataRelativePathRepairPlanForwardOperationExecutionState
+                .AppliedDurably =>
+                    "APPLIED DURABLY",
+
+            _ =>
+                state.ToString()
+        };
     }
 
     private static void WriteFailureWarning()
