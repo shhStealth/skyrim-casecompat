@@ -60,7 +60,10 @@ status before mutation.
 
 ## Requirements
 
-The current source tree requires:
+CaseCompat can be run from source or from a framework-dependent Linux
+package.
+
+To run from source, you need:
 
 - Linux.
 - A .NET 10 SDK.
@@ -70,8 +73,47 @@ The current source tree requires:
 
 The CLI project currently targets `net10.0`.
 
-There is not yet a packaged installation workflow in this repository,
-so the examples below run CaseCompat directly from the source tree.
+To run a packaged build, you need:
+
+- Linux.
+- The .NET 10 runtime (`Microsoft.NETCore.App 10.x`).
+- The extracted CaseCompat package.
+- The path to the Skyrim Special Edition `Data` directory you want to
+  inspect.
+
+The current package is framework-dependent and does not bundle the
+.NET runtime.
+
+## Build a Linux package
+
+From the repository root, choose an output directory:
+
+```bash
+mkdir -p dist
+scripts/package-linux-framework-dependent.sh dist
+```
+
+The packaging script builds from committed `HEAD`. Uncommitted
+worktree or index changes are not included in the package.
+
+It produces:
+
+- `casecompat-<commit>-linux-x64-framework-dependent.tar.gz`
+- A matching `.sha256` checksum file.
+
+The archive contains the CaseCompat executable and managed
+dependencies, `README.md`, `LICENSE`, and
+`docs/repair-exit-codes.md`. Development PDB files are excluded.
+
+After extracting the archive, show the command reference with:
+
+```bash
+./casecompat/CaseCompat.Cli --help
+```
+
+There is currently no installer and CaseCompat does not automatically
+modify `~/.local/bin` or another system path. The repository also does
+not yet publish these archives through a GitHub Releases workflow.
 
 ## Build and run from source
 
@@ -363,8 +405,9 @@ case-equivalent names without modifying the scanned files.
 ## Current limitations
 
 - CaseCompat currently supports Linux only.
-- The repository currently runs from source; packaged installation is
-  not documented yet.
+- Packaging currently produces a Linux framework-dependent archive.
+  There is no installer, automatic `~/.local/bin` setup, or GitHub
+  Releases publication workflow yet.
 - Not every casing problem is safely repairable. Unsafe or ambiguous
   cases are rejected rather than guessed.
 - Repair metadata is durable, but durable history by itself does not
