@@ -64,6 +64,9 @@ switch (command)
     case "repair-apply":
         return RepairApplyCommand.Run(args);
 
+    case "repair-rollback-batch":
+        return RepairRollbackBatchCommand.Run(args);
+
     case "repair-rollback":
         return RepairRollbackCommand.Run(args);
 
@@ -403,6 +406,9 @@ static void ShowUsage()
         "  repair-apply     Apply a persisted repair plan."
     );
     Console.WriteLine(
+        "  repair-rollback-batch  Roll back a verified completed batch."
+    );
+    Console.WriteLine(
         "  repair-rollback  Roll back CaseCompat-owned repair changes."
     );
     Console.WriteLine();
@@ -413,6 +419,9 @@ static void ShowUsage()
     Console.WriteLine(
         "  Batch:       repair-plan-batch -> repair-status-batch -> " +
         "repair-apply-batch -> repair-status-batch"
+    );
+    Console.WriteLine(
+        "  Batch undo:  repair-rollback-batch -> repair-status-batch"
     );
     Console.WriteLine(
         "  Recovery:    repair-rollback -> repair-status"
@@ -443,6 +452,10 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat repair-apply <journal directory> " +
+        "<manifest file name> <Skyrim Data directory>"
+    );
+    Console.WriteLine(
+        "  casecompat repair-rollback-batch <batch directory> " +
         "<manifest file name> <Skyrim Data directory>"
     );
     Console.WriteLine(
