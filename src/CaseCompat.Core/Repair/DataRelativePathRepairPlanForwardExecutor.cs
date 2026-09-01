@@ -230,6 +230,25 @@ public static class DataRelativePathRepairPlanForwardExecutor
         int? firstMissingIndex =
             null;
 
+        /*
+         * Forward execution advances to operation N+1 only after
+         * operation N has converged to durable Applied.
+         *
+         * Therefore, once an existing forward-safe journal is observed
+         * in Intent or Prepared, that journal must be the final existing
+         * journal in the contiguous prefix.
+         *
+         * A later bound, forward-safe journal proves a durable history
+         * that the forward orchestrator itself cannot have produced.
+         * Refuse that history before any recovery or mutation.
+         */
+        DataRelativePathRepairPlanManifestOperation?
+            firstNonAppliedEntry =
+                null;
+
+        string? firstNonAppliedDurableState =
+            null;
+
         for (
             int index = 0;
             index < manifest.Operations.Count;
@@ -360,6 +379,45 @@ public static class DataRelativePathRepairPlanForwardExecutor
                         );
                     }
 
+                    if (firstNonAppliedEntry is not null)
+                    {
+                        return PreflightResult.Failed(
+                            OperationResult(
+                                entry,
+                                DataRelativePathRepairPlanForwardOperationExecutionState
+                                    .CausalHistoryConflict,
+                                directoryJournalRead:
+                                    read,
+                                directoryClassification:
+                                    classification,
+                                error:
+                                    $"Operation journal " +
+                                    $"{entry.JournalChildName} at index " +
+                                    $"{entry.Index} exists after earlier " +
+                                    $"operation journal " +
+                                    $"{firstNonAppliedEntry.JournalChildName} " +
+                                    $"at index {firstNonAppliedEntry.Index} " +
+                                    $"whose durable state is " +
+                                    $"{firstNonAppliedDurableState}. Every " +
+                                    "existing journal before a later " +
+                                    "operation journal must already be " +
+                                    "durably Applied."
+                            )
+                        );
+                    }
+
+                    if (
+                        journal.State !=
+                        DataRelativePathRepairDirectoryJournalState
+                            .Applied)
+                    {
+                        firstNonAppliedEntry =
+                            entry;
+
+                        firstNonAppliedDurableState =
+                            journal.State.ToString();
+                    }
+
                     break;
                 }
 
@@ -482,6 +540,45 @@ public static class DataRelativePathRepairPlanForwardExecutor
                                     "safe plan-forward preflight state."
                             )
                         );
+                    }
+
+                    if (firstNonAppliedEntry is not null)
+                    {
+                        return PreflightResult.Failed(
+                            OperationResult(
+                                entry,
+                                DataRelativePathRepairPlanForwardOperationExecutionState
+                                    .CausalHistoryConflict,
+                                fileJournalRead:
+                                    read,
+                                fileClassification:
+                                    classification,
+                                error:
+                                    $"Operation journal " +
+                                    $"{entry.JournalChildName} at index " +
+                                    $"{entry.Index} exists after earlier " +
+                                    $"operation journal " +
+                                    $"{firstNonAppliedEntry.JournalChildName} " +
+                                    $"at index {firstNonAppliedEntry.Index} " +
+                                    $"whose durable state is " +
+                                    $"{firstNonAppliedDurableState}. Every " +
+                                    "existing journal before a later " +
+                                    "operation journal must already be " +
+                                    "durably Applied."
+                            )
+                        );
+                    }
+
+                    if (
+                        journal.State !=
+                        DataRelativePathRepairFileJournalState
+                            .Applied)
+                    {
+                        firstNonAppliedEntry =
+                            entry;
+
+                        firstNonAppliedDurableState =
+                            journal.State.ToString();
                     }
 
                     break;

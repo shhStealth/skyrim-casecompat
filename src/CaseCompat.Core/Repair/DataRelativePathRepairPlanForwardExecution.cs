@@ -21,6 +21,7 @@ public enum DataRelativePathRepairPlanForwardOperationExecutionState
     JournalReadFailed,
     JournalMismatch,
     JournalGap,
+    CausalHistoryConflict,
 
     DestinationParentSnapshotCaptureFailed,
 
