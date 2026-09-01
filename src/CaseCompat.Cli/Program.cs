@@ -49,6 +49,9 @@ switch (command)
     case "repair-apply":
         return RepairApplyCommand.Run(args);
 
+    case "repair-rollback":
+        return RepairRollbackCommand.Run(args);
+
     case "resolve-armor-addon-models":
         return ResolveArmorAddonModelsCommand.Run(args);
 
@@ -395,6 +398,9 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat repair-apply <journal directory> <manifest child name> <trusted Data root>"
+    );
+    Console.WriteLine(
+        "  casecompat repair-rollback <journal directory> <manifest child name> <trusted Data root>"
     );
     Console.WriteLine(
         "  casecompat resolve-armor-addon-models <Data root> <plugin path> [path search]"
