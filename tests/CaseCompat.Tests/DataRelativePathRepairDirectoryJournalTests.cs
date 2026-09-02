@@ -64,6 +64,135 @@ public sealed class DataRelativePathRepairDirectoryJournalTests
     }
 
     [Fact]
+    public void Validate_UnknownSchemaVersion_IsRejected()
+    {
+        DataRelativePathRepairDirectoryJournalRecord record =
+            RequireRecord(
+                CreateIntent()
+            ) with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairDirectoryJournalRecord
+                        .CurrentSchemaVersion + 1
+            };
+
+        string? error =
+            DataRelativePathRepairDirectoryJournal.Validate(
+                record
+            );
+
+        Assert.Equal(
+            "The directory journal schema version is unsupported.",
+            error
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaVersion2OwnershipDisposition_IsRejected()
+    {
+        DataRelativePathRepairDirectoryJournalRecord record =
+            RequireRecord(
+                CreateIntent()
+            ) with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairDirectoryJournalRecord
+                        .SchemaVersion2,
+                OwnershipDisposition =
+                    DataRelativePathRepairDirectoryOwnershipDisposition
+                        .Owned
+            };
+
+        string? error =
+            DataRelativePathRepairDirectoryJournal.Validate(
+                record
+            );
+
+        Assert.Equal(
+            "Schema-v2 directory journals cannot contain ownership " +
+                "disposition metadata.",
+            error
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaVersion2BatchReuseProvenance_IsRejected()
+    {
+        DataRelativePathRepairDirectoryJournalRecord record =
+            RequireRecord(
+                CreateIntent()
+            ) with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairDirectoryJournalRecord
+                        .SchemaVersion2,
+                BatchReuseProvenance =
+                    new(
+                        BatchId:
+                            Guid.NewGuid(),
+                        OwnerChildName:
+                            "plan-000001",
+                        OwnerPlanId:
+                            Guid.NewGuid(),
+                        OwnerManifestSha256:
+                            new string(
+                                'A',
+                                64
+                            ),
+                        OwnerOperationIndex:
+                            0,
+                        OwnerJournalChildName:
+                            "owner-journal.json",
+                        ReusedDirectoryIncarnationIdentity:
+                            SyntheticDirectoryJournalIncarnation
+                                .FromPhysical(
+                                    ParentSnapshot().Identity
+                                )
+                    )
+            };
+
+        string? error =
+            DataRelativePathRepairDirectoryJournal.Validate(
+                record
+            );
+
+        Assert.Equal(
+            "Schema-v2 directory journals cannot contain batch-reuse " +
+                "provenance metadata.",
+            error
+        );
+    }
+
+    [Fact]
+    public void Serialize_SchemaVersion2_OmitsOwnershipDisposition()
+    {
+        DataRelativePathRepairDirectoryJournalRecord record =
+            RequireRecord(
+                CreateIntent()
+            );
+
+        byte[] bytes =
+            DataRelativePathRepairDirectoryJournalJson.Serialize(
+                record
+            );
+
+        string json =
+            System.Text.Encoding.UTF8.GetString(
+                bytes
+            );
+
+        Assert.DoesNotContain(
+            "\"OwnershipDisposition\"",
+            json
+        );
+
+        Assert.DoesNotContain(
+            "\"BatchReuseProvenance\"",
+            json
+        );
+    }
+
+    [Fact]
     public void CreateIntent_CreateFileOperation_IsRejected()
     {
         DataRelativePathRepairPlanOperation operation =

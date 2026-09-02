@@ -24,6 +24,24 @@ public enum DataRelativePathRepairDirectoryJournalTransitionState
     InvalidConflictReason
 }
 
+public enum DataRelativePathRepairDirectoryOwnershipDisposition
+{
+    Owned,
+    BatchReused
+}
+
+public sealed record
+    DataRelativePathRepairDirectoryBatchReuseProvenance(
+        Guid BatchId,
+        string OwnerChildName,
+        Guid OwnerPlanId,
+        string OwnerManifestSha256,
+        int OwnerOperationIndex,
+        string OwnerJournalChildName,
+        LinuxDirectoryIncarnationIdentity
+            ReusedDirectoryIncarnationIdentity
+    );
+
 public sealed record DataRelativePathRepairDirectoryJournalRecord(
     int SchemaVersion,
     Guid JournalId,
@@ -43,8 +61,31 @@ public sealed record DataRelativePathRepairDirectoryJournalRecord(
     string? RecoveryConflictReason
 )
 {
-    public const int CurrentSchemaVersion =
+    public const int SchemaVersion2 =
         2;
+
+    public const int CurrentSchemaVersion =
+        SchemaVersion2;
+
+    [JsonIgnore(
+        Condition =
+            JsonIgnoreCondition.WhenWritingNull)]
+    public DataRelativePathRepairDirectoryOwnershipDisposition?
+        OwnershipDisposition
+    {
+        get;
+        init;
+    }
+
+    [JsonIgnore(
+        Condition =
+            JsonIgnoreCondition.WhenWritingNull)]
+    public DataRelativePathRepairDirectoryBatchReuseProvenance?
+        BatchReuseProvenance
+    {
+        get;
+        init;
+    }
 
     /*
      * Compatibility view for recovery code that has not yet been
@@ -450,6 +491,36 @@ public static class DataRelativePathRepairDirectoryJournal
         {
             return
                 "The directory journal schema version is unsupported.";
+        }
+
+        /*
+         * Schema v2 predates explicit ownership disposition.
+         *
+         * Keep the new property nullable and omitted from serialized
+         * v2 records. A v2 journal carrying this metadata is invalid;
+         * new semantics must never be smuggled under the old schema
+         * number.
+         */
+        if (
+            record.SchemaVersion ==
+                DataRelativePathRepairDirectoryJournalRecord
+                    .SchemaVersion2 &&
+            record.OwnershipDisposition is not null)
+        {
+            return
+                "Schema-v2 directory journals cannot contain ownership " +
+                "disposition metadata.";
+        }
+
+        if (
+            record.SchemaVersion ==
+                DataRelativePathRepairDirectoryJournalRecord
+                    .SchemaVersion2 &&
+            record.BatchReuseProvenance is not null)
+        {
+            return
+                "Schema-v2 directory journals cannot contain batch-reuse " +
+                "provenance metadata.";
         }
 
         if (record.JournalId == Guid.Empty)
