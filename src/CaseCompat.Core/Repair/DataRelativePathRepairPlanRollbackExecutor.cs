@@ -688,9 +688,11 @@ public static class DataRelativePathRepairPlanRollbackExecutor
                     }
 
                     if (
-                        classification.State ==
-                        DataRelativePathRepairDirectoryRecoveryState
-                            .RolledBackBothMissing)
+                        classification.State is
+                            DataRelativePathRepairDirectoryRecoveryState
+                                .RolledBackBothMissing or
+                            DataRelativePathRepairDirectoryRecoveryState
+                                .ReusedRolledBackFinalMissing)
                     {
                         provenMissingDirectoryDestinations.Add(
                             entry.Operation.DestinationPath
@@ -1089,7 +1091,15 @@ public static class DataRelativePathRepairPlanRollbackExecutor
             DataRelativePathRepairDirectoryRecoveryState
                 .RollbackRequestedFinalMatches or
             DataRelativePathRepairDirectoryRecoveryState
-                .RolledBackBothMissing;
+                .RolledBackBothMissing or
+            DataRelativePathRepairDirectoryRecoveryState
+                .ReusedAppliedFinalMatches or
+            DataRelativePathRepairDirectoryRecoveryState
+                .ReusedRollbackRequestedFinalMatches or
+            DataRelativePathRepairDirectoryRecoveryState
+                .ReusedRolledBackFinalMatches or
+            DataRelativePathRepairDirectoryRecoveryState
+                .ReusedRolledBackFinalMissing;
     }
 
     private static bool IsFileRollbackSafe(
@@ -1388,6 +1398,43 @@ public static class DataRelativePathRepairPlanRollbackExecutor
             {
                 case
                     DataRelativePathRepairDirectoryRecoveryState
+                        .ReusedAppliedFinalMatches:
+                case
+                    DataRelativePathRepairDirectoryRecoveryState
+                        .ReusedRollbackRequestedFinalMatches:
+                {
+                    DataRelativePathRepairBatchReusedDirectoryRollback
+                        batchReuseRollback =
+                            DataRelativePathRepairBatchReusedDirectoryRollbackAction
+                                .Advance(
+                                    journalDirectory,
+                                    entry.JournalChildName,
+                                    trustedDataRoot,
+                                    nowUtc,
+                                    read.JournalIncarnationIdentity!
+                                );
+
+                    if (!batchReuseRollback.Success)
+                    {
+                        return OperationResult(
+                            entry,
+                            DataRelativePathRepairPlanRollbackOperationExecutionState
+                                .DirectoryBatchReuseRollbackFailed,
+                            directoryJournalRead:
+                                read,
+                            directoryClassification:
+                                classification,
+                            error:
+                                batchReuseRollback.Error ??
+                                batchReuseRollback.State.ToString()
+                        );
+                    }
+
+                    continue;
+                }
+
+                case
+                    DataRelativePathRepairDirectoryRecoveryState
                         .PreparedFinalMatchesStagingMissing:
                     reconciliation =
                         DataRelativePathRepairDirectoryRecoveryReconciler
@@ -1545,6 +1592,12 @@ public static class DataRelativePathRepairPlanRollbackExecutor
                 case
                     DataRelativePathRepairDirectoryRecoveryState
                         .RolledBackBothMissing:
+                case
+                    DataRelativePathRepairDirectoryRecoveryState
+                        .ReusedRolledBackFinalMatches:
+                case
+                    DataRelativePathRepairDirectoryRecoveryState
+                        .ReusedRolledBackFinalMissing:
                     return OperationResult(
                         entry,
                         DataRelativePathRepairPlanRollbackOperationExecutionState

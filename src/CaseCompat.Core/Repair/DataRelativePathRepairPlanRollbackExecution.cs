@@ -28,6 +28,7 @@ public enum DataRelativePathRepairPlanRollbackOperationExecutionState
     DirectoryRollbackRequestFailed,
     DirectoryRollbackRecoveryFailed,
     DirectoryReconciliationFailed,
+    DirectoryBatchReuseRollbackFailed,
     DirectoryRecoveryStateNotRollbackSafe,
 
     FileRollbackRequestFailed,

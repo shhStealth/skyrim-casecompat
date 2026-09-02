@@ -570,6 +570,153 @@ public sealed class
 
     [Fact]
     public void
+        Run_SharedRepairDirectory_RollsBackBorrowerBeforeOwner_AndRerunSucceeds()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            Fixture.Create();
+
+        PlanSpec first =
+            fixture.CreatePlan(
+                index:
+                    1,
+                physicalComponent:
+                    "alpha",
+                requestedComponent:
+                    "Alpha"
+            );
+
+        PlanSpec second =
+            fixture.CreatePlan(
+                index:
+                    2,
+                physicalComponent:
+                    "alpha",
+                requestedComponent:
+                    "Alpha"
+            );
+
+        fixture.WriteBatchManifest(
+            fixture.BuildBatchManifest(
+                [
+                    first,
+                    second
+                ]
+            )
+        );
+
+        fixture.ApplyBatch();
+
+        string sharedDirectory =
+            Path.GetDirectoryName(
+                first.DestinationPath
+            )!;
+
+        Assert.Equal(
+            sharedDirectory,
+            Path.GetDirectoryName(
+                second.DestinationPath
+            )
+        );
+
+        Assert.True(
+            Directory.Exists(
+                sharedDirectory
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                first.DestinationPath
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                second.DestinationPath
+            )
+        );
+
+        /*
+         * Reverse batch order must retire child 2's BatchReused
+         * directory journal without removing the shared directory.
+         *
+         * Child 1 is the genuine owner. Only after child 2 has
+         * completed rollback may child 1 remove its own file and
+         * then the now-empty shared directory.
+         */
+        Assert.Equal(
+            0,
+            fixture.RunBatchRollback()
+        );
+
+        Assert.False(
+            File.Exists(
+                first.DestinationPath
+            )
+        );
+
+        Assert.False(
+            File.Exists(
+                second.DestinationPath
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                sharedDirectory
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                first.SourcePath
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                second.SourcePath
+            )
+        );
+
+        /*
+         * The borrower is already durably RolledBack while the
+         * genuine owner has subsequently removed the shared final
+         * directory. A completed batch rollback must therefore
+         * remain idempotent when the borrower classifies as
+         * ReusedRolledBackFinalMissing.
+         */
+        Assert.Equal(
+            0,
+            fixture.RunBatchRollback()
+        );
+
+        Assert.False(
+            Directory.Exists(
+                sharedDirectory
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                first.SourcePath
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                second.SourcePath
+            )
+        );
+    }
+
+    [Fact]
+    public void
         Run_AlreadyRolledBackCompletedBatch_RerunSucceeds()
     {
         if (!OperatingSystem.IsLinux())
