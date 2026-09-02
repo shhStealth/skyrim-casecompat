@@ -233,6 +233,269 @@ public static class DataRelativePathRepairDirectoryJournalWriter
         );
     }
 
+    /*
+     * Persist a previously-authorized BatchReused journal.
+     *
+     * This is deliberately separate from CreateInitial:
+     *
+     *   CreateInitial
+     *       schema v2 / IntentRecorded / owned creation lifecycle
+     *
+     *   CreateBatchReuseApplied
+     *       schema v3 / Applied / borrowed directory lifecycle
+     *
+     * This writer does not decide whether reuse is authorized. It only
+     * durably publishes an already-valid BatchReused record without
+     * overwriting an existing journal entry.
+     */
+    public static
+        DataRelativePathRepairDirectoryJournalWriterResult
+        CreateBatchReuseApplied(
+            LinuxNoFollowPathHandle journalDirectory,
+            string journalChildName,
+            DataRelativePathRepairDirectoryJournalRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(
+            journalDirectory
+        );
+
+        ArgumentNullException.ThrowIfNull(
+            record
+        );
+
+        string? validationError =
+            DataRelativePathRepairDirectoryJournal.Validate(
+                record
+            );
+
+        if (validationError is not null)
+        {
+            return Result(
+                DataRelativePathRepairDirectoryJournalWriteState
+                    .InvalidRecord,
+                journalChildName,
+                error:
+                    validationError
+            );
+        }
+
+        if (!IsValidChildName(journalChildName))
+        {
+            return Result(
+                DataRelativePathRepairDirectoryJournalWriteState
+                    .InvalidJournalName,
+                journalChildName,
+                error:
+                    "The journal name must identify exactly " +
+                    "one direct child."
+            );
+        }
+
+        /*
+         * Keep this primitive narrow even if schema-v3 validation grows
+         * additional legal lifecycle states later.
+         */
+        if (
+            record.SchemaVersion !=
+                DataRelativePathRepairDirectoryJournalRecord
+                    .SchemaVersion3 ||
+            record.Revision != 0 ||
+            record.State !=
+                DataRelativePathRepairDirectoryJournalState
+                    .Applied ||
+            record.OwnershipDisposition !=
+                DataRelativePathRepairDirectoryOwnershipDisposition
+                    .BatchReused ||
+            record.BatchReuseProvenance is null)
+        {
+            return Result(
+                DataRelativePathRepairDirectoryJournalWriteState
+                    .InvalidInitialRevision,
+                journalChildName,
+                error:
+                    "Initial BatchReused journal creation requires " +
+                    "schema v3, revision zero, Applied state, explicit " +
+                    "BatchReused disposition, and reuse provenance."
+            );
+        }
+
+        byte[] bytes;
+
+        try
+        {
+            bytes =
+                DataRelativePathRepairDirectoryJournalJson
+                    .Serialize(
+                        record
+                    );
+        }
+        catch (Exception ex)
+        {
+            return Result(
+                DataRelativePathRepairDirectoryJournalWriteState
+                    .SerializationFailed,
+                journalChildName,
+                error:
+                    ex.Message
+            );
+        }
+
+        LinuxCreateUnnamedFileAtResult create =
+            LinuxCreateUnnamedFileAt.Create(
+                journalDirectory
+            );
+
+        if (!create.Success)
+        {
+            return Result(
+                DataRelativePathRepairDirectoryJournalWriteState
+                    .TemporaryFileCreateFailed,
+                journalChildName,
+                error:
+                    create.Error ??
+                    create.State.ToString()
+            );
+        }
+
+        using LinuxUnnamedFileHandle temporary =
+            create.OpenedFile!;
+
+        string? writeError =
+            WriteExactBytes(
+                temporary,
+                bytes
+            );
+
+        if (writeError is not null)
+        {
+            return Result(
+                DataRelativePathRepairDirectoryJournalWriteState
+                    .WriteFailed,
+                journalChildName,
+                error:
+                    writeError
+            );
+        }
+
+        LinuxFsyncResult fileSync =
+            LinuxFsync.Sync(
+                temporary
+            );
+
+        if (!fileSync.Success)
+        {
+            return Result(
+                DataRelativePathRepairDirectoryJournalWriteState
+                    .TemporaryFileSyncFailed,
+                journalChildName,
+                error:
+                    fileSync.Error ??
+                    fileSync.State.ToString()
+            );
+        }
+
+        /*
+         * Publish exactly once and never replace an existing journal.
+         *
+         * A retry must read and authenticate the existing entry instead
+         * of silently overwriting durable history.
+         */
+        LinuxPublishUnnamedFileAtResult publish =
+            LinuxPublishUnnamedFileAt.Publish(
+                temporary,
+                journalDirectory,
+                journalChildName
+            );
+
+        if (!publish.Success)
+        {
+            return Result(
+                publish.State ==
+                LinuxPublishUnnamedFileAtState
+                    .DestinationExists
+                    ? DataRelativePathRepairDirectoryJournalWriteState
+                        .JournalAlreadyExists
+                    : DataRelativePathRepairDirectoryJournalWriteState
+                        .InitialPublishFailed,
+                journalChildName,
+                error:
+                    publish.Error ??
+                    publish.State.ToString()
+            );
+        }
+
+        LinuxOpenedFileIncarnationResult writtenIncarnation =
+            LinuxOpenedFileIncarnation.Capture(
+                temporary
+            );
+
+        /*
+         * The namespace publication is not reported as durable until the
+         * containing journal directory itself has been synchronized.
+         */
+        LinuxFsyncResult directorySync =
+            LinuxFsync.Sync(
+                journalDirectory
+            );
+
+        if (!directorySync.Success)
+        {
+            return Result(
+                DataRelativePathRepairDirectoryJournalWriteState
+                    .DirectorySyncFailed,
+                journalChildName,
+                writtenJournalIncarnation:
+                    writtenIncarnation.Success
+                        ? writtenIncarnation
+                        : null,
+                journalEntryChanged:
+                    true,
+                error:
+                    directorySync.Error ??
+                    directorySync.State.ToString()
+            );
+        }
+
+        if (!writtenIncarnation.Success)
+        {
+            /*
+             * Publication is already durable. As with CreateInitial,
+             * failure to capture the post-publication incarnation cannot
+             * be reported as if journal creation itself failed.
+             */
+            return new
+                DataRelativePathRepairDirectoryJournalWriterResult(
+                    State:
+                        DataRelativePathRepairDirectoryJournalWriteState
+                            .CreatedDurably,
+                    JournalChildName:
+                        journalChildName,
+                    StagingChildName:
+                        null,
+                    WrittenJournalIncarnation:
+                        null,
+                    JournalEntryChanged:
+                        true,
+                    StagingEntryMayRemain:
+                        false,
+                    Error:
+                        "The BatchReused journal was durably created, " +
+                        "but its post-publication incarnation could not " +
+                        "be captured."
+                );
+        }
+
+        return Result(
+            DataRelativePathRepairDirectoryJournalWriteState
+                .CreatedDurably,
+            journalChildName,
+            writtenJournalIncarnation:
+                writtenIncarnation,
+            journalEntryChanged:
+                true
+        );
+    }
+
     public static
         DataRelativePathRepairDirectoryJournalWriterResult
         ReplaceExisting(

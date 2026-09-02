@@ -210,6 +210,277 @@ public sealed class
     }
 
     [Fact]
+    public void
+        CreateBatchReuseApplied_ThenRead_RoundTripsDurably()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsUnnamedFiles())
+        {
+            return;
+        }
+
+        DataRelativePathRepairDirectoryJournalRecord reused =
+            fixture.CreateBatchReuseApplied();
+
+        DataRelativePathRepairDirectoryJournalWriterResult write =
+            DataRelativePathRepairDirectoryJournalWriter
+                .CreateBatchReuseApplied(
+                    fixture.JournalDirectory,
+                    "journal.json",
+                    reused
+                );
+
+        Assert.True(
+            write.Success,
+            write.Error
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryJournalWriteState
+                .CreatedDurably,
+            write.State
+        );
+
+        Assert.NotNull(
+            write.WrittenJournalIncarnation
+        );
+
+        Assert.True(
+            write.WrittenJournalIncarnation!.Success,
+            write.WrittenJournalIncarnation.Error
+        );
+
+        Assert.NotNull(
+            write.WrittenJournalIncarnationIdentity
+        );
+
+        DataRelativePathRepairDirectoryJournalReaderResult read =
+            fixture.ReadJournal();
+
+        Assert.Equal(
+            reused.JournalId,
+            read.Record!.JournalId
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryJournalRecord
+                .SchemaVersion3,
+            read.Record.SchemaVersion
+        );
+
+        Assert.Equal(
+            0,
+            read.Record.Revision
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryJournalState
+                .Applied,
+            read.Record.State
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryOwnershipDisposition
+                .BatchReused,
+            read.Record.OwnershipDisposition
+        );
+
+        Assert.Equal(
+            reused.BatchReuseProvenance,
+            read.Record.BatchReuseProvenance
+        );
+
+        Assert.Null(
+            read.Record.PreparedStagingChildName
+        );
+
+        Assert.Null(
+            read.Record.PreparedDirectoryIncarnationIdentity
+        );
+
+        Assert.NotNull(
+            read.JournalIncarnationIdentity
+        );
+
+        Assert.True(
+            write.WrittenJournalIncarnationIdentity!
+                .SameIncarnationAs(
+                    read.JournalIncarnationIdentity
+                )
+        );
+    }
+
+    [Fact]
+    public void
+        CreateBatchReuseApplied_ExistingJournal_IsNeverOverwritten()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsUnnamedFiles())
+        {
+            return;
+        }
+
+        DataRelativePathRepairDirectoryJournalRecord first =
+            fixture.CreateBatchReuseApplied();
+
+        DataRelativePathRepairDirectoryJournalWriterResult initial =
+            DataRelativePathRepairDirectoryJournalWriter
+                .CreateBatchReuseApplied(
+                    fixture.JournalDirectory,
+                    "journal.json",
+                    first
+                );
+
+        Assert.True(
+            initial.Success,
+            initial.Error
+        );
+
+        DataRelativePathRepairDirectoryJournalRecord second =
+            fixture.CreateBatchReuseApplied();
+
+        Assert.NotEqual(
+            first.JournalId,
+            second.JournalId
+        );
+
+        DataRelativePathRepairDirectoryJournalWriterResult duplicate =
+            DataRelativePathRepairDirectoryJournalWriter
+                .CreateBatchReuseApplied(
+                    fixture.JournalDirectory,
+                    "journal.json",
+                    second
+                );
+
+        Assert.False(
+            duplicate.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryJournalWriteState
+                .JournalAlreadyExists,
+            duplicate.State
+        );
+
+        DataRelativePathRepairDirectoryJournalReaderResult read =
+            fixture.ReadJournal();
+
+        Assert.Equal(
+            first.JournalId,
+            read.Record!.JournalId
+        );
+
+        Assert.NotEqual(
+            second.JournalId,
+            read.Record.JournalId
+        );
+    }
+
+    [Fact]
+    public void
+        CreateBatchReuseApplied_V2Intent_IsRejectedWithoutMutation()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        DataRelativePathRepairDirectoryJournalWriterResult result =
+            DataRelativePathRepairDirectoryJournalWriter
+                .CreateBatchReuseApplied(
+                    fixture.JournalDirectory,
+                    "journal.json",
+                    fixture.CreateIntent()
+                );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryJournalWriteState
+                .InvalidInitialRevision,
+            result.State
+        );
+
+        Assert.False(
+            result.JournalEntryChanged
+        );
+
+        Assert.False(
+            result.StagingEntryMayRemain
+        );
+
+        Assert.Empty(
+            Directory.EnumerateFileSystemEntries(
+                fixture.JournalDirectoryPath
+            )
+        );
+    }
+
+    [Fact]
+    public void
+        CreateInitial_BatchReuseApplied_IsRejectedWithoutMutation()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        DataRelativePathRepairDirectoryJournalWriterResult result =
+            DataRelativePathRepairDirectoryJournalWriter
+                .CreateInitial(
+                    fixture.JournalDirectory,
+                    "journal.json",
+                    fixture.CreateBatchReuseApplied()
+                );
+
+        Assert.False(
+            result.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryJournalWriteState
+                .InvalidInitialRevision,
+            result.State
+        );
+
+        Assert.False(
+            result.JournalEntryChanged
+        );
+
+        Assert.False(
+            result.StagingEntryMayRemain
+        );
+
+        Assert.Empty(
+            Directory.EnumerateFileSystemEntries(
+                fixture.JournalDirectoryPath
+            )
+        );
+    }
+
+    [Fact]
     public void ReplaceExisting_PreparedRevision_RoundTripsEvidence()
     {
         if (!OperatingSystem.IsLinux())
@@ -804,6 +1075,52 @@ public sealed class
 
             return RequireRecord(
                 result
+            );
+        }
+
+        public DataRelativePathRepairDirectoryJournalRecord
+            CreateBatchReuseApplied()
+        {
+            DataRelativePathRepairDirectoryJournalRecord intent =
+                CreateIntent();
+
+            LinuxDirectoryIncarnationIdentity reusedIdentity =
+                SyntheticDirectoryJournalIncarnation.FromPhysical(
+                    DirectoryIdentity()
+                );
+
+            DataRelativePathRepairDirectoryBatchReuseProvenance provenance =
+                new(
+                    BatchId:
+                        Guid.NewGuid(),
+                    OwnerChildName:
+                        "plan-000001",
+                    OwnerPlanId:
+                        Guid.NewGuid(),
+                    OwnerManifestSha256:
+                        new string(
+                            'A',
+                            64
+                        ),
+                    OwnerOperationIndex:
+                        0,
+                    OwnerJournalChildName:
+                        "owner-journal.json",
+                    ReusedDirectoryIncarnationIdentity:
+                        reusedIdentity
+                );
+
+            return RequireRecord(
+                DataRelativePathRepairDirectoryJournal
+                    .CreateBatchReuseApplied(
+                        Guid.NewGuid(),
+                        T0,
+                        intent.DataRoot,
+                        intent.Operation,
+                        intent.DestinationParentSnapshot,
+                        intent.DestinationParentIncarnationIdentity,
+                        provenance
+                    )
             );
         }
 
