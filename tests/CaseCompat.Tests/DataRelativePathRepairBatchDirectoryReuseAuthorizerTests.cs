@@ -4,7 +4,7 @@ using Xunit;
 
 namespace CaseCompat.Tests;
 
-public sealed class
+public sealed partial class
     DataRelativePathRepairBatchDirectoryReuseAuthorizerTests
 {
     private static readonly DateTimeOffset T0 =

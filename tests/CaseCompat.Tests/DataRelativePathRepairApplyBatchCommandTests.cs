@@ -177,6 +177,381 @@ public sealed class
 
     [Fact]
     public void
+        Run_CompletedBatch_SharedRepairDirectory_AppliesAllRecordedChildren()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            Fixture.Create();
+
+        PlanSpec first =
+            fixture.CreatePlan(
+                index:
+                    1,
+                physicalComponent:
+                    "alpha",
+                requestedComponent:
+                    "Alpha"
+            );
+
+        PlanSpec second =
+            fixture.CreatePlan(
+                index:
+                    2,
+                physicalComponent:
+                    "alpha",
+                requestedComponent:
+                    "Alpha"
+            );
+
+        DataRelativePathRepairBatchManifestRecord batchManifest =
+            fixture.BuildBatchManifest(
+                [
+                    first,
+                    second
+                ]
+            );
+
+        fixture.WriteBatchManifest(
+            batchManifest
+        );
+
+        Assert.False(
+            File.Exists(
+                first.DestinationPath
+            )
+        );
+
+        Assert.False(
+            File.Exists(
+                second.DestinationPath
+            )
+        );
+
+        Assert.Equal(
+            0,
+            fixture.RunBatchApply()
+        );
+
+        Assert.Equal(
+            first.Payload,
+            File.ReadAllText(
+                first.DestinationPath
+            )
+        );
+
+        Assert.Equal(
+            second.Payload,
+            File.ReadAllText(
+                second.DestinationPath
+            )
+        );
+
+        DataRelativePathRepairPlanManifestRecord firstManifest =
+            fixture.ReadPlanManifest(
+                first
+            );
+
+        DataRelativePathRepairPlanManifestRecord secondManifest =
+            fixture.ReadPlanManifest(
+                second
+            );
+
+        DataRelativePathRepairPlanManifestOperation firstDirectoryEntry =
+            firstManifest.Operations[0];
+
+        DataRelativePathRepairPlanManifestOperation secondDirectoryEntry =
+            secondManifest.Operations[0];
+
+        Assert.Equal(
+            DataRelativePathRepairPlanOperationKind.CreateDirectory,
+            firstDirectoryEntry.Operation.Kind
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanOperationKind.CreateDirectory,
+            secondDirectoryEntry.Operation.Kind
+        );
+
+        DataRelativePathRepairDirectoryJournalRecord firstJournal =
+            fixture.ReadDirectoryJournal(
+                first,
+                firstDirectoryEntry
+            );
+
+        DataRelativePathRepairDirectoryJournalRecord secondJournal =
+            fixture.ReadDirectoryJournal(
+                second,
+                secondDirectoryEntry
+            );
+
+        /*
+         * Child 1 genuinely created the directory.
+         *
+         * Ordinary owned-directory journals intentionally remain schema v2.
+         * Their ownership is represented by the established owned lifecycle,
+         * not by the schema-v3 OwnershipDisposition field.
+         */
+        Assert.Equal(
+            DataRelativePathRepairDirectoryJournalRecord.SchemaVersion2,
+            firstJournal.SchemaVersion
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryJournalState.Applied,
+            firstJournal.State
+        );
+
+        Assert.Null(
+            firstJournal.OwnershipDisposition
+        );
+
+        Assert.Null(
+            firstJournal.BatchReuseProvenance
+        );
+
+        Assert.NotNull(
+            firstJournal.PreparedDirectoryIncarnationIdentity
+        );
+
+        /*
+         * Child 2 did not acquire deletion ownership.
+         *
+         * It must persist a distinct schema-v3 BatchReused/Applied journal
+         * whose provenance points back to child 1's authenticated ordinary
+         * owner journal.
+         */
+        Assert.Equal(
+            DataRelativePathRepairDirectoryJournalRecord.SchemaVersion3,
+            secondJournal.SchemaVersion
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryJournalState.Applied,
+            secondJournal.State
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryOwnershipDisposition.BatchReused,
+            secondJournal.OwnershipDisposition
+        );
+
+        Assert.Null(
+            secondJournal.PreparedDirectoryIncarnationIdentity
+        );
+
+        DataRelativePathRepairDirectoryBatchReuseProvenance provenance =
+            Assert.IsType<
+                DataRelativePathRepairDirectoryBatchReuseProvenance
+            >(
+                secondJournal.BatchReuseProvenance
+            );
+
+        Assert.Equal(
+            batchManifest.BatchId,
+            provenance.BatchId
+        );
+
+        Assert.Equal(
+            first.ChildName,
+            provenance.OwnerChildName
+        );
+
+        Assert.Equal(
+            firstManifest.PlanId,
+            provenance.OwnerPlanId
+        );
+
+        Assert.Equal(
+            batchManifest.Children[0].ManifestSha256,
+            provenance.OwnerManifestSha256
+        );
+
+        Assert.Equal(
+            firstDirectoryEntry.Index,
+            provenance.OwnerOperationIndex
+        );
+
+        Assert.Equal(
+            firstDirectoryEntry.JournalChildName,
+            provenance.OwnerJournalChildName
+        );
+
+        /*
+         * The borrower must reference the exact strong directory incarnation
+         * that the true owner created.
+         */
+        Assert.True(
+            firstJournal.PreparedDirectoryIncarnationIdentity!
+                .SameIncarnationAs(
+                    provenance.ReusedDirectoryIncarnationIdentity
+                )
+        );
+
+        DataRelativePathRepairDirectoryRecoveryClassification
+            borrowerClassification =
+                DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
+                    secondJournal,
+                    fixture.DataRoot
+                );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryRecoveryState
+                .ReusedAppliedFinalMatches,
+            borrowerClassification.State
+        );
+    }
+
+    [Fact]
+    public void
+        Run_StandaloneApply_SharedRepairDirectory_RemainsDestinationExistsFailure()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            Fixture.Create();
+
+        /*
+         * Both plans are created from the same pre-apply filesystem state,
+         * exactly like the batch regression.
+         */
+        PlanSpec first =
+            fixture.CreatePlan(
+                index:
+                    1,
+                physicalComponent:
+                    "alpha",
+                requestedComponent:
+                    "Alpha"
+            );
+
+        PlanSpec second =
+            fixture.CreatePlan(
+                index:
+                    2,
+                physicalComponent:
+                    "alpha",
+                requestedComponent:
+                    "Alpha"
+            );
+
+        Assert.Equal(
+            0,
+            fixture.RunStandaloneApply(
+                first
+            )
+        );
+
+        Assert.Equal(
+            first.Payload,
+            File.ReadAllText(
+                first.DestinationPath
+            )
+        );
+
+        /*
+         * The exact same second plan is NOT entitled to reuse merely because
+         * the destination now exists. Standalone repair-apply supplies no
+         * authenticated batch scope.
+         */
+        Assert.Equal(
+            4,
+            fixture.RunStandaloneApply(
+                second
+            )
+        );
+
+        Assert.False(
+            File.Exists(
+                second.DestinationPath
+            )
+        );
+
+        DataRelativePathRepairPlanManifestRecord secondManifest =
+            fixture.ReadPlanManifest(
+                second
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanOperationKind.CreateDirectory,
+            secondManifest.Operations[0].Operation.Kind
+        );
+
+        /*
+         * DestinationExists occurs before the ordinary directory executor
+         * creates its revision-zero journal. Standalone failure must therefore
+         * leave every operation journal absent.
+         */
+        Assert.Empty(
+            Directory.EnumerateFiles(
+                second.ChildDirectoryPath,
+                ".casecompat-plan-*-op-*.json"
+            )
+        );
+
+        using LinuxNoFollowPathHandle secondDirectory =
+            fixture.OpenPlanDirectory(
+                second
+            );
+
+        DataRelativePathRepairPlanForwardExecution repeat =
+            DataRelativePathRepairPlanForwardExecutor.Execute(
+                secondDirectory,
+                fixture.ManifestName,
+                fixture.DataRoot,
+                DateTimeOffset.UtcNow
+            );
+
+        Assert.False(
+            repeat.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanForwardExecutionState.OperationFailed,
+            repeat.State
+        );
+
+        DataRelativePathRepairPlanForwardOperationExecution failedOperation =
+            Assert.Single(
+                repeat.OperationResults
+            );
+
+        Assert.Equal(
+            0,
+            failedOperation.Index
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanForwardOperationExecutionState
+                .DirectoryExecutionFailed,
+            failedOperation.State
+        );
+
+        Assert.NotNull(
+            failedOperation.DirectoryExecution
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryExecutionState.DestinationExists,
+            failedOperation.DirectoryExecution!.State
+        );
+
+        Assert.Empty(
+            Directory.EnumerateFiles(
+                second.ChildDirectoryPath,
+                ".casecompat-plan-*-op-*.json"
+            )
+        );
+    }
+
+    [Fact]
+    public void
         Run_DefaultManifestMismatch_RefusesBeforeAnyChildMutation()
     {
         if (!OperatingSystem.IsLinux())
@@ -788,6 +1163,83 @@ public sealed class
                 write.Success,
                 write.Error
             );
+        }
+
+        public DataRelativePathRepairPlanManifestRecord
+            ReadPlanManifest(
+                PlanSpec plan)
+        {
+            using LinuxNoFollowPathHandle childDirectory =
+                OpenDirectory(
+                    plan.ChildDirectoryPath
+                );
+
+            DataRelativePathRepairPlanManifestReaderResult read =
+                DataRelativePathRepairPlanManifestReader.Read(
+                    childDirectory,
+                    ManifestName
+                );
+
+            Assert.True(
+                read.Success,
+                read.Error
+            );
+
+            return Assert.IsType<
+                DataRelativePathRepairPlanManifestRecord
+            >(
+                read.Manifest
+            );
+        }
+
+        public DataRelativePathRepairDirectoryJournalRecord
+            ReadDirectoryJournal(
+                PlanSpec plan,
+                DataRelativePathRepairPlanManifestOperation entry)
+        {
+            using LinuxNoFollowPathHandle childDirectory =
+                OpenDirectory(
+                    plan.ChildDirectoryPath
+                );
+
+            DataRelativePathRepairDirectoryJournalReaderResult read =
+                DataRelativePathRepairDirectoryJournalReader.Read(
+                    childDirectory,
+                    entry.JournalChildName
+                );
+
+            Assert.True(
+                read.Success,
+                read.Error
+            );
+
+            return Assert.IsType<
+                DataRelativePathRepairDirectoryJournalRecord
+            >(
+                read.Record
+            );
+        }
+
+        public LinuxNoFollowPathHandle OpenPlanDirectory(
+            PlanSpec plan)
+        {
+            return OpenDirectory(
+                plan.ChildDirectoryPath
+            );
+        }
+
+        public int RunStandaloneApply(
+            PlanSpec plan)
+        {
+            return
+                global::RepairApplyCommand.Run(
+                    [
+                        "repair-apply",
+                        plan.ChildDirectoryPath,
+                        ManifestName,
+                        DataRoot
+                    ]
+                );
         }
 
         public int RunBatchApply()

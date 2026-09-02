@@ -917,6 +917,8 @@ public static class DataRelativePathRepairPlanForwardExecutor
             DataRelativePathRepairDirectoryRecoveryState
                 .AppliedFinalMatches or
             DataRelativePathRepairDirectoryRecoveryState
+                .ReusedAppliedFinalMatches or
+            DataRelativePathRepairDirectoryRecoveryState
                 .IntentFinalMissing or
             DataRelativePathRepairDirectoryRecoveryState
                 .PreparedBothMissing or
@@ -952,13 +954,13 @@ public static class DataRelativePathRepairPlanForwardExecutor
             BatchExecutionScope? batchScope)
     {
         /*
-         * Plumbing checkpoint only.
+         * Standalone execution deliberately supplies no batch scope.
          *
-         * The batch capability is intentionally carried but not consumed
-         * for authorization or mutation in this increment.
+         * Only a batch-bound execution may convert the ordinary
+         * DestinationExists result into authenticated same-batch reuse.
+         * All other directory-execution failures retain their existing
+         * fail-closed behavior.
          */
-        _ =
-            batchScope;
 
         DataRelativePathRepairDestinationParentSnapshotCaptureResult?
             parentCapture =
@@ -1049,20 +1051,166 @@ public static class DataRelativePathRepairPlanForwardExecutor
 
                 if (!initialExecution.Success)
                 {
-                    return OperationResult(
-                        entry,
-                        DataRelativePathRepairPlanForwardOperationExecutionState
-                            .DirectoryExecutionFailed,
-                        parentSnapshotCapture:
-                            parentCapture,
-                        directoryJournalRead:
-                            read,
-                        directoryExecution:
-                            initialExecution,
-                        error:
-                            initialExecution.Error ??
-                            initialExecution.State.ToString()
-                    );
+                    /*
+                     * DestinationExists remains a hard standalone failure.
+                     *
+                     * Batch execution may reuse the existing directory only
+                     * when all of the independently durable batch evidence
+                     * proves that an authenticated earlier child owns this
+                     * exact strong filesystem incarnation.
+                     */
+                    if (
+                        initialExecution.State !=
+                            DataRelativePathRepairDirectoryExecutionState
+                                .DestinationExists ||
+                        batchScope is null)
+                    {
+                        return OperationResult(
+                            entry,
+                            DataRelativePathRepairPlanForwardOperationExecutionState
+                                .DirectoryExecutionFailed,
+                            parentSnapshotCapture:
+                                parentCapture,
+                            directoryJournalRead:
+                                read,
+                            directoryExecution:
+                                initialExecution,
+                            error:
+                                initialExecution.Error ??
+                                initialExecution.State.ToString()
+                        );
+                    }
+
+                    /*
+                     * The ordinary directory executor released its parent
+                     * lease when it returned DestinationExists.
+                     *
+                     * Reacquire a fresh validated lease and retain that exact
+                     * descriptor through authorization and publication.
+                     */
+                    DataRelativePathRepairDestinationParentLeaseAcquisition
+                        reuseParentAcquisition =
+                            DataRelativePathRepairDestinationParentLeaseAcquirer
+                                .Acquire(
+                                    trustedDataRoot,
+                                    parentSnapshot
+                                );
+
+                    if (
+                        !reuseParentAcquisition.Success ||
+                        reuseParentAcquisition.Lease is null)
+                    {
+                        return OperationResult(
+                            entry,
+                            DataRelativePathRepairPlanForwardOperationExecutionState
+                                .DirectoryReuseAuthorizationFailed,
+                            parentSnapshotCapture:
+                                parentCapture,
+                            directoryJournalRead:
+                                read,
+                            directoryExecution:
+                                initialExecution,
+                            error:
+                                "Batch directory reuse destination-parent " +
+                                $"validation failed " +
+                                $"({reuseParentAcquisition.Validation.State}): " +
+                                (
+                                    reuseParentAcquisition.Validation.Error ??
+                                    reuseParentAcquisition.Validation.State
+                                        .ToString()
+                                )
+                        );
+                    }
+
+                    using DataRelativePathRepairValidatedDestinationParentLease
+                        reuseParent =
+                            reuseParentAcquisition.Lease;
+
+                    DataRelativePathRepairBatchDirectoryReuseAuthorization
+                        reuseAuthorization =
+                            DataRelativePathRepairBatchDirectoryReuseAuthorizer
+                                .Authorize(
+                                    batchScope.BatchDirectory,
+                                    batchScope.Context,
+                                    reuseParent,
+                                    entry
+                                );
+
+                    if (
+                        !reuseAuthorization.Success ||
+                        reuseAuthorization.Provenance is null)
+                    {
+                        return OperationResult(
+                            entry,
+                            DataRelativePathRepairPlanForwardOperationExecutionState
+                                .DirectoryReuseAuthorizationFailed,
+                            parentSnapshotCapture:
+                                parentCapture,
+                            directoryJournalRead:
+                                read,
+                            directoryExecution:
+                                initialExecution,
+                            error:
+                                "Batch directory reuse authorization failed " +
+                                $"({reuseAuthorization.State}): " +
+                                (
+                                    reuseAuthorization.Error ??
+                                    reuseAuthorization.State.ToString()
+                                )
+                        );
+                    }
+
+                    /*
+                     * Authorization is point-in-time evidence.
+                     *
+                     * PublishAuthorized closes that boundary by reopening
+                     * the final child under this SAME retained parent lease,
+                     * recapturing strong incarnation identity, comparing it
+                     * with the authorized provenance, and retaining that
+                     * descriptor through durable journal publication.
+                     */
+                    DataRelativePathRepairBatchDirectoryReusePublication
+                        reusePublication =
+                            DataRelativePathRepairBatchDirectoryReusePublisher
+                                .PublishAuthorized(
+                                    journalDirectory,
+                                    entry.JournalChildName,
+                                    reuseParent,
+                                    entry,
+                                    trustedDataRoot,
+                                    nowUtc,
+                                    reuseAuthorization.Provenance
+                                );
+
+                    if (!reusePublication.Success)
+                    {
+                        return OperationResult(
+                            entry,
+                            DataRelativePathRepairPlanForwardOperationExecutionState
+                                .DirectoryReusePublicationFailed,
+                            parentSnapshotCapture:
+                                parentCapture,
+                            directoryJournalRead:
+                                read,
+                            directoryExecution:
+                                initialExecution,
+                            error:
+                                "Batch directory reuse publication failed " +
+                                $"({reusePublication.State}): " +
+                                (
+                                    reusePublication.Error ??
+                                    reusePublication.State.ToString()
+                                )
+                        );
+                    }
+
+                    /*
+                     * Do not treat the publication result itself as
+                     * plan-level success. Reopen the exact durable journal
+                     * and classify it on the next pass, just like ordinary
+                     * directory execution.
+                     */
+                    continue;
                 }
 
                 /*
@@ -1151,6 +1299,9 @@ public static class DataRelativePathRepairPlanForwardExecutor
                 case
                     DataRelativePathRepairDirectoryRecoveryState
                         .AppliedFinalMatches:
+                case
+                    DataRelativePathRepairDirectoryRecoveryState
+                        .ReusedAppliedFinalMatches:
                     return OperationResult(
                         entry,
                         DataRelativePathRepairPlanForwardOperationExecutionState

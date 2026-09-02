@@ -30,6 +30,8 @@ public enum DataRelativePathRepairPlanForwardOperationExecutionState
     DestinationParentSnapshotCaptureFailed,
 
     DirectoryExecutionFailed,
+    DirectoryReuseAuthorizationFailed,
+    DirectoryReusePublicationFailed,
     DirectoryIntentRecoveryFailed,
     DirectoryReprepareRecoveryFailed,
     DirectoryForwardRecoveryFailed,
