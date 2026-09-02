@@ -643,6 +643,750 @@ public sealed class
 
     [Fact]
     public void
+        Run_PartialBatchCoverageWithConsistentRequestedDirectorySpelling_IsRejected()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var temp =
+            new TemporaryDirectory();
+
+        string dataRoot =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    temp.RootPath,
+                    "Data"
+                )
+            ).FullName;
+
+        string meshes =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    dataRoot,
+                    "meshes"
+                )
+            ).FullName;
+
+        DirectoryCasefoldResult meshesFlags =
+            LinuxDirectoryFlags.Inspect(
+                meshes
+            );
+
+        if (
+            !meshesFlags.Exists ||
+            meshesFlags.Error is not null ||
+            meshesFlags.CasefoldEnabled != false)
+        {
+            return;
+        }
+
+        string physicalDirectory =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    meshes,
+                    "alpha"
+                )
+            ).FullName;
+
+        string source1 =
+            Path.Combine(
+                physicalDirectory,
+                "Thing1.nif"
+            );
+
+        string source2 =
+            Path.Combine(
+                physicalDirectory,
+                "Thing2.nif"
+            );
+
+        string untargeted =
+            Path.Combine(
+                physicalDirectory,
+                "Untargeted.nif"
+            );
+
+        File.WriteAllText(
+            source1,
+            "batch-partial-coverage-1"
+        );
+
+        File.WriteAllText(
+            source2,
+            "batch-partial-coverage-2"
+        );
+
+        File.WriteAllText(
+            untargeted,
+            "batch-partial-coverage-untargeted"
+        );
+
+        string pathList =
+            Path.Combine(
+                temp.RootPath,
+                "paths.txt"
+            );
+
+        /*
+         * Both requested repairs agree on the replacement spelling, but
+         * the physical source directory contains a third existing file that
+         * is absent from the immutable input batch.
+         *
+         * This must remain rejected. Otherwise Alpha/ would become a sparse
+         * parallel hierarchy and Untargeted.nif would remain stranded under
+         * physical alpha/.
+         */
+        File.WriteAllLines(
+            pathList,
+            [
+                "meshes/Alpha/Thing1.nif",
+                "meshes/Alpha/Thing2.nif"
+            ]
+        );
+
+        string batchDirectoryPath =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    temp.RootPath,
+                    "Batch"
+                )
+            ).FullName;
+
+        if (
+            !SupportsManifestPublication(
+                batchDirectoryPath))
+        {
+            return;
+        }
+
+        const string manifestName =
+            "repair-plan.json";
+
+        int result =
+            global::RepairPlanBatchCommand.Run(
+                [
+                    "repair-plan-batch",
+                    dataRoot,
+                    pathList,
+                    batchDirectoryPath,
+                    manifestName
+                ]
+            );
+
+        Assert.Equal(
+            0,
+            result
+        );
+
+        Assert.True(
+            File.Exists(
+                source1
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                source2
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                untargeted
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                Path.Combine(
+                    meshes,
+                    "Alpha"
+                )
+            )
+        );
+
+        Assert.Empty(
+            Directory.GetDirectories(
+                batchDirectoryPath
+            )
+        );
+
+        LinuxNoFollowPathOpenResult batchOpened =
+            LinuxNoFollowPath.OpenRootReadOnly(
+                batchDirectoryPath
+            );
+
+        Assert.True(
+            batchOpened.Success,
+            batchOpened.Error
+        );
+
+        using LinuxNoFollowPathHandle batchDirectory =
+            Assert.IsType<
+                LinuxNoFollowPathHandle
+            >(
+                batchOpened.OpenedPath
+            );
+
+        DataRelativePathRepairBatchManifestReaderResult read =
+            DataRelativePathRepairBatchManifestReader.Read(
+                batchDirectory,
+                BatchManifestName
+            );
+
+        Assert.True(
+            read.Success,
+            read.Error
+        );
+
+        DataRelativePathRepairBatchManifestRecord manifest =
+            Assert.IsType<
+                DataRelativePathRepairBatchManifestRecord
+            >(
+                read.Manifest
+            );
+
+        Assert.Equal(
+            2,
+            manifest.InputPathCount
+        );
+
+        Assert.Equal(
+            2,
+            manifest.SafeRejectionCount
+        );
+
+        Assert.Empty(
+            manifest.Children
+        );
+    }
+
+    [Fact]
+    public void
+        Run_CompleteBatchCoverageWithConflictingRequestedDirectorySpellings_IsRejected()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var temp =
+            new TemporaryDirectory();
+
+        string dataRoot =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    temp.RootPath,
+                    "Data"
+                )
+            ).FullName;
+
+        string meshes =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    dataRoot,
+                    "meshes"
+                )
+            ).FullName;
+
+        DirectoryCasefoldResult meshesFlags =
+            LinuxDirectoryFlags.Inspect(
+                meshes
+            );
+
+        if (
+            !meshesFlags.Exists ||
+            meshesFlags.Error is not null ||
+            meshesFlags.CasefoldEnabled != false)
+        {
+            return;
+        }
+
+        string physicalDirectory =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    meshes,
+                    "alpha"
+                )
+            ).FullName;
+
+        string source1 =
+            Path.Combine(
+                physicalDirectory,
+                "Thing1.nif"
+            );
+
+        string source2 =
+            Path.Combine(
+                physicalDirectory,
+                "Thing2.nif"
+            );
+
+        File.WriteAllText(
+            source1,
+            "batch-conflicting-spelling-1"
+        );
+
+        File.WriteAllText(
+            source2,
+            "batch-conflicting-spelling-2"
+        );
+
+        string pathList =
+            Path.Combine(
+                temp.RootPath,
+                "paths.txt"
+            );
+
+        /*
+         * The batch covers every file in physical "alpha", but it proposes
+         * two different replacement spellings for that same physical
+         * directory.
+         *
+         * Aggregate coverage must never authorize this:
+         *
+         *     alpha/
+         *       Thing1.nif  -> Alpha/Thing1.nif
+         *       Thing2.nif  -> ALPHA/Thing2.nif
+         *
+         * Doing so would create two competing sparse parallel roots.
+         */
+        File.WriteAllLines(
+            pathList,
+            [
+                "meshes/Alpha/Thing1.nif",
+                "meshes/ALPHA/Thing2.nif"
+            ]
+        );
+
+        string batchDirectoryPath =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    temp.RootPath,
+                    "Batch"
+                )
+            ).FullName;
+
+        if (
+            !SupportsManifestPublication(
+                batchDirectoryPath))
+        {
+            return;
+        }
+
+        const string manifestName =
+            "repair-plan.json";
+
+        int result =
+            global::RepairPlanBatchCommand.Run(
+                [
+                    "repair-plan-batch",
+                    dataRoot,
+                    pathList,
+                    batchDirectoryPath,
+                    manifestName
+                ]
+            );
+
+        Assert.Equal(
+            0,
+            result
+        );
+
+        Assert.True(
+            File.Exists(
+                source1
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                source2
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                Path.Combine(
+                    meshes,
+                    "Alpha"
+                )
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                Path.Combine(
+                    meshes,
+                    "ALPHA"
+                )
+            )
+        );
+
+        Assert.Empty(
+            Directory.GetDirectories(
+                batchDirectoryPath
+            )
+        );
+
+        LinuxNoFollowPathOpenResult batchOpened =
+            LinuxNoFollowPath.OpenRootReadOnly(
+                batchDirectoryPath
+            );
+
+        Assert.True(
+            batchOpened.Success,
+            batchOpened.Error
+        );
+
+        using LinuxNoFollowPathHandle batchDirectory =
+            Assert.IsType<
+                LinuxNoFollowPathHandle
+            >(
+                batchOpened.OpenedPath
+            );
+
+        DataRelativePathRepairBatchManifestReaderResult read =
+            DataRelativePathRepairBatchManifestReader.Read(
+                batchDirectory,
+                BatchManifestName
+            );
+
+        Assert.True(
+            read.Success,
+            read.Error
+        );
+
+        DataRelativePathRepairBatchManifestRecord manifest =
+            Assert.IsType<
+                DataRelativePathRepairBatchManifestRecord
+            >(
+                read.Manifest
+            );
+
+        Assert.Equal(
+            2,
+            manifest.InputPathCount
+        );
+
+        Assert.Equal(
+            2,
+            manifest.SafeRejectionCount
+        );
+
+        Assert.Empty(
+            manifest.Children
+        );
+    }
+
+    [Fact]
+    public void
+        Run_TwoFilesInSameCaseVariantDirectory_BatchCoverageProjectsBoth()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var temp =
+            new TemporaryDirectory();
+
+        string dataRoot =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    temp.RootPath,
+                    "Data"
+                )
+            ).FullName;
+
+        string meshes =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    dataRoot,
+                    "meshes"
+                )
+            ).FullName;
+
+        DirectoryCasefoldResult meshesFlags =
+            LinuxDirectoryFlags.Inspect(
+                meshes
+            );
+
+        if (
+            !meshesFlags.Exists ||
+            meshesFlags.Error is not null ||
+            meshesFlags.CasefoldEnabled != false)
+        {
+            return;
+        }
+
+        string physicalDirectory =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    meshes,
+                    "alpha"
+                )
+            ).FullName;
+
+        string source1 =
+            Path.Combine(
+                physicalDirectory,
+                "Thing1.nif"
+            );
+
+        string source2 =
+            Path.Combine(
+                physicalDirectory,
+                "Thing2.nif"
+            );
+
+        File.WriteAllText(
+            source1,
+            "batch-aggregate-coverage-1"
+        );
+
+        File.WriteAllText(
+            source2,
+            "batch-aggregate-coverage-2"
+        );
+
+        string pathList =
+            Path.Combine(
+                temp.RootPath,
+                "paths.txt"
+            );
+
+        File.WriteAllLines(
+            pathList,
+            [
+                "meshes/Alpha/Thing1.nif",
+                "meshes/Alpha/Thing2.nif"
+            ]
+        );
+
+        string batchDirectoryPath =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    temp.RootPath,
+                    "Batch"
+                )
+            ).FullName;
+
+        if (
+            !SupportsManifestPublication(
+                batchDirectoryPath))
+        {
+            return;
+        }
+
+        const string manifestName =
+            "repair-plan.json";
+
+        string requestedDirectory =
+            Path.Combine(
+                meshes,
+                "Alpha"
+            );
+
+        string destination1 =
+            Path.Combine(
+                requestedDirectory,
+                "Thing1.nif"
+            );
+
+        string destination2 =
+            Path.Combine(
+                requestedDirectory,
+                "Thing2.nif"
+            );
+
+        int result =
+            global::RepairPlanBatchCommand.Run(
+                [
+                    "repair-plan-batch",
+                    dataRoot,
+                    pathList,
+                    batchDirectoryPath,
+                    manifestName
+                ]
+            );
+
+        Assert.Equal(
+            0,
+            result
+        );
+
+        /*
+         * Planning must remain read-only with respect to Skyrim Data.
+         */
+        Assert.True(
+            File.Exists(
+                source1
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                source2
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                requestedDirectory
+            )
+        );
+
+        Assert.False(
+            File.Exists(
+                destination1
+            )
+        );
+
+        Assert.False(
+            File.Exists(
+                destination2
+            )
+        );
+
+        /*
+         * Individually, each source sees the other file as content in the
+         * old case-variant directory. Collectively, however, this exact
+         * two-child batch covers both existing files.
+         *
+         * The durable completed batch must therefore record both repairs
+         * rather than treating each sibling as untargeted standalone
+         * content.
+         */
+        string[] childDirectories =
+            Directory
+                .GetDirectories(
+                    batchDirectoryPath
+                )
+                .OrderBy(
+                    path =>
+                        Path.GetFileName(
+                            path
+                        ),
+                    StringComparer.Ordinal
+                )
+                .ToArray();
+
+        Assert.Equal(
+            2,
+            childDirectories.Length
+        );
+
+        Assert.Equal(
+            "plan-000001",
+            Path.GetFileName(
+                childDirectories[0]
+            )
+        );
+
+        Assert.Equal(
+            "plan-000002",
+            Path.GetFileName(
+                childDirectories[1]
+            )
+        );
+
+        foreach (
+            string childDirectory
+            in childDirectories)
+        {
+            Assert.True(
+                File.Exists(
+                    Path.Combine(
+                        childDirectory,
+                        manifestName
+                    )
+                )
+            );
+
+            Assert.Empty(
+                Directory.EnumerateFiles(
+                    childDirectory,
+                    ".casecompat-plan-*-op-*.json"
+                )
+            );
+        }
+
+        LinuxNoFollowPathOpenResult batchOpened =
+            LinuxNoFollowPath.OpenRootReadOnly(
+                batchDirectoryPath
+            );
+
+        Assert.True(
+            batchOpened.Success,
+            batchOpened.Error
+        );
+
+        using LinuxNoFollowPathHandle batchDirectory =
+            Assert.IsType<
+                LinuxNoFollowPathHandle
+            >(
+                batchOpened.OpenedPath
+            );
+
+        DataRelativePathRepairBatchManifestReaderResult batchRead =
+            DataRelativePathRepairBatchManifestReader.Read(
+                batchDirectory,
+                BatchManifestName
+            );
+
+        Assert.True(
+            batchRead.Success,
+            batchRead.Error
+        );
+
+        DataRelativePathRepairBatchManifestRecord batchManifest =
+            Assert.IsType<
+                DataRelativePathRepairBatchManifestRecord
+            >(
+                batchRead.Manifest
+            );
+
+        Assert.Equal(
+            dataRoot,
+            batchManifest.DataRoot
+        );
+
+        Assert.Equal(
+            manifestName,
+            batchManifest.ChildManifestName
+        );
+
+        Assert.Equal(
+            2,
+            batchManifest.InputPathCount
+        );
+
+        Assert.Equal(
+            0,
+            batchManifest.SafeRejectionCount
+        );
+
+        Assert.Equal(
+            2,
+            batchManifest.Children.Count
+        );
+
+        Assert.Equal(
+            "plan-000001",
+            batchManifest.Children[0].ChildName
+        );
+
+        Assert.Equal(
+            "plan-000002",
+            batchManifest.Children[1].ChildName
+        );
+    }
+
+    [Fact]
+    public void
         Run_AllSafeRejected_PublishesZeroChildCompletionManifest()
     {
         if (!OperatingSystem.IsLinux())

@@ -6,8 +6,49 @@ namespace CaseCompat.Core.Repair;
 
 public static class DataRelativePathRepairPlanProjector
 {
+    /*
+     * Standalone projection is authoritative only when every safety
+     * condition owned by one independent plan is satisfied, including the
+     * case-variant source-branch coverage rule.
+     */
     public static DataRelativePathRepairPlanProjection Project(
         DataRelativePathResolution resolution)
+    {
+        return ProjectCore(
+            resolution,
+            requireStandaloneBranchCoverage:
+                true
+        );
+    }
+
+    /*
+     * Produce the technically projectable form used by batch-wide
+     * namespace-coverage authorization.
+     *
+     * IMPORTANT:
+     *
+     * This result is NOT independently authorized for persistence or
+     * execution. A caller must prove complete, consistent aggregate
+     * namespace coverage for the immutable batch before treating this
+     * candidate as an authorized batch repair plan.
+     *
+     * repair-plan-batch consumes this candidate form only as part of the
+     * complete aggregate coverage decision.
+     */
+    public static DataRelativePathRepairPlanProjection
+        ProjectBatchCandidate(
+            DataRelativePathResolution resolution)
+    {
+        return ProjectCore(
+            resolution,
+            requireStandaloneBranchCoverage:
+                false
+        );
+    }
+
+    private static DataRelativePathRepairPlanProjection ProjectCore(
+        DataRelativePathResolution resolution,
+        bool requireStandaloneBranchCoverage)
     {
         ArgumentNullException.ThrowIfNull(
             resolution
@@ -512,6 +553,124 @@ public static class DataRelativePathRepairPlanProjector
                 error:
                     ex.Message
             );
+        }
+
+        if (requireStandaloneBranchCoverage)
+        {
+            /*
+             * A direct strict mismatch can have one already-proven physical
+             * candidate whose spelling differs at the failed component.
+             *
+             * Creating a sparse parallel requested hierarchy is only safe
+             * when the existing physical branch from that mismatched
+             * directory down to the source is a single-entry chain. If any
+             * directory contains another entry, creating the requested
+             * parallel hierarchy would strand that untargeted content in
+             * the old branch and can make it unreachable to Skyrim.
+             *
+             * Do not perform a fresh case-insensitive lookup here. The
+             * topology classifier has already proven that sourcePath is the
+             * single equivalent candidate and that its component at
+             * failedIndex is the failed step's single equivalent physical
+             * name.
+             */
+            string candidateRelative =
+                Path.GetRelativePath(
+                    dataRoot,
+                    sourcePath
+                );
+
+            string[] candidateComponents =
+                SplitComponents(
+                    candidateRelative
+                );
+
+            if (
+                Path.IsPathRooted(
+                    candidateRelative
+                ) ||
+                candidateComponents.Any(component =>
+                    component == ".."
+                ) ||
+                candidateComponents.Length !=
+                    requestedComponents.Length)
+            {
+                return Result(
+                    resolution,
+                    topologyState,
+                    DataRelativePathRepairPlanProjectionState
+                        .ProjectionInvariantViolation,
+                    sourceSnapshot,
+                    error:
+                        "The proven equivalent physical candidate no " +
+                        "longer has the requested path shape."
+                );
+            }
+
+            try
+            {
+                for (
+                    int index = failedIndex;
+                    index < candidateComponents.Length - 1;
+                    index++)
+                {
+                    string existingPhysicalDirectory =
+                        Path.Combine(
+                            new[] { dataRoot }
+                                .Concat(
+                                    candidateComponents
+                                        .Take(index + 1)
+                                )
+                                .ToArray()
+                        );
+
+                    string expectedPhysicalChildName =
+                        candidateComponents[index + 1];
+
+                    string[] entries =
+                        Directory
+                            .EnumerateFileSystemEntries(
+                                existingPhysicalDirectory
+                            )
+                            .ToArray();
+
+                    if (
+                        entries.Length != 1 ||
+                        !string.Equals(
+                            Path.GetFileName(
+                                entries[0]
+                            ),
+                            expectedPhysicalChildName,
+                            StringComparison.Ordinal
+                        ))
+                    {
+                        return Result(
+                            resolution,
+                            topologyState,
+                            DataRelativePathRepairPlanProjectionState
+                                .DestinationConflict,
+                            sourceSnapshot,
+                            error:
+                                "The existing case-variant physical branch contains " +
+                                "untargeted content that would be stranded by a " +
+                                "sparse parallel repair hierarchy."
+                        );
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return Result(
+                    resolution,
+                    topologyState,
+                    DataRelativePathRepairPlanProjectionState
+                        .DestinationInspectionFailed,
+                    sourceSnapshot,
+                    error:
+                        ex.Message
+                );
+            }
+
         }
 
         var operations =

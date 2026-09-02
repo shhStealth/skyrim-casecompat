@@ -20,7 +20,10 @@ public enum DataRelativePathRepairBatchCompletionInspectionState
     ChildInspectionFailed,
     ChildManifestBindingUnavailable,
     ChildPlanIdMismatch,
-    ChildManifestSha256Mismatch
+    ChildManifestSha256Mismatch,
+
+    ApplyAuthorizationReadFailed,
+    ApplyAuthorizationBindingMismatch
 }
 
 public sealed record
@@ -44,6 +47,28 @@ public sealed record
         string? Error
     )
 {
+    /*
+     * Carries the observed reserved batch-wide apply-authorization read when
+     * that entry was encountered.
+     *
+     * This property may also be populated on a fail-closed authorization
+     * read or binding failure so callers can inspect the exact observed
+     * evidence. It does not grant authority by itself.
+     *
+     * Only a Verified completion inspection with a non-null successful
+     * ApplyAuthorizationRead guarantees that the authorization was validated
+     * and rebound to the exact durable batch-manifest bytes.
+     *
+     * Absence is valid: a schema-v2 completed batch has not necessarily
+     * crossed the batch-apply authorization boundary yet.
+     */
+    public DataRelativePathRepairBatchApplyAuthorizationReaderResult?
+        ApplyAuthorizationRead
+    {
+        get;
+        init;
+    }
+
     public bool Success =>
         State ==
             DataRelativePathRepairBatchCompletionInspectionState
@@ -78,13 +103,16 @@ public sealed record
  *     ManifestUnavailable, while its enumerated name prevents the legacy
  *     contiguous-plan fallback from accepting the directory.
  *
- * A future mutating batch caller must still revalidate each selected child
- * at mutation time. In particular, ExecuteExpectedManifest(...) performs
+ * A mutating batch caller must still revalidate each selected child at
+ * mutation time. In particular, ExecuteExpectedBatchManifest(...) performs
  * the PlanId/SHA-256 check again against the authoritative manifest reread
  * held under the existing per-plan execution lock.
  */
 public static class DataRelativePathRepairBatchCompletionInspector
 {
+    private const string ApplyAuthorizationChildName =
+        "batch-apply-authorization.json";
+
     public static DataRelativePathRepairBatchCompletionInspection
         Inspect(
             LinuxNoFollowPathHandle batchDirectory,
@@ -251,11 +279,21 @@ public static class DataRelativePathRepairBatchCompletionInspector
             );
         }
 
+        bool hasApplyAuthorization =
+            enumeration.ChildNames.Any(childName =>
+                string.Equals(
+                    childName,
+                    ApplyAuthorizationChildName,
+                    StringComparison.Ordinal
+                )
+            );
+
         string? topologyError =
             ValidateManifestBackedTopology(
                 enumeration.ChildNames,
                 batchManifestChildName,
-                manifest
+                manifest,
+                hasApplyAuthorization
             );
 
         if (topologyError is not null)
@@ -272,6 +310,104 @@ public static class DataRelativePathRepairBatchCompletionInspector
                 error:
                     topologyError
             );
+        }
+
+        DataRelativePathRepairBatchApplyAuthorizationReaderResult?
+            applyAuthorizationRead =
+                null;
+
+        if (hasApplyAuthorization)
+        {
+            try
+            {
+                applyAuthorizationRead =
+                    DataRelativePathRepairBatchApplyAuthorizationReader
+                        .Read(
+                            batchDirectory,
+                            ApplyAuthorizationChildName
+                        );
+            }
+            catch (Exception ex)
+            {
+                return Result(
+                    DataRelativePathRepairBatchCompletionInspectionState
+                        .ApplyAuthorizationReadFailed,
+                    enumeration:
+                        enumeration,
+                    batchManifestRead:
+                        batchManifestRead,
+                    manifest:
+                        manifest,
+                    error:
+                        ex.Message
+                );
+            }
+
+            if (!applyAuthorizationRead.Success)
+            {
+                return Result(
+                    DataRelativePathRepairBatchCompletionInspectionState
+                        .ApplyAuthorizationReadFailed,
+                    enumeration:
+                        enumeration,
+                    batchManifestRead:
+                        batchManifestRead,
+                    manifest:
+                        manifest,
+                    applyAuthorizationRead:
+                        applyAuthorizationRead,
+                    error:
+                        applyAuthorizationRead.Error ??
+                        applyAuthorizationRead.State.ToString()
+                );
+            }
+
+            if (
+                batchManifestRead.ManifestSha256 is null ||
+                applyAuthorizationRead.Authorization is null)
+            {
+                return Result(
+                    DataRelativePathRepairBatchCompletionInspectionState
+                        .ApplyAuthorizationBindingMismatch,
+                    enumeration:
+                        enumeration,
+                    batchManifestRead:
+                        batchManifestRead,
+                    manifest:
+                        manifest,
+                    applyAuthorizationRead:
+                        applyAuthorizationRead,
+                    error:
+                        "The exact validated batch-manifest bytes required " +
+                        "to bind batch apply authorization were unavailable."
+                );
+            }
+
+            string? authorizationBindingError =
+                DataRelativePathRepairBatchApplyAuthorization
+                    .ValidateCompletedBatchBinding(
+                        applyAuthorizationRead.Authorization,
+                        manifest,
+                        batchManifestRead.ManifestSha256
+                    );
+
+            if (authorizationBindingError is not null)
+            {
+                return Result(
+                    DataRelativePathRepairBatchCompletionInspectionState
+                        .ApplyAuthorizationBindingMismatch,
+                    enumeration:
+                        enumeration,
+                    batchManifestRead:
+                        batchManifestRead,
+                    manifest:
+                        manifest,
+                    applyAuthorizationRead:
+                        applyAuthorizationRead,
+                    error:
+                        authorizationBindingError
+                );
+            }
         }
 
         var children =
@@ -497,13 +633,18 @@ public static class DataRelativePathRepairBatchCompletionInspector
                 null,
             Error:
                 null
-        );
+        )
+        {
+            ApplyAuthorizationRead =
+                applyAuthorizationRead
+        };
     }
 
     private static string? ValidateManifestBackedTopology(
         IReadOnlyList<string> childNames,
         string batchManifestChildName,
-        DataRelativePathRepairBatchManifestRecord manifest)
+        DataRelativePathRepairBatchManifestRecord manifest,
+        bool hasApplyAuthorization)
     {
         var names =
             new HashSet<string>(
@@ -518,16 +659,48 @@ public static class DataRelativePathRepairBatchCompletionInspector
                 "duplicate literal child names.";
         }
 
+        bool authorizationEntryAllowed =
+            manifest.SchemaVersion ==
+                DataRelativePathRepairBatchManifestRecord
+                    .SchemaVersion2 &&
+            manifest.CoveragePolicyVersion ==
+                DataRelativePathRepairBatchManifestRecord
+                    .CoveragePolicyVersion1;
+
         int expectedEntryCount =
-            manifest.Children.Count + 1;
+            manifest.Children.Count +
+            1 +
+            (
+                authorizationEntryAllowed &&
+                hasApplyAuthorization
+                    ? 1
+                    : 0
+            );
 
         if (names.Count != expectedEntryCount)
         {
             return
                 $"The completed batch requires exactly " +
-                $"{expectedEntryCount:N0} direct entries: the durable " +
-                $"batch manifest plus {manifest.Children.Count:N0} " +
-                $"recorded plan children. Observed {names.Count:N0}.";
+                $"{expectedEntryCount:N0} direct entries for its current " +
+                $"durable state: the batch manifest, " +
+                $"{manifest.Children.Count:N0} recorded plan children" +
+                (
+                    authorizationEntryAllowed &&
+                    hasApplyAuthorization
+                        ? ", and the reserved batch apply-authorization entry"
+                        : string.Empty
+                ) +
+                $". Observed {names.Count:N0}.";
+        }
+
+        if (
+            hasApplyAuthorization &&
+            !authorizationEntryAllowed)
+        {
+            return
+                "The reserved batch apply-authorization entry is valid " +
+                "only for schema-v2 batches carrying aggregate " +
+                "namespace-coverage policy version 1.";
         }
 
         if (!names.Contains(batchManifestChildName))
@@ -562,6 +735,8 @@ public static class DataRelativePathRepairBatchCompletionInspector
             IReadOnlyList<
                 DataRelativePathRepairBatchCompletionInspectedChild>?
                 children = null,
+            DataRelativePathRepairBatchApplyAuthorizationReaderResult?
+                applyAuthorizationRead = null,
             string? failedChildName = null,
             string? error = null)
     {
@@ -581,6 +756,10 @@ public static class DataRelativePathRepairBatchCompletionInspector
                 failedChildName,
             Error:
                 error
-        );
+        )
+        {
+            ApplyAuthorizationRead =
+                applyAuthorizationRead
+        };
     }
 }

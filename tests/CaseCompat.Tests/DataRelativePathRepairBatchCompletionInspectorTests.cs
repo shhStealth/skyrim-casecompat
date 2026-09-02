@@ -9,6 +9,9 @@ public sealed class
     private const string BatchManifestName =
         "batch-manifest.json";
 
+    private const string ApplyAuthorizationName =
+        "batch-apply-authorization.json";
+
     [Fact]
     public void Inspect_CompletedBatch_ReturnsVerified()
     {
@@ -358,6 +361,412 @@ public sealed class
         );
     }
 
+    [Fact]
+    public void
+        Inspect_CoverageV2WithoutApplyAuthorization_ReturnsVerified()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            Fixture.Create();
+
+        fixture.CreatePlan(
+            "plan-000001"
+        );
+
+        fixture.CreateCoverageBatchManifest(
+            inputPathCount:
+                1,
+            safeRejectionCount:
+                0,
+            childNames:
+                [
+                    "plan-000001"
+                ]
+        );
+
+        DataRelativePathRepairBatchCompletionInspection inspection =
+            fixture.Inspect();
+
+        Assert.True(
+            inspection.Success,
+            inspection.Error
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchCompletionInspectionState
+                .Verified,
+            inspection.State
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord
+                .SchemaVersion2,
+            inspection.Manifest!.SchemaVersion
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord
+                .CoveragePolicyVersion1,
+            inspection.Manifest.CoveragePolicyVersion
+        );
+    }
+
+    [Fact]
+    public void
+        Inspect_CoverageV2WithMalformedApplyAuthorization_FailsClosed()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            Fixture.Create();
+
+        fixture.CreatePlan(
+            "plan-000001"
+        );
+
+        fixture.CreateCoverageBatchManifest(
+            inputPathCount:
+                1,
+            safeRejectionCount:
+                0,
+            childNames:
+                [
+                    "plan-000001"
+                ]
+        );
+
+        File.WriteAllText(
+            Path.Combine(
+                fixture.BatchRoot,
+                ApplyAuthorizationName
+            ),
+            "{ definitely not valid json"
+        );
+
+        DataRelativePathRepairBatchCompletionInspection inspection =
+            fixture.Inspect();
+
+        Assert.False(
+            inspection.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchCompletionInspectionState
+                .ApplyAuthorizationReadFailed,
+            inspection.State
+        );
+
+        Assert.NotNull(
+            inspection.ApplyAuthorizationRead
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchApplyAuthorizationReadState
+                .DeserializeFailed,
+            inspection.ApplyAuthorizationRead!.State
+        );
+    }
+
+    [Fact]
+    public void
+        Inspect_CoverageV2WithSymbolicLinkApplyAuthorization_FailsClosed()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            Fixture.Create();
+
+        fixture.CreatePlan(
+            "plan-000001"
+        );
+
+        fixture.CreateCoverageBatchManifest(
+            inputPathCount:
+                1,
+            safeRejectionCount:
+                0,
+            childNames:
+                [
+                    "plan-000001"
+                ]
+        );
+
+        string target =
+            Path.Combine(
+                fixture.RootPath,
+                "authorization-target.json"
+            );
+
+        File.WriteAllText(
+            target,
+            "{}"
+        );
+
+        File.CreateSymbolicLink(
+            Path.Combine(
+                fixture.BatchRoot,
+                ApplyAuthorizationName
+            ),
+            target
+        );
+
+        DataRelativePathRepairBatchCompletionInspection inspection =
+            fixture.Inspect();
+
+        Assert.False(
+            inspection.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchCompletionInspectionState
+                .ApplyAuthorizationReadFailed,
+            inspection.State
+        );
+
+        Assert.NotNull(
+            inspection.ApplyAuthorizationRead
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchApplyAuthorizationReadState
+                .AuthorizationSymbolicLinkRejected,
+            inspection.ApplyAuthorizationRead!.State
+        );
+    }
+
+    [Fact]
+    public void
+        Inspect_CoverageV2WithDirectoryApplyAuthorization_FailsClosed()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            Fixture.Create();
+
+        fixture.CreatePlan(
+            "plan-000001"
+        );
+
+        fixture.CreateCoverageBatchManifest(
+            inputPathCount:
+                1,
+            safeRejectionCount:
+                0,
+            childNames:
+                [
+                    "plan-000001"
+                ]
+        );
+
+        Directory.CreateDirectory(
+            Path.Combine(
+                fixture.BatchRoot,
+                ApplyAuthorizationName
+            )
+        );
+
+        DataRelativePathRepairBatchCompletionInspection inspection =
+            fixture.Inspect();
+
+        Assert.False(
+            inspection.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchCompletionInspectionState
+                .ApplyAuthorizationReadFailed,
+            inspection.State
+        );
+
+        Assert.NotNull(
+            inspection.ApplyAuthorizationRead
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchApplyAuthorizationReadState
+                .AuthorizationNotRegularFile,
+            inspection.ApplyAuthorizationRead!.State
+        );
+    }
+
+    [Fact]
+    public void
+        Inspect_CoverageV2WithExactApplyAuthorization_ReturnsVerified()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            Fixture.Create();
+
+        fixture.CreatePlan(
+            "plan-000001"
+        );
+
+        DataRelativePathRepairBatchManifestRecord manifest =
+            fixture.BuildCoverageBatchManifest(
+                inputPathCount:
+                    1,
+                safeRejectionCount:
+                    0,
+                childNames:
+                    [
+                        "plan-000001"
+                    ]
+            );
+
+        fixture.WriteBatchManifest(
+            manifest
+        );
+
+        fixture.CreateApplyAuthorizationForPersistedBatch();
+
+        DataRelativePathRepairBatchCompletionInspection inspection =
+            fixture.Inspect();
+
+        Assert.True(
+            inspection.Success,
+            inspection.Error
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchCompletionInspectionState
+                .Verified,
+            inspection.State
+        );
+
+        Assert.NotNull(
+            inspection.ApplyAuthorizationRead
+        );
+
+        Assert.True(
+            inspection.ApplyAuthorizationRead!.Success,
+            inspection.ApplyAuthorizationRead.Error
+        );
+    }
+
+    [Fact]
+    public void
+        Inspect_CoverageV2WithWrongApplyAuthorizationBinding_FailsClosed()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            Fixture.Create();
+
+        fixture.CreatePlan(
+            "plan-000001"
+        );
+
+        fixture.CreateCoverageBatchManifest(
+            inputPathCount:
+                1,
+            safeRejectionCount:
+                0,
+            childNames:
+                [
+                    "plan-000001"
+                ]
+        );
+
+        const string wrongBatchSha256 =
+            "ABCDEF0123456789ABCDEF0123456789" +
+            "ABCDEF0123456789ABCDEF0123456789";
+
+        fixture.CreateApplyAuthorizationForPersistedBatch(
+            batchManifestSha256Override:
+                wrongBatchSha256
+        );
+
+        DataRelativePathRepairBatchCompletionInspection inspection =
+            fixture.Inspect();
+
+        Assert.False(
+            inspection.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchCompletionInspectionState
+                .ApplyAuthorizationBindingMismatch,
+            inspection.State
+        );
+
+        Assert.NotNull(
+            inspection.ApplyAuthorizationRead
+        );
+    }
+
+    [Fact]
+    public void
+        Inspect_LegacyV1WithReservedApplyAuthorizationEntry_IsTopologyInvalid()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            Fixture.Create();
+
+        fixture.CreatePlan(
+            "plan-000001"
+        );
+
+        fixture.CreateBatchManifest(
+            inputPathCount:
+                1,
+            safeRejectionCount:
+                0,
+            childNames:
+                [
+                    "plan-000001"
+                ]
+        );
+
+        File.WriteAllText(
+            Path.Combine(
+                fixture.BatchRoot,
+                ApplyAuthorizationName
+            ),
+            "{}"
+        );
+
+        DataRelativePathRepairBatchCompletionInspection inspection =
+            fixture.Inspect();
+
+        Assert.False(
+            inspection.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchCompletionInspectionState
+                .TopologyInvalid,
+            inspection.State
+        );
+
+        Assert.Null(
+            inspection.ApplyAuthorizationRead
+        );
+    }
+
     private sealed class Fixture
         : IDisposable
     {
@@ -570,6 +979,113 @@ public sealed class
             );
 
             return creation.Manifest!;
+        }
+
+        public DataRelativePathRepairBatchManifestRecord
+            BuildCoverageBatchManifest(
+                int inputPathCount,
+                int safeRejectionCount,
+                IReadOnlyList<string> childNames)
+        {
+            DataRelativePathRepairBatchManifestRecord legacy =
+                BuildBatchManifest(
+                    inputPathCount,
+                    safeRejectionCount,
+                    childNames
+                );
+
+            DataRelativePathRepairBatchManifestCreation creation =
+                DataRelativePathRepairBatchManifest
+                    .CreateCoverageAuthorized(
+                        batchId:
+                            legacy.BatchId,
+                        createdUtc:
+                            legacy.CreatedUtc,
+                        dataRoot:
+                            legacy.DataRoot,
+                        childManifestName:
+                            legacy.ChildManifestName,
+                        inputPathCount:
+                            legacy.InputPathCount,
+                        safeRejectionCount:
+                            legacy.SafeRejectionCount,
+                        children:
+                            legacy.Children
+                    );
+
+            Assert.True(
+                creation.Success,
+                creation.Error
+            );
+
+            return creation.Manifest!;
+        }
+
+        public void CreateCoverageBatchManifest(
+            int inputPathCount,
+            int safeRejectionCount,
+            IReadOnlyList<string> childNames)
+        {
+            WriteBatchManifest(
+                BuildCoverageBatchManifest(
+                    inputPathCount,
+                    safeRejectionCount,
+                    childNames
+                )
+            );
+        }
+
+        public void CreateApplyAuthorizationForPersistedBatch(
+            string? batchManifestSha256Override = null)
+        {
+            using LinuxNoFollowPathHandle batchDirectory =
+                OpenDirectory(
+                    BatchRoot
+                );
+
+            DataRelativePathRepairBatchManifestReaderResult batchRead =
+                DataRelativePathRepairBatchManifestReader.Read(
+                    batchDirectory,
+                    BatchManifestName
+                );
+
+            Assert.True(
+                batchRead.Success,
+                batchRead.Error
+            );
+
+            Assert.NotNull(
+                batchRead.ManifestSha256
+            );
+
+            DataRelativePathRepairBatchApplyAuthorizationCreation
+                creation =
+                    DataRelativePathRepairBatchApplyAuthorization
+                        .CreateForCompletedBatch(
+                            batchRead.Manifest!,
+                            batchManifestSha256Override ??
+                                batchRead.ManifestSha256!,
+                            DateTimeOffset.UtcNow
+                        );
+
+            Assert.True(
+                creation.Success,
+                creation.Error
+            );
+
+            DataRelativePathRepairBatchApplyAuthorizationWriterResult
+                write =
+                    DataRelativePathRepairBatchApplyAuthorizationWriter
+                        .CreateInitial(
+                            batchDirectory,
+                            ApplyAuthorizationName,
+                            creation.Authorization!
+                        );
+
+            Assert.True(
+                write.Success,
+                write.Error
+            );
         }
 
         public void CreateBatchManifest(

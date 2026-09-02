@@ -6,7 +6,24 @@ public static class RepairApplyBatchCommand
     private const string BatchManifestName =
         "batch-manifest.json";
 
+    private const string ApplyAuthorizationName =
+        "batch-apply-authorization.json";
+
     public static int Run(string[] args)
+    {
+        return Run(
+            args,
+            beforeAuthorizationPublish:
+                null
+        );
+    }
+
+    internal static int Run(
+        string[] args,
+        Action<
+            LinuxNoFollowPathHandle,
+            DataRelativePathRepairBatchApplyAuthorizationRecord>?
+                beforeAuthorizationPublish)
     {
         if (args.Length < 3 ||
             args.Length > 4)
@@ -191,6 +208,404 @@ public static class RepairApplyBatchCommand
             );
 
             return 0;
+        }
+
+        /*
+         * A schema-v2 / coverage-policy-v1 batch is not allowed to enter
+         * child mutation merely because its immutable planner provenance
+         * says aggregate coverage was established at planning time.
+         *
+         * Before the first mutation boundary, use only child manifests that
+         * the completion inspector has just authenticated by exact PlanId and
+         * exact manifest-byte SHA-256, then freshly re-prove the aggregate
+         * physical namespace against the current filesystem.
+         *
+         * Only after that proof succeeds may the batch publish its immutable
+         * batch-wide apply authorization.
+         *
+         * If a valid authorization was already present, completion inspection
+         * has already rebound it to these exact completed batch-manifest bytes.
+         * Do not replace it and do not reinterpret the original pre-start
+         * namespace. The durable authorization is the crash/restart boundary.
+         */
+        bool requiresAggregateApplyAuthority =
+            manifest.SchemaVersion ==
+                DataRelativePathRepairBatchManifestRecord
+                    .SchemaVersion2 &&
+            manifest.CoveragePolicyVersion ==
+                DataRelativePathRepairBatchManifestRecord
+                    .CoveragePolicyVersion1;
+
+        if (
+            requiresAggregateApplyAuthority &&
+            completionInspection.ApplyAuthorizationRead is null)
+        {
+            var authenticatedChildManifests =
+                new DataRelativePathRepairPlanManifestRecord[
+                    completionInspection.Children.Count
+                ];
+
+            for (
+                int index = 0;
+                index < completionInspection.Children.Count;
+                index++)
+            {
+                DataRelativePathRepairPlanManifestRecord?
+                    authenticatedManifest =
+                        completionInspection
+                            .Children[index]
+                            .Inspection
+                            .Manifest;
+
+                if (authenticatedManifest is null)
+                {
+                    Console.Error.WriteLine();
+                    Console.Error.WriteLine(
+                        "Repair-apply-batch aggregate coverage could not " +
+                        "retain an authenticated child manifest."
+                    );
+                    Console.Error.WriteLine(
+                        $"Child: " +
+                        $"{completionInspection.Children[index].ChildName}"
+                    );
+                    Console.Error.WriteLine(
+                        "No recorded child plan was executed by this invocation."
+                    );
+
+                    return 4;
+                }
+
+                authenticatedChildManifests[index] =
+                    authenticatedManifest;
+            }
+
+            DataRelativePathRepairBatchCoverageAuthorization coverage;
+
+            try
+            {
+                coverage =
+                    DataRelativePathRepairBatchCoverageAuthorizer
+                        .AuthorizePersistedManifests(
+                            authenticatedChildManifests
+                        );
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine();
+                Console.Error.WriteLine(
+                    "Repair-apply-batch aggregate namespace coverage " +
+                    $"inspection failed: {ex.Message}"
+                );
+                Console.Error.WriteLine(
+                    "No recorded child plan was executed by this invocation."
+                );
+
+                return 4;
+            }
+
+            if (!coverage.AllAuthorized)
+            {
+                Console.Error.WriteLine();
+                Console.Error.WriteLine(
+                    "Repair-apply-batch refused aggregate namespace " +
+                    "authorization before child mutation."
+                );
+
+                foreach (
+                    DataRelativePathRepairBatchCoverageDecision decision
+                    in coverage.Decisions
+                        .Where(decision =>
+                            decision.State !=
+                            DataRelativePathRepairBatchCoverageDecisionState
+                                .Authorized
+                        ))
+                {
+                    string childName =
+                        decision.CandidateIndex >= 0 &&
+                        decision.CandidateIndex <
+                            completionInspection.Children.Count
+                            ? completionInspection
+                                .Children[decision.CandidateIndex]
+                                .ChildName
+                            : $"candidate-{decision.CandidateIndex}";
+
+                    Console.Error.WriteLine(
+                        $"[{decision.CandidateIndex}] {childName}: " +
+                        $"{decision.State}"
+                    );
+
+                    if (
+                        !string.IsNullOrWhiteSpace(
+                            decision.Error))
+                    {
+                        Console.Error.WriteLine(
+                            $"  Error: {decision.Error}"
+                        );
+                    }
+                }
+
+                Console.Error.WriteLine(
+                    "No recorded child plan was executed by this invocation."
+                );
+
+                return 4;
+            }
+
+            string? exactBatchManifestSha256 =
+                completionInspection
+                    .BatchManifestRead?
+                    .ManifestSha256;
+
+            if (
+                string.IsNullOrWhiteSpace(
+                    exactBatchManifestSha256))
+            {
+                Console.Error.WriteLine();
+                Console.Error.WriteLine(
+                    "Repair-apply-batch could not retain the exact " +
+                    "batch-manifest SHA-256 required to bind durable " +
+                    "aggregate apply authorization."
+                );
+                Console.Error.WriteLine(
+                    "No recorded child plan was executed by this invocation."
+                );
+
+                return 4;
+            }
+
+            DataRelativePathRepairBatchApplyAuthorizationCreation
+                authorizationCreation =
+                    DataRelativePathRepairBatchApplyAuthorization
+                        .CreateForCompletedBatch(
+                            manifest,
+                            exactBatchManifestSha256,
+                            DateTimeOffset.UtcNow
+                        );
+
+            if (
+                !authorizationCreation.Success ||
+                authorizationCreation.Authorization is null)
+            {
+                Console.Error.WriteLine();
+                Console.Error.WriteLine(
+                    "Repair-apply-batch could not create immutable " +
+                    "batch-wide apply authorization."
+                );
+                Console.Error.WriteLine(
+                    authorizationCreation.Error ??
+                    authorizationCreation.State.ToString()
+                );
+                Console.Error.WriteLine(
+                    "No recorded child plan was executed by this invocation."
+                );
+
+                return 4;
+            }
+
+            /*
+             * Internal deterministic test seam for the publication race.
+             *
+             * Normal CLI execution always supplies null. Tests may publish
+             * the exact authorization here to model another invocation
+             * winning the one-shot namespace race after our initial
+             * completion inspection and fresh aggregate coverage.
+             */
+            beforeAuthorizationPublish?.Invoke(
+                batchDirectory,
+                authorizationCreation.Authorization
+            );
+
+            DataRelativePathRepairBatchApplyAuthorizationWriterResult
+                authorizationWrite;
+
+            try
+            {
+                authorizationWrite =
+                    DataRelativePathRepairBatchApplyAuthorizationWriter
+                        .CreateInitial(
+                            batchDirectory,
+                            ApplyAuthorizationName,
+                            authorizationCreation.Authorization
+                        );
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine();
+                Console.Error.WriteLine(
+                    "Repair-apply-batch apply-authorization publication " +
+                    $"error: {ex.Message}"
+                );
+                Console.Error.WriteLine(
+                    "No recorded child plan was executed by this invocation."
+                );
+
+                return 4;
+            }
+
+            bool authorizationPublishedByThisInvocation =
+                authorizationWrite.Success;
+
+            bool authorizationPublicationRaceLost =
+                authorizationWrite.State ==
+                DataRelativePathRepairBatchApplyAuthorizationWriteState
+                    .AuthorizationAlreadyExists;
+
+            if (
+                !authorizationPublishedByThisInvocation &&
+                !authorizationPublicationRaceLost)
+            {
+                Console.Error.WriteLine();
+                Console.Error.WriteLine(
+                    "Repair-apply-batch could not establish durable " +
+                    "batch-wide apply authorization."
+                );
+                Console.Error.WriteLine(
+                    $"Authorization state (internal): " +
+                    $"{authorizationWrite.State}"
+                );
+
+                if (
+                    !string.IsNullOrWhiteSpace(
+                        authorizationWrite.Error))
+                {
+                    Console.Error.WriteLine(
+                        $"Error: {authorizationWrite.Error}"
+                    );
+                }
+
+                if (authorizationWrite.AuthorizationEntryChanged)
+                {
+                    Console.Error.WriteLine(
+                        "The reserved authorization entry may now exist, " +
+                        "but durable publication was not proven. Retry only " +
+                        "through repair-apply-batch so completion inspection " +
+                        "can reauthenticate the exact observed entry."
+                    );
+                }
+
+                Console.Error.WriteLine(
+                    "No recorded child plan was executed by this invocation."
+                );
+
+                return 4;
+            }
+
+            /*
+             * Publication itself is not enough.
+             *
+             * If our one-shot writer lost the no-overwrite namespace race,
+             * AuthorizationAlreadyExists grants no authority by itself.
+             * The exact observed entry must pass the same canonical
+             * completion inspection and completed-batch binding as an entry
+             * published by this invocation.
+             *
+             * Re-run canonical completion
+             * inspection from the same retained batch descriptor and require
+             * the newly published authorization to be read, validated, and
+             * rebound to the exact current completed batch before child 1.
+             *
+             * This also catches any child-manifest replacement that raced the
+             * fresh aggregate coverage/publication interval.
+             */
+            DataRelativePathRepairBatchCompletionInspection
+                postAuthorizationInspection;
+
+            try
+            {
+                postAuthorizationInspection =
+                    DataRelativePathRepairBatchCompletionInspector.Inspect(
+                        batchDirectory,
+                        BatchManifestName,
+                        manifestChildName,
+                        trustedDataRoot
+                    );
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine();
+                Console.Error.WriteLine(
+                    "Repair-apply-batch post-authorization completion " +
+                    $"inspection error: {ex.Message}"
+                );
+                Console.Error.WriteLine(
+                    authorizationPublishedByThisInvocation
+                        ? "Durable batch apply authorization was published, " +
+                          "but no recorded child plan was executed by this invocation."
+                        : "A competing batch apply authorization publisher won " +
+                          "the namespace race, but the observed authorization " +
+                          "could not be reauthenticated. No recorded child plan " +
+                          "was executed by this invocation."
+                );
+
+                return 4;
+            }
+
+            if (
+                !postAuthorizationInspection.Success ||
+                postAuthorizationInspection
+                    .ApplyAuthorizationRead?
+                    .Success != true)
+            {
+                WriteCompletionFailure(
+                    postAuthorizationInspection
+                );
+
+                Console.Error.WriteLine(
+                    authorizationPublishedByThisInvocation
+                        ? "Durable batch apply authorization was published, but " +
+                          "the exact authorization/completed-batch binding could " +
+                          "not be reauthenticated before child mutation."
+                        : "A competing publisher's existing authorization was " +
+                          "observed, but its exact completed-batch binding could " +
+                          "not be reauthenticated before child mutation."
+                );
+
+                return 4;
+            }
+
+            completionInspection =
+                postAuthorizationInspection;
+
+            manifest =
+                postAuthorizationInspection.Manifest!;
+
+            Console.WriteLine();
+            Console.WriteLine(
+                authorizationPublishedByThisInvocation
+                    ? "Batch apply authorization: PUBLISHED DURABLY AND VERIFIED"
+                    : "Batch apply authorization: EXISTING DURABLE AUTHORITY " +
+                      "VERIFIED AFTER PUBLICATION RACE"
+            );
+        }
+        else if (requiresAggregateApplyAuthority)
+        {
+            /*
+             * completionInspection.Success plus a non-null observed
+             * authorization means the completion inspector has already
+             * validated and rebound that exact entry to the current durable
+             * batch-manifest bytes.
+             */
+            if (
+                completionInspection
+                    .ApplyAuthorizationRead?
+                    .Success != true)
+            {
+                Console.Error.WriteLine();
+                Console.Error.WriteLine(
+                    "Repair-apply-batch observed aggregate authorization " +
+                    "without a successful authenticated read."
+                );
+                Console.Error.WriteLine(
+                    "No recorded child plan was executed by this invocation."
+                );
+
+                return 4;
+            }
+
+            Console.WriteLine();
+            Console.WriteLine(
+                "Batch apply authorization: EXISTING DURABLE AUTHORITY VERIFIED"
+            );
         }
 
         /*

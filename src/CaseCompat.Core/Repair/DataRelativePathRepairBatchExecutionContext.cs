@@ -54,7 +54,7 @@ public sealed record
  *   - it does not prove any filesystem incarnation;
  *   - it does not authorize BatchReused journal publication.
  *
- * A future mutating authorizer must reopen selected earlier children from
+ * A mutating reuse authorizer must reopen selected earlier children from
  * the retained batch-directory descriptor and revalidate their exact
  * PlanId / manifest SHA / operation journal at mutation time.
  */

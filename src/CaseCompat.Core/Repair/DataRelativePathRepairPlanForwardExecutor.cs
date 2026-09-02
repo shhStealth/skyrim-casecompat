@@ -4,6 +4,12 @@ namespace CaseCompat.Core.Repair;
 
 public static class DataRelativePathRepairPlanForwardExecutor
 {
+    private const string BatchManifestChildName =
+        "batch-manifest.json";
+
+    private const string BatchApplyAuthorizationChildName =
+        "batch-apply-authorization.json";
+
     /*
      * Each successful recovery action advances a durable operation
      * transaction toward Applied. This bound is therefore not a retry
@@ -455,6 +461,96 @@ public static class DataRelativePathRepairPlanForwardExecutor
             );
         }
 
+        /*
+         * Batch metadata alone is never mutation authority.
+         *
+         * If this execution arrived through the batch-only entry point,
+         * reauthenticate the retained batch root now, while the current
+         * child's authoritative manifest is held under its persistent
+         * per-PlanId execution lock.
+         *
+         * For a schema-v2 / coverage-policy-v1 batch, successful
+         * authentication proves the durable batch-wide authorization was
+         * published after aggregate namespace coverage and is bound to the
+         * exact current batch-manifest bytes.
+         *
+         * Legacy schema-v1 batches deliberately receive no aggregate
+         * authority and therefore continue through the ordinary standalone
+         * sparse-branch rule below.
+         *
+         * A started schema-v2 child still requires the durable batch-wide
+         * authorization. Its existing operation journal supplies recovery
+         * authority only after this immutable batch boundary is proven.
+         */
+        bool hasAggregateBatchApplyAuthority =
+            false;
+
+        if (batchScope is not null)
+        {
+            BatchApplyAuthorityAuthentication authority =
+                AuthenticateBatchApplyAuthority(
+                    batchScope,
+                    trustedDataRoot,
+                    requireFreshCoverage:
+                        !preflight.HasExistingJournal
+                );
+
+            if (!authority.Success)
+            {
+                return PlanResult(
+                    DataRelativePathRepairPlanForwardExecutionState
+                        .BatchChildBindingFailed,
+                    manifestRead,
+                    [],
+                    authority.Error ??
+                        "Batch-wide apply authorization could not be " +
+                        "authenticated."
+                );
+            }
+
+            hasAggregateBatchApplyAuthority =
+                authority.AggregateCoverageAuthorized;
+        }
+
+        /*
+         * A plan with no durable operation journal is still genuinely
+         * unstarted.
+         *
+         * Standalone plans and legacy schema-v1 batch children must
+         * revalidate the single-plan sparse case-variant branch invariant
+         * immediately before any operation is allowed to create durable
+         * mutation history.
+         *
+         * A schema-v2 batch child may use aggregate authority only after the
+         * retained batch descriptor, exact batch manifest, structural batch
+         * context, and durable apply authorization were all reauthenticated
+         * above.
+         *
+         * Once a durable operation prefix exists, normal recovery/idempotence
+         * owns the namespace interpretation. Do not reinterpret a started
+         * plan using fresh unrelated namespace contents.
+         */
+        if (
+            !preflight.HasExistingJournal &&
+            !hasAggregateBatchApplyAuthority &&
+            !ValidateUnstartedCaseVariantSourceBranch(
+                trustedDataRootHandle,
+                trustedDataRoot,
+                manifest,
+                out string? sourceBranchSafetyError
+            ))
+        {
+            return PlanResult(
+                DataRelativePathRepairPlanForwardExecutionState
+                    .PreflightFailed,
+                manifestRead,
+                [],
+                sourceBranchSafetyError ??
+                    "Unstarted case-variant source-branch safety " +
+                    "validation failed."
+            );
+        }
+
         var results =
             new List<
                 DataRelativePathRepairPlanForwardOperationExecution
@@ -539,6 +635,9 @@ public static class DataRelativePathRepairPlanForwardExecutor
         int? firstMissingIndex =
             null;
 
+        bool hasExistingJournal =
+            false;
+
         /*
          * Forward execution advances to operation N+1 only after
          * operation N has converged to durable Applied.
@@ -588,6 +687,9 @@ public static class DataRelativePathRepairPlanForwardExecutor
 
                         continue;
                     }
+
+                    hasExistingJournal =
+                        true;
 
                     if (!read.Success)
                     {
@@ -751,6 +853,9 @@ public static class DataRelativePathRepairPlanForwardExecutor
                         continue;
                     }
 
+                    hasExistingJournal =
+                        true;
+
                     if (!read.Success)
                     {
                         return PreflightResult.Failed(
@@ -907,7 +1012,386 @@ public static class DataRelativePathRepairPlanForwardExecutor
             }
         }
 
-        return PreflightResult.Succeeded();
+        return PreflightResult.Succeeded(
+            hasExistingJournal
+        );
+    }
+
+    private static bool ValidateUnstartedCaseVariantSourceBranch(
+        LinuxNoFollowPathHandle trustedDataRootHandle,
+        string trustedDataRoot,
+        DataRelativePathRepairPlanManifestRecord manifest,
+        out string? error)
+    {
+        error =
+            null;
+
+        DataRelativePathRepairPlanManifestOperation?
+            firstDirectoryEntry =
+                manifest.Operations
+                    .FirstOrDefault(entry =>
+                        entry.Operation.Kind ==
+                        DataRelativePathRepairPlanOperationKind
+                            .CreateDirectory
+                    );
+
+        /*
+         * A file-only repair cannot create a sparse parallel directory
+         * hierarchy, so this particular guard does not apply.
+         */
+        if (firstDirectoryEntry is null)
+        {
+            return true;
+        }
+
+        string fullDataRoot;
+        string fullSourcePath;
+        string fullInitialParent;
+        string fullFirstDestination;
+
+        try
+        {
+            fullDataRoot =
+                Path.GetFullPath(
+                    trustedDataRoot
+                );
+
+            fullSourcePath =
+                Path.GetFullPath(
+                    manifest.SourceSnapshot.PhysicalPath
+                );
+
+            fullInitialParent =
+                Path.GetFullPath(
+                    manifest
+                        .InitialDestinationParentSnapshot
+                        .PhysicalPath
+                );
+
+            fullFirstDestination =
+                Path.GetFullPath(
+                    firstDirectoryEntry
+                        .Operation
+                        .DestinationPath
+                );
+        }
+        catch (Exception ex)
+        {
+            error =
+                "The unstarted plan's case-variant source-branch paths " +
+                "could not be normalized: " +
+                ex.Message;
+
+            return false;
+        }
+
+        string sourceRelative =
+            Path.GetRelativePath(
+                fullDataRoot,
+                fullSourcePath
+            );
+
+        string parentRelative =
+            Path.GetRelativePath(
+                fullDataRoot,
+                fullInitialParent
+            );
+
+        string firstDestinationRelative =
+            Path.GetRelativePath(
+                fullDataRoot,
+                fullFirstDestination
+            );
+
+        if (
+            IsOutsideRelativePath(
+                sourceRelative
+            ) ||
+            IsOutsideRelativePath(
+                parentRelative
+            ) ||
+            IsOutsideRelativePath(
+                firstDestinationRelative
+            ))
+        {
+            error =
+                "The unstarted plan's case-variant source-branch " +
+                "validation escaped the trusted Data root.";
+
+            return false;
+        }
+
+        string[] sourceComponents =
+            SplitRelativeComponents(
+                sourceRelative
+            );
+
+        string[] parentComponents =
+            SplitRelativeComponents(
+                parentRelative
+            );
+
+        string[] firstDestinationComponents =
+            SplitRelativeComponents(
+                firstDestinationRelative
+            );
+
+        int failedIndex =
+            parentComponents.Length;
+
+        if (
+            sourceComponents.Length <=
+                failedIndex ||
+            firstDestinationComponents.Length !=
+                failedIndex + 1)
+        {
+            error =
+                "The unstarted plan no longer has a valid direct " +
+                "case-mismatch path shape.";
+
+            return false;
+        }
+
+        string? firstDestinationParent =
+            Path.GetDirectoryName(
+                fullFirstDestination
+            );
+
+        if (
+            string.IsNullOrEmpty(
+                firstDestinationParent
+            ) ||
+            !string.Equals(
+                Path.GetFullPath(
+                    firstDestinationParent
+                ),
+                fullInitialParent,
+                StringComparison.Ordinal
+            ))
+        {
+            error =
+                "The first projected directory is no longer bound to " +
+                "the manifest's initial destination parent.";
+
+            return false;
+        }
+
+        string physicalVariant =
+            sourceComponents[
+                failedIndex
+            ];
+
+        string requestedVariant =
+            firstDestinationComponents[
+                failedIndex
+            ];
+
+        /*
+         * This guard is specifically for a case-variant sibling branch.
+         * Preserve legacy/non-case-variant manifest behavior here; other
+         * manifest and operation validation remains authoritative for it.
+         */
+        if (
+            string.Equals(
+                physicalVariant,
+                requestedVariant,
+                StringComparison.Ordinal
+            ) ||
+            !string.Equals(
+                physicalVariant,
+                requestedVariant,
+                StringComparison.OrdinalIgnoreCase
+            ))
+        {
+            return true;
+        }
+
+        LinuxNoFollowPathHandle current =
+            trustedDataRootHandle;
+
+        LinuxNoFollowPathHandle? ownedCurrent =
+            null;
+
+        try
+        {
+            /*
+             * Reach the exact physical case-variant directory using only
+             * descriptor-relative, O_NOFOLLOW directory opens.
+             */
+            for (
+                int index = 0;
+                index <= failedIndex;
+                index++)
+            {
+                LinuxOpenChildDirectoryReadOnlyAtResult opened =
+                    LinuxOpenChildDirectoryReadOnlyAt.Open(
+                        current,
+                        sourceComponents[index]
+                    );
+
+                if (
+                    !opened.Success ||
+                    opened.OpenedDirectory is null)
+                {
+                    error =
+                        "The unstarted plan's proven physical source " +
+                        $"directory \"{sourceComponents[index]}\" could " +
+                        "not be reopened descriptor-relatively without " +
+                        $"following symlinks ({opened.State}): " +
+                        (
+                            opened.Error ??
+                            "no additional error"
+                        );
+
+                    return false;
+                }
+
+                ownedCurrent?.Dispose();
+
+                ownedCurrent =
+                    opened.OpenedDirectory;
+
+                current =
+                    ownedCurrent;
+            }
+
+            /*
+             * From the case-variant directory down to the source file,
+             * every physical directory must still contain exactly the
+             * unique next component. Any extra entry would be stranded
+             * if this unstarted durable plan created a sparse parallel
+             * requested hierarchy.
+             */
+            for (
+                int index = failedIndex;
+                index < sourceComponents.Length - 1;
+                index++)
+            {
+                string expectedChild =
+                    sourceComponents[
+                        index + 1
+                    ];
+
+                LinuxEnumerateDirectoryAtResult enumeration =
+                    LinuxEnumerateDirectoryAt.Enumerate(
+                        current
+                    );
+
+                if (!enumeration.Success)
+                {
+                    error =
+                        "The unstarted plan's physical case-variant " +
+                        "source branch could not be enumerated " +
+                        $"descriptor-relatively ({enumeration.State}): " +
+                        (
+                            enumeration.Error ??
+                            "no additional error"
+                        );
+
+                    return false;
+                }
+
+                if (
+                    enumeration.ChildNames.Count != 1 ||
+                    !string.Equals(
+                        enumeration.ChildNames[0],
+                        expectedChild,
+                        StringComparison.Ordinal
+                    ))
+                {
+                    error =
+                        "The unstarted plan's physical case-variant " +
+                        "source branch now contains untargeted content. " +
+                        "Creating the requested parallel hierarchy would " +
+                        "strand that content.";
+
+                    return false;
+                }
+
+                bool expectedChildIsDirectory =
+                    index + 1 <
+                    sourceComponents.Length - 1;
+
+                if (!expectedChildIsDirectory)
+                {
+                    continue;
+                }
+
+                LinuxOpenChildDirectoryReadOnlyAtResult opened =
+                    LinuxOpenChildDirectoryReadOnlyAt.Open(
+                        current,
+                        expectedChild
+                    );
+
+                if (
+                    !opened.Success ||
+                    opened.OpenedDirectory is null)
+                {
+                    error =
+                        "The unstarted plan's next physical source " +
+                        $"directory \"{expectedChild}\" could not be " +
+                        "opened descriptor-relatively without following " +
+                        $"symlinks ({opened.State}): " +
+                        (
+                            opened.Error ??
+                            "no additional error"
+                        );
+
+                    return false;
+                }
+
+                ownedCurrent?.Dispose();
+
+                ownedCurrent =
+                    opened.OpenedDirectory;
+
+                current =
+                    ownedCurrent;
+            }
+
+            return true;
+        }
+        finally
+        {
+            ownedCurrent?.Dispose();
+        }
+    }
+
+    private static bool IsOutsideRelativePath(
+        string relativePath)
+    {
+        return
+            Path.IsPathRooted(
+                relativePath
+            ) ||
+            relativePath == ".." ||
+            relativePath.StartsWith(
+                "../",
+                StringComparison.Ordinal
+            ) ||
+            relativePath.StartsWith(
+                "..\\",
+                StringComparison.Ordinal
+            );
+    }
+
+    private static string[] SplitRelativeComponents(
+        string relativePath)
+    {
+        if (relativePath == ".")
+        {
+            return [];
+        }
+
+        return relativePath
+            .Replace(
+                '\\',
+                '/'
+            )
+            .Split(
+                '/',
+                StringSplitOptions.RemoveEmptyEntries
+            );
     }
 
     private static bool IsDirectoryForwardSafe(
@@ -1982,29 +2466,600 @@ public static class DataRelativePathRepairPlanForwardExecutor
     }
 
     /*
-     * The descriptor and logical context travel together so future
-     * same-batch authorization cannot receive membership metadata without
-     * the retained batch descriptor needed to reauthenticate earlier
-     * children. This record itself grants no mutation authority.
+     * Authenticate durable batch-wide apply authority from the retained
+     * batch-directory descriptor.
+     *
+     * The caller-supplied BatchExecutionContext is metadata only. Re-read the
+     * exact durable batch manifest, recreate the logical context from those
+     * bytes, and compare every scalar/member structurally before consulting
+     * the authorization record.
+     *
+     * A schema-v1 batch remains valid batch metadata but never receives
+     * aggregate namespace authority.
+     */
+    private static BatchApplyAuthorityAuthentication
+        AuthenticateBatchApplyAuthority(
+            BatchExecutionScope batchScope,
+            string trustedDataRoot,
+            bool requireFreshCoverage)
+    {
+        DataRelativePathRepairBatchManifestReaderResult batchManifestRead;
+
+        try
+        {
+            batchManifestRead =
+                DataRelativePathRepairBatchManifestReader.Read(
+                    batchScope.BatchDirectory,
+                    BatchManifestChildName
+                );
+        }
+        catch (Exception ex)
+        {
+            return BatchApplyAuthorityAuthentication.Failed(
+                "The retained batch manifest could not be read while " +
+                "authenticating batch apply authority: " +
+                ex.Message
+            );
+        }
+
+        if (
+            !batchManifestRead.Success ||
+            batchManifestRead.Manifest is null ||
+            string.IsNullOrWhiteSpace(
+                batchManifestRead.ManifestSha256))
+        {
+            return BatchApplyAuthorityAuthentication.Failed(
+                "The retained batch manifest could not be authenticated " +
+                "for batch apply authority: " +
+                (
+                    batchManifestRead.Error ??
+                    batchManifestRead.State.ToString()
+                )
+            );
+        }
+
+        DataRelativePathRepairBatchManifestRecord batchManifest =
+            batchManifestRead.Manifest;
+
+        if (
+            !DataRelativePathRepairDataRootAuthority.Matches(
+                trustedDataRoot,
+                batchManifest.DataRoot,
+                out string? batchRootBindingError))
+        {
+            return BatchApplyAuthorityAuthentication.Failed(
+                batchRootBindingError ??
+                "The retained batch manifest Data root does not match the " +
+                "independently trusted Data root."
+            );
+        }
+
+        DataRelativePathRepairBatchExecutionContext suppliedContext =
+            batchScope.Context;
+
+        if (
+            suppliedContext.CurrentChildIndex < 0 ||
+            suppliedContext.CurrentChildIndex >=
+                batchManifest.Children.Count)
+        {
+            return BatchApplyAuthorityAuthentication.Failed(
+                "The supplied batch execution context current-child index " +
+                "is outside the exact retained batch manifest."
+            );
+        }
+
+        DataRelativePathRepairBatchExecutionContextCreation
+            recreatedContextCreation =
+                DataRelativePathRepairBatchExecutionContext.Create(
+                    batchManifest,
+                    suppliedContext.CurrentChildIndex,
+                    batchManifest.Children[
+                        suppliedContext.CurrentChildIndex
+                    ]
+                );
+
+        if (
+            !recreatedContextCreation.Success ||
+            recreatedContextCreation.Context is null)
+        {
+            return BatchApplyAuthorityAuthentication.Failed(
+                "The exact retained batch manifest could not recreate the " +
+                "current execution context: " +
+                (
+                    recreatedContextCreation.Error ??
+                    recreatedContextCreation.State.ToString()
+                )
+            );
+        }
+
+        DataRelativePathRepairBatchExecutionContext recreatedContext =
+            recreatedContextCreation.Context;
+
+        if (
+            !BatchExecutionContextsMatch(
+                suppliedContext,
+                recreatedContext,
+                out string? contextBindingError))
+        {
+            return BatchApplyAuthorityAuthentication.Failed(
+                contextBindingError ??
+                "The supplied batch execution context no longer matches " +
+                "the exact retained batch manifest."
+            );
+        }
+
+        if (
+            batchManifest.SchemaVersion ==
+                DataRelativePathRepairBatchManifestRecord.SchemaVersion1)
+        {
+            return BatchApplyAuthorityAuthentication.Succeeded(
+                aggregateCoverageAuthorized:
+                    false
+            );
+        }
+
+        if (
+            batchManifest.SchemaVersion !=
+                DataRelativePathRepairBatchManifestRecord.SchemaVersion2 ||
+            batchManifest.CoveragePolicyVersion !=
+                DataRelativePathRepairBatchManifestRecord
+                    .CoveragePolicyVersion1)
+        {
+            return BatchApplyAuthorityAuthentication.Failed(
+                "The retained batch manifest has no supported aggregate " +
+                "namespace apply-authorization policy."
+            );
+        }
+
+        DataRelativePathRepairBatchApplyAuthorizationReaderResult
+            authorizationRead;
+
+        try
+        {
+            authorizationRead =
+                DataRelativePathRepairBatchApplyAuthorizationReader.Read(
+                    batchScope.BatchDirectory,
+                    BatchApplyAuthorizationChildName
+                );
+        }
+        catch (Exception ex)
+        {
+            return BatchApplyAuthorityAuthentication.Failed(
+                "The durable batch apply authorization could not be read: " +
+                ex.Message
+            );
+        }
+
+        if (
+            !authorizationRead.Success ||
+            authorizationRead.Authorization is null)
+        {
+            return BatchApplyAuthorityAuthentication.Failed(
+                "A coverage-authorized schema-v2 batch requires an exact " +
+                "durable batch-wide apply authorization before child " +
+                "mutation: " +
+                (
+                    authorizationRead.Error ??
+                    authorizationRead.State.ToString()
+                )
+            );
+        }
+
+        string? authorizationBindingError =
+            DataRelativePathRepairBatchApplyAuthorization
+                .ValidateCompletedBatchBinding(
+                    authorizationRead.Authorization,
+                    batchManifest,
+                    batchManifestRead.ManifestSha256
+                );
+
+        if (authorizationBindingError is not null)
+        {
+            return BatchApplyAuthorityAuthentication.Failed(
+                authorizationBindingError
+            );
+        }
+
+        if (requireFreshCoverage)
+        {
+            string? freshCoverageError =
+                ValidateFreshAggregateBatchCoverage(
+                    batchScope.BatchDirectory,
+                    batchManifest,
+                    trustedDataRoot
+                );
+
+            if (freshCoverageError is not null)
+            {
+                return BatchApplyAuthorityAuthentication.Failed(
+                    freshCoverageError
+                );
+            }
+        }
+
+        return BatchApplyAuthorityAuthentication.Succeeded(
+            aggregateCoverageAuthorized:
+                true
+        );
+    }
+
+    /*
+     * Fresh aggregate coverage for one not-yet-started coverage-v2 child.
+     *
+     * The durable batch authorization proves that the immutable batch
+     * legitimately crossed its initial mutation boundary. It does not freeze
+     * the source filesystem forever.
+     *
+     * Before another child creates its first durable operation journal,
+     * authenticate every child manifest again from the retained batch
+     * descriptor and re-run aggregate physical namespace coverage against
+     * the current filesystem.
+     *
+     * Once the current child has any durable operation journal, this check is
+     * deliberately skipped and normal recovery/idempotence remains
+     * authoritative.
+     */
+    private static string? ValidateFreshAggregateBatchCoverage(
+        LinuxNoFollowPathHandle batchDirectory,
+        DataRelativePathRepairBatchManifestRecord batchManifest,
+        string trustedDataRoot)
+    {
+        var authenticatedManifests =
+            new DataRelativePathRepairPlanManifestRecord[
+                batchManifest.Children.Count
+            ];
+
+        for (
+            int index = 0;
+            index < batchManifest.Children.Count;
+            index++)
+        {
+            DataRelativePathRepairBatchManifestChild expectedChild =
+                batchManifest.Children[index];
+
+            LinuxOpenChildDirectoryReadOnlyAtResult childOpen;
+
+            try
+            {
+                childOpen =
+                    LinuxOpenChildDirectoryReadOnlyAt.Open(
+                        batchDirectory,
+                        expectedChild.ChildName
+                    );
+            }
+            catch (Exception ex)
+            {
+                return
+                    "Fresh aggregate namespace coverage could not open " +
+                    $"recorded child {index} " +
+                    $"\"{expectedChild.ChildName}\" descriptor-relatively: " +
+                    ex.Message;
+            }
+
+            if (
+                !childOpen.Success ||
+                childOpen.OpenedDirectory is null)
+            {
+                return
+                    "Fresh aggregate namespace coverage could not open " +
+                    $"recorded child {index} " +
+                    $"\"{expectedChild.ChildName}\" descriptor-relatively " +
+                    $"({childOpen.State}): " +
+                    (
+                        childOpen.Error ??
+                        "no additional error"
+                    );
+            }
+
+            using LinuxNoFollowPathHandle childDirectory =
+                childOpen.OpenedDirectory;
+
+            DataRelativePathRepairPlanManifestReaderResult childManifestRead;
+
+            try
+            {
+                childManifestRead =
+                    DataRelativePathRepairPlanManifestReader.Read(
+                        childDirectory,
+                        batchManifest.ChildManifestName
+                    );
+            }
+            catch (Exception ex)
+            {
+                return
+                    "Fresh aggregate namespace coverage could not read the " +
+                    $"recorded manifest for child {index} " +
+                    $"\"{expectedChild.ChildName}\": " +
+                    ex.Message;
+            }
+
+            if (
+                !childManifestRead.Success ||
+                childManifestRead.Manifest is null ||
+                string.IsNullOrWhiteSpace(
+                    childManifestRead.ManifestSha256))
+            {
+                return
+                    "Fresh aggregate namespace coverage could not " +
+                    $"authenticate recorded child {index} " +
+                    $"\"{expectedChild.ChildName}\": " +
+                    (
+                        childManifestRead.Error ??
+                        childManifestRead.State.ToString()
+                    );
+            }
+
+            if (
+                childManifestRead.Manifest.PlanId !=
+                    expectedChild.PlanId)
+            {
+                return
+                    "Fresh aggregate namespace coverage observed a PlanId " +
+                    $"mismatch for recorded child {index} " +
+                    $"\"{expectedChild.ChildName}\".";
+            }
+
+            if (
+                !string.Equals(
+                    childManifestRead.ManifestSha256,
+                    expectedChild.ManifestSha256,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return
+                    "Fresh aggregate namespace coverage observed a manifest " +
+                    $"SHA-256 mismatch for recorded child {index} " +
+                    $"\"{expectedChild.ChildName}\".";
+            }
+
+            if (
+                !DataRelativePathRepairDataRootAuthority.Matches(
+                    trustedDataRoot,
+                    childManifestRead.Manifest.DataRoot,
+                    out string? childRootBindingError))
+            {
+                return
+                    "Fresh aggregate namespace coverage observed a child " +
+                    $"Data-root mismatch for recorded child {index} " +
+                    $"\"{expectedChild.ChildName}\": " +
+                    (
+                        childRootBindingError ??
+                        "the child manifest is not bound to the trusted Data root"
+                    );
+            }
+
+            authenticatedManifests[index] =
+                childManifestRead.Manifest;
+        }
+
+        DataRelativePathRepairBatchCoverageAuthorization coverage;
+
+        try
+        {
+            coverage =
+                DataRelativePathRepairBatchCoverageAuthorizer
+                    .AuthorizePersistedManifests(
+                        authenticatedManifests
+                    );
+        }
+        catch (Exception ex)
+        {
+            return
+                "Fresh aggregate namespace coverage inspection failed: " +
+                ex.Message;
+        }
+
+        if (coverage.AllAuthorized)
+        {
+            return null;
+        }
+
+        DataRelativePathRepairBatchCoverageDecision? firstFailure =
+            coverage.Decisions
+                .FirstOrDefault(
+                    decision =>
+                        decision.State !=
+                        DataRelativePathRepairBatchCoverageDecisionState
+                            .Authorized
+                );
+
+        if (firstFailure is null)
+        {
+            return
+                "Fresh aggregate namespace coverage was not authorized, " +
+                "but no specific failed decision was retained.";
+        }
+
+        return
+            "Fresh aggregate namespace coverage rejected the unstarted " +
+            $"batch child boundary at candidate " +
+            $"{firstFailure.CandidateIndex} " +
+            $"({firstFailure.State}): " +
+            (
+                firstFailure.Error ??
+                "no additional error"
+            );
+    }
+
+    private static bool BatchExecutionContextsMatch(
+        DataRelativePathRepairBatchExecutionContext supplied,
+        DataRelativePathRepairBatchExecutionContext recreated,
+        out string? error)
+    {
+        error =
+            null;
+
+        if (supplied.BatchId != recreated.BatchId)
+        {
+            error =
+                "The supplied batch execution context BatchId does not " +
+                "match the exact retained batch manifest.";
+
+            return false;
+        }
+
+        if (
+            !string.Equals(
+                supplied.DataRoot,
+                recreated.DataRoot,
+                StringComparison.Ordinal))
+        {
+            error =
+                "The supplied batch execution context Data root text does " +
+                "not match the exact retained batch manifest.";
+
+            return false;
+        }
+
+        if (
+            !string.Equals(
+                supplied.ChildManifestName,
+                recreated.ChildManifestName,
+                StringComparison.Ordinal))
+        {
+            error =
+                "The supplied batch execution context child-manifest name " +
+                "does not match the exact retained batch manifest.";
+
+            return false;
+        }
+
+        if (
+            supplied.CurrentChildIndex !=
+                recreated.CurrentChildIndex)
+        {
+            error =
+                "The supplied batch execution context current-child index " +
+                "does not match the exact retained batch manifest.";
+
+            return false;
+        }
+
+        if (
+            !BatchExecutionChildrenMatch(
+                supplied.CurrentChild,
+                recreated.CurrentChild))
+        {
+            error =
+                "The supplied batch execution context current-child " +
+                "expectation does not match the exact retained batch " +
+                "manifest.";
+
+            return false;
+        }
+
+        if (
+            supplied.EarlierChildren.Count !=
+                recreated.EarlierChildren.Count)
+        {
+            error =
+                "The supplied batch execution context earlier-child count " +
+                "does not match the exact retained batch manifest.";
+
+            return false;
+        }
+
+        for (
+            int index = 0;
+            index < supplied.EarlierChildren.Count;
+            index++)
+        {
+            if (
+                !BatchExecutionChildrenMatch(
+                    supplied.EarlierChildren[index],
+                    recreated.EarlierChildren[index]))
+            {
+                error =
+                    $"The supplied batch execution context earlier child " +
+                    $"at index {index} does not match the exact retained " +
+                    "batch manifest.";
+
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool BatchExecutionChildrenMatch(
+        DataRelativePathRepairBatchExecutionChildExpectation left,
+        DataRelativePathRepairBatchExecutionChildExpectation right)
+    {
+        return
+            left.Index == right.Index &&
+            string.Equals(
+                left.ChildName,
+                right.ChildName,
+                StringComparison.Ordinal
+            ) &&
+            left.PlanId == right.PlanId &&
+            string.Equals(
+                left.ManifestSha256,
+                right.ManifestSha256,
+                StringComparison.OrdinalIgnoreCase
+            );
+    }
+
+    /*
+     * The descriptor and logical context travel together so same-batch
+     * authorization cannot receive membership metadata without the retained
+     * batch descriptor needed to reauthenticate earlier children. This
+     * record itself grants no mutation authority.
      */
     private sealed record BatchExecutionScope(
         LinuxNoFollowPathHandle BatchDirectory,
         DataRelativePathRepairBatchExecutionContext Context
     );
 
+    private sealed record BatchApplyAuthorityAuthentication(
+        bool Success,
+        bool AggregateCoverageAuthorized,
+        string? Error
+    )
+    {
+        public static BatchApplyAuthorityAuthentication Succeeded(
+            bool aggregateCoverageAuthorized)
+        {
+            return new(
+                Success:
+                    true,
+                AggregateCoverageAuthorized:
+                    aggregateCoverageAuthorized,
+                Error:
+                    null
+            );
+        }
+
+        public static BatchApplyAuthorityAuthentication Failed(
+            string error)
+        {
+            return new(
+                Success:
+                    false,
+                AggregateCoverageAuthorized:
+                    false,
+                Error:
+                    error
+            );
+        }
+    }
+
     private sealed record PreflightResult(
         DataRelativePathRepairPlanForwardOperationExecution?
-            Failure
+            Failure,
+        bool HasExistingJournal
     )
     {
         public bool Success =>
             Failure is null;
 
-        public static PreflightResult Succeeded()
+        public static PreflightResult Succeeded(
+            bool hasExistingJournal)
         {
             return new(
                 Failure:
-                    null
+                    null,
+                HasExistingJournal:
+                    hasExistingJournal
             );
         }
 
@@ -2017,7 +3072,9 @@ public static class DataRelativePathRepairPlanForwardExecutor
 
             return new(
                 Failure:
-                    failure
+                    failure,
+                HasExistingJournal:
+                    true
             );
         }
     }

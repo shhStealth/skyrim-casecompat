@@ -18,11 +18,33 @@ public sealed record DataRelativePathRepairBatchManifestRecord(
         Children
 )
 {
+    /*
+     * Schema v1 predates aggregate namespace-coverage authorization.
+     *
+     * Keep the marker nullable and omit it from JSON while null so
+     * existing schema-v1 batch manifests retain their exact legacy shape.
+     */
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition =
+            System.Text.Json.Serialization.JsonIgnoreCondition
+                .WhenWritingNull)]
+    public int? CoveragePolicyVersion
+    {
+        get;
+        init;
+    }
+
     public const int SchemaVersion1 =
         1;
 
+    public const int SchemaVersion2 =
+        2;
+
+    public const int CoveragePolicyVersion1 =
+        1;
+
     public const int CurrentSchemaVersion =
-        SchemaVersion1;
+        SchemaVersion2;
 }
 
 public enum DataRelativePathRepairBatchManifestCreationState
@@ -65,7 +87,7 @@ public static class DataRelativePathRepairBatchManifest
             new DataRelativePathRepairBatchManifestRecord(
                 SchemaVersion:
                     DataRelativePathRepairBatchManifestRecord
-                        .CurrentSchemaVersion,
+                        .SchemaVersion1,
                 BatchId:
                     batchId,
                 CreatedUtc:
@@ -81,6 +103,86 @@ public static class DataRelativePathRepairBatchManifest
                 Children:
                     children.ToArray()
             );
+
+        string? validationError =
+            Validate(
+                manifest
+            );
+
+        if (validationError is not null)
+        {
+            return new(
+                State:
+                    DataRelativePathRepairBatchManifestCreationState
+                        .InvalidInput,
+                Manifest:
+                    null,
+                Error:
+                    validationError
+            );
+        }
+
+        return new(
+            State:
+                DataRelativePathRepairBatchManifestCreationState
+                    .Created,
+            Manifest:
+                manifest,
+            Error:
+                null
+        );
+    }
+
+    /*
+     * Create a durable batch completion record that proves the batch was
+     * completed under aggregate namespace-coverage policy version 1.
+     *
+     * This factory does not itself perform coverage authorization. Its
+     * caller must already have completed that authorization before using
+     * this narrowly named persistence format.
+     *
+     * Legacy Create(...) deliberately remains schema v1.
+     */
+    public static DataRelativePathRepairBatchManifestCreation
+        CreateCoverageAuthorized(
+            Guid batchId,
+            DateTimeOffset createdUtc,
+            string dataRoot,
+            string childManifestName,
+            int inputPathCount,
+            int safeRejectionCount,
+            IReadOnlyList<
+                DataRelativePathRepairBatchManifestChild
+            > children)
+    {
+        DataRelativePathRepairBatchManifestCreation legacy =
+            Create(
+                batchId,
+                createdUtc,
+                dataRoot,
+                childManifestName,
+                inputPathCount,
+                safeRejectionCount,
+                children
+            );
+
+        if (
+            !legacy.Success ||
+            legacy.Manifest is null)
+        {
+            return legacy;
+        }
+
+        DataRelativePathRepairBatchManifestRecord manifest =
+            legacy.Manifest with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .SchemaVersion2,
+                CoveragePolicyVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .CoveragePolicyVersion1
+            };
 
         string? validationError =
             Validate(
@@ -163,9 +265,34 @@ public static class DataRelativePathRepairBatchManifest
         );
 
         if (
-            manifest.SchemaVersion !=
+            manifest.SchemaVersion ==
             DataRelativePathRepairBatchManifestRecord
                 .SchemaVersion1)
+        {
+            if (manifest.CoveragePolicyVersion is not null)
+            {
+                return
+                    "Schema-v1 batch manifests must not claim aggregate " +
+                    "namespace-coverage authorization.";
+            }
+        }
+        else if (
+            manifest.SchemaVersion ==
+            DataRelativePathRepairBatchManifestRecord
+                .SchemaVersion2)
+        {
+            if (
+                manifest.CoveragePolicyVersion !=
+                DataRelativePathRepairBatchManifestRecord
+                    .CoveragePolicyVersion1)
+            {
+                return
+                    "Schema-v2 batch manifests require aggregate " +
+                    "namespace-coverage policy version " +
+                    $"{DataRelativePathRepairBatchManifestRecord.CoveragePolicyVersion1}.";
+            }
+        }
+        else
         {
             return
                 $"Unsupported batch-manifest schema version " +

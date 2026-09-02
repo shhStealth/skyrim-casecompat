@@ -169,12 +169,7 @@ public static class RepairPlanBatchCommand
          * No repair operation is executed here.
          */
         var preflight =
-            new List<
-                (
-                    string RequestedPath,
-                    DataRelativePathRepairPlanProjection Projection
-                )
-            >(
+            new List<BatchPreflightEntry>(
                 requestedPaths.Length
             );
 
@@ -211,9 +206,10 @@ public static class RepairPlanBatchCommand
             try
             {
                 projection =
-                    DataRelativePathRepairPlanProjector.Project(
-                        resolution
-                    );
+                    DataRelativePathRepairPlanProjector
+                        .ProjectBatchCandidate(
+                            resolution
+                        );
             }
             catch (Exception ex)
             {
@@ -226,11 +222,15 @@ public static class RepairPlanBatchCommand
             }
 
             preflight.Add(
-                (
+                new BatchPreflightEntry(
                     RequestedPath:
                         requestedPath,
+                    Resolution:
+                        resolution,
                     Projection:
-                        projection
+                        projection,
+                    CoverageDecision:
+                        null
                 )
             );
         }
@@ -301,9 +301,75 @@ public static class RepairPlanBatchCommand
             return 5;
         }
 
+        /*
+         * Batch candidates are only technical projections at this point.
+         *
+         * Promote them to batch-authorized plans only after the complete
+         * candidate set proves aggregate namespace coverage.
+         */
+        int[] candidateInputIndexes =
+            preflight
+                .Select(
+                    (
+                        entry,
+                        index
+                    ) =>
+                        (
+                            Entry:
+                                entry,
+                            Index:
+                                index
+                        )
+                )
+                .Where(item =>
+                    item.Entry.Projection.HasPlan
+                )
+                .Select(item =>
+                    item.Index
+                )
+                .ToArray();
+
+        DataRelativePathRepairPlanProjection[]
+            candidateProjections =
+                candidateInputIndexes
+                    .Select(index =>
+                        preflight[index]
+                            .Projection
+                    )
+                    .ToArray();
+
+        DataRelativePathRepairBatchCoverageAuthorization
+            coverageAuthorization =
+                DataRelativePathRepairBatchCoverageAuthorizer
+                    .Authorize(
+                        candidateProjections
+                    );
+
+        for (
+            int candidateIndex = 0;
+            candidateIndex <
+                candidateInputIndexes.Length;
+            candidateIndex++)
+        {
+            int inputIndex =
+                candidateInputIndexes[
+                    candidateIndex
+                ];
+
+            preflight[inputIndex] =
+                preflight[inputIndex] with
+                {
+                    CoverageDecision =
+                        coverageAuthorization
+                            .Decisions[
+                                candidateIndex
+                            ]
+                };
+        }
+
         int projectedCount =
             preflight.Count(entry =>
-                entry.Projection.HasPlan
+                entry.IsAuthorized
             );
 
         int rejectedCount =
@@ -349,7 +415,7 @@ public static class RepairPlanBatchCommand
             var entry =
                 preflight[index];
 
-            if (entry.Projection.HasPlan)
+            if (entry.IsAuthorized)
             {
                 Console.WriteLine(
                     $"[{index + 1}] PLAN    {entry.RequestedPath}"
@@ -367,6 +433,26 @@ public static class RepairPlanBatchCommand
             Console.WriteLine(
                 $"      Topology:   {entry.Projection.TopologyState}"
             );
+
+            if (
+                entry.Projection.HasPlan &&
+                entry.CoverageDecision is not null &&
+                !entry.CoverageDecision.Authorized)
+            {
+                Console.WriteLine(
+                    $"      Coverage:   " +
+                    $"{entry.CoverageDecision.State}"
+                );
+
+                if (!string.IsNullOrWhiteSpace(
+                        entry.CoverageDecision.Error))
+                {
+                    Console.WriteLine(
+                        $"      Coverage error: " +
+                        $"{entry.CoverageDecision.Error}"
+                    );
+                }
+            }
 
             if (!string.IsNullOrWhiteSpace(
                     entry.Projection.Error))
@@ -395,6 +481,76 @@ public static class RepairPlanBatchCommand
             );
         }
 
+        /*
+         * Re-enumerate aggregate physical namespace coverage immediately
+         * before publishing the first child directory.
+         *
+         * This catches namespace changes after the reporting preflight
+         * without falling back to standalone per-child authorization.
+         */
+        DataRelativePathRepairBatchCoverageAuthorization
+            publicationCoverage =
+                DataRelativePathRepairBatchCoverageAuthorizer
+                    .Authorize(
+                        candidateProjections
+                    );
+
+        for (
+            int candidateIndex = 0;
+            candidateIndex <
+                candidateInputIndexes.Length;
+            candidateIndex++)
+        {
+            int inputIndex =
+                candidateInputIndexes[
+                    candidateIndex
+                ];
+
+            if (
+                preflight[inputIndex].IsAuthorized &&
+                !publicationCoverage
+                    .Decisions[
+                        candidateIndex
+                    ]
+                    .Authorized)
+            {
+                Console.Error.WriteLine();
+                Console.Error.WriteLine(
+                    "Repair-plan-batch aggregate namespace coverage " +
+                    "changed after preflight."
+                );
+                Console.Error.WriteLine(
+                    $"Input: {preflight[inputIndex].RequestedPath}"
+                );
+                Console.Error.WriteLine(
+                    $"Coverage state: " +
+                    $"{publicationCoverage.Decisions[candidateIndex].State}"
+                );
+
+                if (!string.IsNullOrWhiteSpace(
+                        publicationCoverage
+                            .Decisions[
+                                candidateIndex
+                            ]
+                            .Error))
+                {
+                    Console.Error.WriteLine(
+                        publicationCoverage
+                            .Decisions[
+                                candidateIndex
+                            ]
+                            .Error
+                    );
+                }
+
+                Console.Error.WriteLine(
+                    "No child plan directories were published."
+                );
+
+                return 6;
+            }
+        }
+
         int persistedCount =
             0;
 
@@ -409,7 +565,7 @@ public static class RepairPlanBatchCommand
             var entry
             in preflight)
         {
-            if (!entry.Projection.HasPlan)
+            if (!entry.IsAuthorized)
             {
                 continue;
             }
@@ -470,50 +626,41 @@ public static class RepairPlanBatchCommand
                 return 6;
             }
 
-            string childPath =
-                Path.Combine(
-                    batchDirectory.FullPath,
-                    childName
-                );
-
             Console.WriteLine();
             Console.WriteLine(
                 $"--- {childName}: {entry.RequestedPath} ---"
             );
 
             /*
-             * Deliberately delegate the authoritative persistence path
-             * back to the existing single-plan command.
+             * The complete batch has already granted aggregate namespace
+             * authority to this exact technical projection.
              *
-             * It re-resolves and re-projects the path, creates the
-             * schema-v2 manifest from resolver evidence, safely opens
-             * this journal directory, publishes the manifest durably,
-             * and reads it back for verification.
+             * Do not call standalone repair-plan here: doing so would
+             * intentionally reapply standalone sparse-branch policy and
+             * revoke valid collective authority.
              *
-             * A state change between preflight and this second pass
-             * therefore fails closed rather than allowing the batch
-             * preflight to authorize stale work.
+             * Instead, create the schema-v2 manifest directly from the
+             * resolver evidence and snapshots retained by this authorized
+             * batch preflight, then publish it through the ordinary durable
+             * manifest writer.
              */
-            int planResult =
-                RepairPlanCommand.Run(
-                    [
-                        "repair-plan",
-                        fullDataRoot,
-                        entry.RequestedPath,
-                        childPath,
-                        manifestName
-                    ]
-                );
+            LinuxOpenChildDirectoryReadOnlyAtResult
+                planDirectoryOpen;
 
-            if (planResult != 0)
+            try
+            {
+                planDirectoryOpen =
+                    LinuxOpenChildDirectoryReadOnlyAt.Open(
+                        batchDirectory,
+                        childName
+                    );
+            }
+            catch (Exception ex)
             {
                 Console.Error.WriteLine();
                 Console.Error.WriteLine(
-                    $"Repair-plan-batch stopped because {childName} " +
-                    $"did not persist successfully."
-                );
-                Console.Error.WriteLine(
-                    $"Nested repair-plan exit: {planResult}"
+                    $"Repair-plan-batch could not safely open {childName} " +
+                    $"for manifest publication: {ex.Message}"
                 );
 
                 WritePartialMetadataWarning(
@@ -523,15 +670,151 @@ public static class RepairPlanBatchCommand
                 return 7;
             }
 
+            if (
+                !planDirectoryOpen.Success ||
+                planDirectoryOpen.OpenedDirectory is null)
+            {
+                Console.Error.WriteLine();
+                Console.Error.WriteLine(
+                    $"Repair-plan-batch could not safely open {childName} " +
+                    "for manifest publication."
+                );
+                Console.Error.WriteLine(
+                    planDirectoryOpen.Error ??
+                    planDirectoryOpen.State.ToString()
+                );
+
+                WritePartialMetadataWarning(
+                    persistedCount
+                );
+
+                return 7;
+            }
+
+            DataRelativePathRepairPlanManifestRecord
+                expectedManifest;
+
+            using (
+                LinuxNoFollowPathHandle planDirectory =
+                    planDirectoryOpen.OpenedDirectory)
+            {
+                DataRelativePathRepairPlanManifestCreation
+                    creation;
+
+                try
+                {
+                    creation =
+                        DataRelativePathRepairPlanManifest
+                            .CreateFromResolution(
+                                Guid.NewGuid(),
+                                DateTimeOffset.UtcNow,
+                                entry.Resolution,
+                                entry.Projection
+                                    .SourceSnapshot!,
+                                entry.Projection
+                                    .DestinationParentSnapshot!,
+                                entry.Projection
+                                    .Operations
+                            );
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine();
+                    Console.Error.WriteLine(
+                        $"Repair-plan-batch manifest creation failed for " +
+                        $"{childName}: {ex.Message}"
+                    );
+
+                    WritePartialMetadataWarning(
+                        persistedCount
+                    );
+
+                    return 7;
+                }
+
+                if (
+                    !creation.Success ||
+                    creation.Manifest is null)
+                {
+                    Console.Error.WriteLine();
+                    Console.Error.WriteLine(
+                        $"Repair-plan-batch manifest creation failed for " +
+                        $"{childName}."
+                    );
+                    Console.Error.WriteLine(
+                        creation.Error ??
+                        creation.State.ToString()
+                    );
+
+                    WritePartialMetadataWarning(
+                        persistedCount
+                    );
+
+                    return 7;
+                }
+
+                expectedManifest =
+                    creation.Manifest;
+
+                DataRelativePathRepairPlanManifestWriterResult
+                    write;
+
+                try
+                {
+                    write =
+                        DataRelativePathRepairPlanManifestWriter
+                            .CreateInitial(
+                                planDirectory,
+                                manifestName,
+                                expectedManifest
+                            );
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine();
+                    Console.Error.WriteLine(
+                        $"Repair-plan-batch manifest write failed for " +
+                        $"{childName}: {ex.Message}"
+                    );
+
+                    WritePartialMetadataWarning(
+                        persistedCount
+                    );
+
+                    return 7;
+                }
+
+                if (!write.Success)
+                {
+                    Console.Error.WriteLine();
+                    Console.Error.WriteLine(
+                        $"Repair-plan-batch manifest was not durably " +
+                        $"created for {childName}."
+                    );
+                    Console.Error.WriteLine(
+                        $"Write state: {write.State}"
+                    );
+
+                    if (!string.IsNullOrWhiteSpace(
+                            write.Error))
+                    {
+                        Console.Error.WriteLine(
+                            $"Error: {write.Error}"
+                        );
+                    }
+
+                    WritePartialMetadataWarning(
+                        persistedCount
+                    );
+
+                    return 7;
+                }
+            }
+
             /*
-             * The nested command reports only an exit code. Bind the
-             * completed batch to the actual child manifest that is now
-             * reachable descriptor-relatively from the retained batch
-             * directory.
-             *
-             * Count the child as persisted before this readback so any
-             * subsequent failure reports that its durable standalone
-             * plan may already exist.
+             * The child manifest is now durably published. Count it before
+             * independent readback so a subsequent verification failure
+             * reports that durable metadata may already exist.
              */
             persistedCount++;
 
@@ -645,6 +928,8 @@ public static class RepairPlanBatchCommand
                 persistedManifest.SchemaVersion !=
                     DataRelativePathRepairPlanManifestRecord
                         .SchemaVersion2 ||
+                persistedManifest.PlanId !=
+                    expectedManifest.PlanId ||
                 !string.Equals(
                     persistedManifest.RequestedPath,
                     entry.RequestedPath,
@@ -696,10 +981,14 @@ public static class RepairPlanBatchCommand
          * The durable root-level batch manifest is the completion
          * boundary.
          *
-         * Nothing above this point represents a complete batch. Child
-         * plans remain valid standalone plans, but the original intended
-         * set is not complete until this immutable membership record has
-         * itself been durably published.
+         * Nothing above this point represents a complete batch. Persisted
+         * child manifests are immutable per-path plan records, but they do
+         * not independently carry the aggregate namespace authority proved
+         * for the complete candidate set.
+         *
+         * The intended set is not complete until the schema-v2 batch
+         * manifest has durably bound exact child membership,
+         * safe-rejection accounting, and coverage-policy provenance.
          *
          * This also applies to the zero-child case: an all-safe-rejected
          * invocation records its input/rejection accounting with an empty
@@ -712,8 +1001,9 @@ public static class RepairPlanBatchCommand
         try
         {
             batchCreation =
-                DataRelativePathRepairBatchManifest.Create(
-                    batchId:
+                DataRelativePathRepairBatchManifest
+                    .CreateCoverageAuthorized(
+                        batchId:
                         Guid.NewGuid(),
                     createdUtc:
                         DateTimeOffset.UtcNow,
@@ -725,9 +1015,9 @@ public static class RepairPlanBatchCommand
                         preflight.Count,
                     safeRejectionCount:
                         rejectedCount,
-                    children:
-                        batchChildren
-                );
+                        children:
+                            batchChildren
+                    );
         }
         catch (Exception ex)
         {
@@ -919,12 +1209,18 @@ public static class RepairPlanBatchCommand
             "Repair operations executed: NO"
         );
         Console.WriteLine(
-            "Each persisted child remains an independent " +
-            "single-path repair plan."
+            "Each persisted child records one immutable single-path " +
+            "repair plan."
         );
         Console.WriteLine(
-            "The batch manifest records completed planning membership " +
-            "and safe-rejection accounting only."
+            "The schema-v2 batch manifest records exact child membership, " +
+            "safe-rejection accounting, and aggregate namespace-coverage " +
+            "provenance."
+        );
+        Console.WriteLine(
+            "repair-apply-batch must freshly revalidate aggregate coverage " +
+            "and durably establish batch-wide apply authorization before " +
+            "an unstarted child may mutate."
         );
         Console.WriteLine();
         Console.WriteLine(
@@ -935,12 +1231,26 @@ public static class RepairPlanBatchCommand
         return 0;
     }
 
+    private sealed record BatchPreflightEntry(
+        string RequestedPath,
+        DataRelativePathResolution Resolution,
+        DataRelativePathRepairPlanProjection Projection,
+        DataRelativePathRepairBatchCoverageDecision?
+            CoverageDecision)
+    {
+        public bool IsAuthorized =>
+            Projection.HasPlan &&
+            CoverageDecision?.Authorized == true;
+    }
+
     private static bool BatchManifestMatchesExpected(
         DataRelativePathRepairBatchManifestRecord expected,
         DataRelativePathRepairBatchManifestRecord observed)
     {
         if (
             expected.SchemaVersion != observed.SchemaVersion ||
+            expected.CoveragePolicyVersion !=
+                observed.CoveragePolicyVersion ||
             expected.BatchId != observed.BatchId ||
             expected.CreatedUtc != observed.CreatedUtc ||
             !string.Equals(

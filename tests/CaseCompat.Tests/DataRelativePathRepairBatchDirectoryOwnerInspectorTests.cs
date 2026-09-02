@@ -729,21 +729,94 @@ public sealed class
             string requestedPath =
                 $"meshes/{requestedComponent}/{fileName}";
 
-            int result =
-                global::RepairPlanCommand.Run(
-                    [
-                        "repair-plan",
+            /*
+             * These tests exercise authenticated batch ownership evidence,
+             * not standalone planning policy.
+             *
+             * Persist the immutable technical batch candidate directly.
+             * Aggregate authorization is still required before ApplyPlan is
+             * allowed to mutate anything.
+             */
+            var resolution =
+                CaseCompat.Core.Resolution
+                    .DataRelativePathResolver
+                    .ResolveFile(
                         DataRoot,
-                        requestedPath,
-                        childDirectoryPath,
-                        ManifestName
-                    ]
+                        requestedPath
+                    );
+
+            DataRelativePathRepairPlanProjection projection =
+                DataRelativePathRepairPlanProjector
+                    .ProjectBatchCandidate(
+                        resolution
+                    );
+
+            Assert.True(
+                projection.HasPlan,
+                projection.Error
+            );
+
+            DataRelativePathRepairPlanManifestCreation creation =
+                DataRelativePathRepairPlanManifest
+                    .CreateFromResolution(
+                        Guid.NewGuid(),
+                        T0,
+                        resolution,
+                        projection.SourceSnapshot!,
+                        projection.DestinationParentSnapshot!,
+                        projection.Operations
+                    );
+
+            Assert.True(
+                creation.Success,
+                creation.Error
+            );
+
+            DataRelativePathRepairPlanManifestRecord manifest =
+                Assert.IsType<
+                    DataRelativePathRepairPlanManifestRecord>(
+                        creation.Manifest
+                    );
+
+            using (
+                LinuxNoFollowPathHandle childDirectory =
+                    OpenRoot(
+                        childDirectoryPath
+                    ))
+            {
+                DataRelativePathRepairPlanManifestWriterResult write =
+                    DataRelativePathRepairPlanManifestWriter
+                        .CreateInitial(
+                            childDirectory,
+                            ManifestName,
+                            manifest
+                        );
+
+                Assert.True(
+                    write.Success,
+                    write.Error
                 );
 
-            Assert.Equal(
-                0,
-                result
-            );
+                DataRelativePathRepairPlanManifestReaderResult verify =
+                    DataRelativePathRepairPlanManifestReader.Read(
+                        childDirectory,
+                        ManifestName
+                    );
+
+                Assert.True(
+                    verify.Success,
+                    verify.Error
+                );
+
+                Assert.Equal(
+                    manifest.PlanId,
+                    verify.Manifest!.PlanId
+                );
+
+                Assert.NotNull(
+                    verify.ManifestSha256
+                );
+            }
 
             return new(
                 ChildName:
@@ -762,19 +835,281 @@ public sealed class
         public void ApplyPlan(
             PlanSpec plan)
         {
-            int result =
-                global::RepairApplyCommand.Run(
-                    [
-                        "repair-apply",
-                        plan.ChildDirectoryPath,
-                        ManifestName,
-                        DataRoot
-                    ]
+            const string batchManifestName =
+                "batch-manifest.json";
+
+            const string applyAuthorizationName =
+                "batch-apply-authorization.json";
+
+            string[] childNames =
+                Directory
+                    .EnumerateDirectories(
+                        BatchRoot,
+                        "plan-*",
+                        SearchOption.TopDirectoryOnly
+                    )
+                    .Select(
+                        Path.GetFileName
+                    )
+                    .Where(
+                        name =>
+                            !string.IsNullOrWhiteSpace(
+                                name
+                            )
+                    )
+                    .Select(
+                        name =>
+                            name!
+                    )
+                    .OrderBy(
+                        name =>
+                            name,
+                        StringComparer.Ordinal
+                    )
+                    .ToArray();
+
+            Assert.NotEmpty(
+                childNames
+            );
+
+            using LinuxNoFollowPathHandle batchDirectory =
+                OpenRoot(
+                    BatchRoot
                 );
 
-            Assert.Equal(
-                0,
-                result
+            var manifests =
+                new List<
+                    DataRelativePathRepairPlanManifestRecord>(
+                        childNames.Length
+                    );
+
+            var children =
+                new List<
+                    DataRelativePathRepairBatchManifestChild>(
+                        childNames.Length
+                    );
+
+            foreach (
+                string childName
+                in childNames)
+            {
+                LinuxOpenChildDirectoryReadOnlyAtResult childOpen =
+                    LinuxOpenChildDirectoryReadOnlyAt.Open(
+                        batchDirectory,
+                        childName
+                    );
+
+                Assert.True(
+                    childOpen.Success,
+                    childOpen.Error
+                );
+
+                using LinuxNoFollowPathHandle childDirectory =
+                    Assert.IsType<
+                        LinuxNoFollowPathHandle>(
+                            childOpen.OpenedDirectory
+                        );
+
+                DataRelativePathRepairPlanManifestReaderResult read =
+                    DataRelativePathRepairPlanManifestReader.Read(
+                        childDirectory,
+                        ManifestName
+                    );
+
+                Assert.True(
+                    read.Success,
+                    read.Error
+                );
+
+                DataRelativePathRepairPlanManifestRecord manifest =
+                    Assert.IsType<
+                        DataRelativePathRepairPlanManifestRecord>(
+                            read.Manifest
+                        );
+
+                string manifestSha256 =
+                    Assert.IsType<string>(
+                        read.ManifestSha256
+                    );
+
+                manifests.Add(
+                    manifest
+                );
+
+                children.Add(
+                    new(
+                        ChildName:
+                            childName,
+                        PlanId:
+                            manifest.PlanId,
+                        ManifestSha256:
+                            manifestSha256
+                    )
+                );
+            }
+
+            DataRelativePathRepairBatchCoverageAuthorization coverage =
+                DataRelativePathRepairBatchCoverageAuthorizer
+                    .AuthorizePersistedManifests(
+                        manifests
+                    );
+
+            Assert.True(
+                coverage.AllAuthorized
+            );
+
+            DataRelativePathRepairBatchManifestCreation batchCreation =
+                DataRelativePathRepairBatchManifest
+                    .CreateCoverageAuthorized(
+                        batchId:
+                            Guid.NewGuid(),
+                        createdUtc:
+                            T0,
+                        dataRoot:
+                            DataRoot,
+                        childManifestName:
+                            ManifestName,
+                        inputPathCount:
+                            children.Count,
+                        safeRejectionCount:
+                            0,
+                        children:
+                            children
+                    );
+
+            Assert.True(
+                batchCreation.Success,
+                batchCreation.Error
+            );
+
+            DataRelativePathRepairBatchManifestRecord batchManifest =
+                Assert.IsType<
+                    DataRelativePathRepairBatchManifestRecord>(
+                        batchCreation.Manifest
+                    );
+
+            DataRelativePathRepairBatchManifestWriterResult batchWrite =
+                DataRelativePathRepairBatchManifestWriter
+                    .CreateInitial(
+                        batchDirectory,
+                        batchManifestName,
+                        batchManifest
+                    );
+
+            Assert.True(
+                batchWrite.Success,
+                batchWrite.Error
+            );
+
+            DataRelativePathRepairBatchManifestReaderResult batchRead =
+                DataRelativePathRepairBatchManifestReader.Read(
+                    batchDirectory,
+                    batchManifestName
+                );
+
+            Assert.True(
+                batchRead.Success,
+                batchRead.Error
+            );
+
+            string batchManifestSha256 =
+                Assert.IsType<string>(
+                    batchRead.ManifestSha256
+                );
+
+            DataRelativePathRepairBatchApplyAuthorizationCreation
+                authorizationCreation =
+                    DataRelativePathRepairBatchApplyAuthorization
+                        .CreateForCompletedBatch(
+                            batchManifest,
+                            batchManifestSha256,
+                            T0
+                        );
+
+            Assert.True(
+                authorizationCreation.Success,
+                authorizationCreation.Error
+            );
+
+            DataRelativePathRepairBatchApplyAuthorizationWriterResult
+                authorizationWrite =
+                    DataRelativePathRepairBatchApplyAuthorizationWriter
+                        .CreateInitial(
+                            batchDirectory,
+                            applyAuthorizationName,
+                            authorizationCreation.Authorization!
+                        );
+
+            Assert.True(
+                authorizationWrite.Success,
+                authorizationWrite.Error
+            );
+
+            int currentChildIndex =
+                children.FindIndex(
+                    child =>
+                        string.Equals(
+                            child.ChildName,
+                            plan.ChildName,
+                            StringComparison.Ordinal
+                        )
+                );
+
+            Assert.True(
+                currentChildIndex >= 0
+            );
+
+            DataRelativePathRepairBatchExecutionContextCreation
+                contextCreation =
+                    DataRelativePathRepairBatchExecutionContext.Create(
+                        batchManifest,
+                        currentChildIndex,
+                        batchManifest.Children[
+                            currentChildIndex
+                        ]
+                    );
+
+            Assert.True(
+                contextCreation.Success,
+                contextCreation.Error
+            );
+
+            DataRelativePathRepairBatchExecutionContext context =
+                Assert.IsType<
+                    DataRelativePathRepairBatchExecutionContext>(
+                        contextCreation.Context
+                    );
+
+            LinuxOpenChildDirectoryReadOnlyAtResult ownerOpen =
+                LinuxOpenChildDirectoryReadOnlyAt.Open(
+                    batchDirectory,
+                    plan.ChildName
+                );
+
+            Assert.True(
+                ownerOpen.Success,
+                ownerOpen.Error
+            );
+
+            using LinuxNoFollowPathHandle ownerDirectory =
+                Assert.IsType<
+                    LinuxNoFollowPathHandle>(
+                        ownerOpen.OpenedDirectory
+                    );
+
+            DataRelativePathRepairPlanForwardExecution execution =
+                DataRelativePathRepairPlanForwardExecutor
+                    .ExecuteExpectedBatchManifest(
+                        batchDirectory,
+                        context,
+                        ownerDirectory,
+                        DataRoot,
+                        T0
+                    );
+
+            Assert.True(
+                execution.Success,
+                execution.Error
             );
         }
 

@@ -251,6 +251,353 @@ public sealed class
 
     [Fact]
     public void
+        Execute_CaseVariantBranchGainsUntargetedContentAfterProjection_FailsBeforeFilesystemMutation()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathResolution resolution =
+            fixture.ResolveRequestedPath();
+
+        Assert.Equal(
+            DataRelativePathCaseMismatchTopologyState
+                .DirectStrictCaseMismatch,
+            DataRelativePathCaseMismatchTopologyClassifier.Classify(
+                resolution
+            )
+        );
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector.Project(
+                resolution
+            );
+
+        Assert.True(
+            projection.HasPlan,
+            projection.Error
+        );
+
+        DataRelativePathRepairPlanManifestRecord manifest =
+            fixture.PersistManifest(
+                resolution,
+                projection
+            );
+
+        /*
+         * The plan was safe when projected:
+         *
+         *   fafny stash/
+         *       Bishop Armor/
+         *           armor.nif
+         *
+         * Now make that durable plan stale by adding content that would
+         * be stranded in the old case-variant branch if execution created
+         * a sparse parallel "Fafny stash" hierarchy.
+         */
+        string untargetedSibling =
+            Path.Combine(
+                fixture.SourceTopDirectoryPath,
+                "untargeted.nif"
+            );
+
+        File.WriteAllText(
+            untargetedSibling,
+            "appeared-after-projection"
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.RequestedTopDirectoryPath
+            )
+        );
+
+        DataRelativePathRepairPlanForwardExecution execution =
+            DataRelativePathRepairPlanForwardExecutor.Execute(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot,
+                T0.AddSeconds(10)
+            );
+
+        if (NoReplaceUnsupported(execution))
+        {
+            return;
+        }
+
+        /*
+         * Apply must revalidate the sparse-branch safety invariant before
+         * the first CreateDirectory. A projection-time check alone is not
+         * sufficient because the physical source hierarchy can change
+         * after the immutable manifest is persisted.
+         */
+        Assert.False(
+            execution.Success
+        );
+
+        Assert.NotEqual(
+            DataRelativePathRepairPlanForwardExecutionState
+                .AppliedDurably,
+            execution.State
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.RequestedTopDirectoryPath
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.RequestedParentPath
+            )
+        );
+
+        Assert.False(
+            File.Exists(
+                fixture.DestinationPath
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.SourcePath
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                untargetedSibling
+            )
+        );
+
+        /*
+         * A fail-closed stale-plan rejection must happen before any
+         * operation obtains durable mutation history.
+         */
+        foreach (
+            DataRelativePathRepairPlanManifestOperation entry
+            in manifest.Operations)
+        {
+            Assert.False(
+                File.Exists(
+                    Path.Combine(
+                        fixture.JournalDirectoryPath,
+                        entry.JournalChildName
+                    )
+                )
+            );
+        }
+    }
+
+    [Fact]
+    public void
+        Execute_FirstDirectoryAlreadyApplied_ThenSourceBranchGainsUntargetedContent_ResumesRemainingOperations()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathResolution resolution =
+            fixture.ResolveRequestedPath();
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector.Project(
+                resolution
+            );
+
+        Assert.True(
+            projection.HasPlan,
+            projection.Error
+        );
+
+        DataRelativePathRepairPlanManifestRecord manifest =
+            fixture.PersistManifest(
+                resolution,
+                projection
+            );
+
+        DataRelativePathRepairPlanManifestOperation first =
+            manifest.Operations[0];
+
+        /*
+         * Start the durable plan by applying operation 0 directly.
+         * Whole-plan execution must therefore treat the plan as recovery,
+         * not as a fresh unstarted plan.
+         */
+        DataRelativePathRepairDirectoryExecution firstExecution =
+            DataRelativePathRepairDirectoryExecutor.Execute(
+                fixture.JournalDirectory,
+                first.JournalChildName,
+                first.Operation,
+                manifest.InitialDestinationParentSnapshot,
+                fixture.DataRoot,
+                T0.AddSeconds(5)
+            );
+
+        if (
+            firstExecution.ForwardRecovery?.Publication?.State ==
+            LinuxPublishOwnedDirectoryAtState.NoReplaceUnsupported)
+        {
+            return;
+        }
+
+        Assert.True(
+            firstExecution.Success,
+            firstExecution.Error
+        );
+
+        DataRelativePathRepairDirectoryJournalReaderResult before =
+            DataRelativePathRepairDirectoryJournalReader.Read(
+                fixture.JournalDirectory,
+                first.JournalChildName
+            );
+
+        Assert.True(
+            before.Success,
+            before.Error
+        );
+
+        Guid firstJournalId =
+            before.Record!.JournalId;
+
+        int firstRevision =
+            before.Record.Revision;
+
+        Assert.True(
+            Directory.Exists(
+                fixture.RequestedTopDirectoryPath
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                fixture.RequestedParentPath
+            )
+        );
+
+        /*
+         * After durable execution has already begun, unrelated content
+         * appears in the old physical case-variant branch.
+         *
+         * The fresh-plan sparse-branch guard must not reinterpret this
+         * started plan. Existing journal recovery semantics remain
+         * authoritative.
+         */
+        string untargetedSibling =
+            Path.Combine(
+                fixture.SourceTopDirectoryPath,
+                "appeared-after-plan-start.nif"
+            );
+
+        File.WriteAllText(
+            untargetedSibling,
+            "post-start-untargeted-content"
+        );
+
+        DataRelativePathRepairPlanForwardExecution execution =
+            DataRelativePathRepairPlanForwardExecutor.Execute(
+                fixture.JournalDirectory,
+                Fixture.ManifestName,
+                fixture.DataRoot,
+                T0.AddSeconds(10)
+            );
+
+        if (NoReplaceUnsupported(execution))
+        {
+            return;
+        }
+
+        Assert.True(
+            execution.Success,
+            execution.Error
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanForwardExecutionState
+                .AppliedDurably,
+            execution.State
+        );
+
+        Assert.Equal(
+            3,
+            execution.OperationResults.Count
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.RequestedParentPath
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.DestinationPath
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.SourcePath
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                untargetedSibling
+            )
+        );
+
+        /*
+         * Recovery must not rewrite the already-Applied first operation's
+         * durable journal.
+         */
+        DataRelativePathRepairDirectoryJournalReaderResult after =
+            DataRelativePathRepairDirectoryJournalReader.Read(
+                fixture.JournalDirectory,
+                first.JournalChildName
+            );
+
+        Assert.True(
+            after.Success,
+            after.Error
+        );
+
+        Assert.Equal(
+            firstJournalId,
+            after.Record!.JournalId
+        );
+
+        Assert.Equal(
+            firstRevision,
+            after.Record.Revision
+        );
+
+        fixture.AssertAllOperationJournalsApplied(
+            manifest
+        );
+    }
+
+    [Fact]
+    public void
         Execute_FirstDirectoryAlreadyApplied_ResumesRemainingOperations()
     {
         if (!OperatingSystem.IsLinux())

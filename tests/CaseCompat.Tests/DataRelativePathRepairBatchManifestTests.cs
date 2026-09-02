@@ -90,6 +90,10 @@ public sealed class
             manifest.SchemaVersion
         );
 
+        Assert.Null(
+            manifest.CoveragePolicyVersion
+        );
+
         Assert.Equal(
             BatchId,
             manifest.BatchId
@@ -128,6 +132,229 @@ public sealed class
         Assert.NotSame(
             children,
             manifest.Children
+        );
+    }
+
+    [Fact]
+    public void
+        CreateCoverageAuthorized_ValidRecord_EmitsSchemaV2CoveragePolicy()
+    {
+        var children =
+            new[]
+            {
+                Child(
+                    "plan-000001",
+                    Plan1Id,
+                    Hash1
+                ),
+                Child(
+                    "plan-000002",
+                    Plan2Id,
+                    Hash2
+                )
+            };
+
+        DataRelativePathRepairBatchManifestCreation creation =
+            DataRelativePathRepairBatchManifest
+                .CreateCoverageAuthorized(
+                    BatchId,
+                    T0,
+                    "/tmp/Skyrim/Data",
+                    "repair-plan.json",
+                    inputPathCount:
+                        5,
+                    safeRejectionCount:
+                        3,
+                    children
+                );
+
+        Assert.True(
+            creation.Success,
+            creation.Error
+        );
+
+        DataRelativePathRepairBatchManifestRecord manifest =
+            Assert.IsType<
+                DataRelativePathRepairBatchManifestRecord
+            >(
+                creation.Manifest
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord
+                .SchemaVersion2,
+            manifest.SchemaVersion
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord
+                .CoveragePolicyVersion1,
+            manifest.CoveragePolicyVersion
+        );
+
+        Assert.Equal(
+            2,
+            manifest.Children.Count
+        );
+
+        Assert.NotSame(
+            children,
+            manifest.Children
+        );
+    }
+
+    [Fact]
+    public void
+        Validate_SchemaV1ClaimingCoveragePolicy_Fails()
+    {
+        DataRelativePathRepairBatchManifestRecord manifest =
+            ValidManifest() with
+            {
+                CoveragePolicyVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .CoveragePolicyVersion1
+            };
+
+        string? error =
+            DataRelativePathRepairBatchManifest.Validate(
+                manifest
+            );
+
+        Assert.NotNull(
+            error
+        );
+
+        Assert.Contains(
+            "Schema-v1",
+            error
+        );
+    }
+
+    [Fact]
+    public void
+        Validate_SchemaV2WithoutCoveragePolicy_Fails()
+    {
+        DataRelativePathRepairBatchManifestRecord manifest =
+            ValidManifest() with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .SchemaVersion2
+            };
+
+        string? error =
+            DataRelativePathRepairBatchManifest.Validate(
+                manifest
+            );
+
+        Assert.NotNull(
+            error
+        );
+
+        Assert.Contains(
+            "Schema-v2",
+            error
+        );
+    }
+
+    [Fact]
+    public void
+        Validate_SchemaV2WithUnknownCoveragePolicy_Fails()
+    {
+        DataRelativePathRepairBatchManifestRecord manifest =
+            ValidManifest() with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .SchemaVersion2,
+                CoveragePolicyVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .CoveragePolicyVersion1 + 1
+            };
+
+        string? error =
+            DataRelativePathRepairBatchManifest.Validate(
+                manifest
+            );
+
+        Assert.NotNull(
+            error
+        );
+
+        Assert.Contains(
+            "policy version",
+            error
+        );
+    }
+
+    [Fact]
+    public void
+        JsonRoundTrip_CoverageAuthorizedSchemaV2_PreservesMarker()
+    {
+        DataRelativePathRepairBatchManifestCreation creation =
+            DataRelativePathRepairBatchManifest
+                .CreateCoverageAuthorized(
+                    BatchId,
+                    T0,
+                    "/tmp/Skyrim/Data",
+                    "repair-plan.json",
+                    inputPathCount:
+                        2,
+                    safeRejectionCount:
+                        0,
+                    [
+                        Child(
+                            "plan-000001",
+                            Plan1Id,
+                            Hash1
+                        ),
+                        Child(
+                            "plan-000002",
+                            Plan2Id,
+                            Hash2
+                        )
+                    ]
+                );
+
+        Assert.True(
+            creation.Success,
+            creation.Error
+        );
+
+        DataRelativePathRepairBatchManifestRecord manifest =
+            creation.Manifest!;
+
+        byte[] json =
+            DataRelativePathRepairBatchManifestJson.Serialize(
+                manifest
+            );
+
+        DataRelativePathRepairBatchManifestRecord restored =
+            Assert.IsType<
+                DataRelativePathRepairBatchManifestRecord
+            >(
+                DataRelativePathRepairBatchManifestJson
+                    .Deserialize(
+                        json
+                    )
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord
+                .SchemaVersion2,
+            restored.SchemaVersion
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord
+                .CoveragePolicyVersion1,
+            restored.CoveragePolicyVersion
+        );
+
+        Assert.Null(
+            DataRelativePathRepairBatchManifest.Validate(
+                restored
+            )
         );
     }
 

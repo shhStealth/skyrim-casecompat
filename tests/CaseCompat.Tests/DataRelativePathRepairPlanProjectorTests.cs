@@ -489,6 +489,166 @@ public sealed class DataRelativePathRepairPlanProjectorTests
     }
 
     [Fact]
+    public void Project_CaseVariantDirectoryWithUntargetedContent_IsBlocked()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var temp =
+            new TemporaryDirectory();
+
+        string dataRoot =
+            CreateDataRoot(
+                temp
+            );
+
+        string physicalArmorDirectory =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    dataRoot,
+                    "meshes",
+                    "1_soldier_replacer",
+                    "guards",
+                    "dawnstar",
+                    "armor"
+                )
+            ).FullName;
+
+        string physicalSource =
+            Path.Combine(
+                physicalArmorDirectory,
+                "boots_f.nif"
+            );
+
+        string untargetedSibling =
+            Path.Combine(
+                physicalArmorDirectory,
+                "armorf_0.nif"
+            );
+
+        File.WriteAllText(
+            physicalSource,
+            "targeted-boots-fixture"
+        );
+
+        File.WriteAllText(
+            untargetedSibling,
+            "untargeted-armor-fixture"
+        );
+
+        DataRelativePathResolution resolution =
+            Resolve(
+                dataRoot,
+                "Meshes/1_Soldier_Replacer/Guards/" +
+                "Dawnstar/Armor/Boots_F.nif"
+            );
+
+        Assert.Equal(
+            DataRelativePathCaseMismatchTopologyState
+                .DirectStrictCaseMismatch,
+            DataRelativePathCaseMismatchTopologyClassifier
+                .Classify(
+                    resolution
+                )
+        );
+
+        string requestedDirectory =
+            Path.Combine(
+                dataRoot,
+                "meshes",
+                "1_Soldier_Replacer"
+            );
+
+        Assert.False(
+            Directory.Exists(
+                requestedDirectory
+            )
+        );
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector.Project(
+                resolution
+            );
+
+        /*
+         * Creating a sparse parallel 1_Soldier_Replacer tree would
+         * strand armorf_0.nif in the existing 1_soldier_replacer
+         * hierarchy. Skyrim can then resolve through the new sparse
+         * tree and report the untargeted armour mesh as missing.
+         *
+         * This is the real-world guard regression reproduced by the
+         * full 1,103-plan acceptance test.
+         */
+        Assert.Equal(
+            DataRelativePathRepairPlanProjectionState
+                .DestinationConflict,
+            projection.State
+        );
+
+        Assert.False(
+            projection.HasPlan
+        );
+
+        Assert.Empty(
+            projection.Operations
+        );
+
+        /*
+         * The same resolver evidence is still technically projectable for
+         * a future batch-wide coverage decision. This candidate is NOT
+         * standalone authority: only an aggregate batch authorizer may
+         * promote it after proving complete and consistent namespace
+         * coverage.
+         */
+        DataRelativePathRepairPlanProjection batchCandidate =
+            DataRelativePathRepairPlanProjector
+                .ProjectBatchCandidate(
+                    resolution
+                );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanProjectionState
+                .Projected,
+            batchCandidate.State
+        );
+
+        Assert.True(
+            batchCandidate.HasPlan,
+            batchCandidate.Error
+        );
+
+        Assert.NotEmpty(
+            batchCandidate.Operations
+        );
+
+        Assert.Equal(
+            physicalSource,
+            batchCandidate.SourceSnapshot!.PhysicalPath
+        );
+
+        // Both projection modes themselves remain read-only.
+        Assert.True(
+            File.Exists(
+                physicalSource
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                untargetedSibling
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                requestedDirectory
+            )
+        );
+    }
+
+    [Fact]
     public void Project_DestinationAppearsAfterResolution_IsBlocked()
     {
         if (!OperatingSystem.IsLinux())
