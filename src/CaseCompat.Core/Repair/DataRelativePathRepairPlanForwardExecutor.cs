@@ -27,6 +27,8 @@ public static class DataRelativePathRepairPlanForwardExecutor
             expectedPlanId:
                 null,
             expectedManifestSha256:
+                null,
+            batchScope:
                 null
         );
     }
@@ -60,7 +62,143 @@ public static class DataRelativePathRepairPlanForwardExecutor
             trustedDataRoot,
             nowUtc,
             expectedPlanId,
-            expectedManifestSha256
+            expectedManifestSha256,
+            batchScope:
+                null
+        );
+    }
+
+    /*
+     * Batch-only whole-plan entry point.
+     *
+     * This increment only carries the retained batch descriptor and
+     * factory-created logical context through the same locked forward
+     * execution path. It deliberately adds no reuse behavior.
+     *
+     * Standalone repair-apply cannot call this path accidentally because
+     * its existing Execute(...) and ExecuteExpectedManifest(...) entry
+     * points always enter ExecuteCore with no batch scope.
+     */
+    public static DataRelativePathRepairPlanForwardExecution
+        ExecuteExpectedBatchManifest(
+            LinuxNoFollowPathHandle batchDirectory,
+            DataRelativePathRepairBatchExecutionContext batchContext,
+            LinuxNoFollowPathHandle journalDirectory,
+            string trustedDataRoot,
+            DateTimeOffset nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(
+            batchDirectory
+        );
+
+        ArgumentNullException.ThrowIfNull(
+            batchContext
+        );
+
+        ArgumentNullException.ThrowIfNull(
+            journalDirectory
+        );
+
+        LinuxOpenedDirectoryIdentityResult suppliedIdentity =
+            LinuxOpenedDirectoryIdentity.Capture(
+                journalDirectory
+            );
+
+        if (!suppliedIdentity.Success)
+        {
+            return PlanResult(
+                DataRelativePathRepairPlanForwardExecutionState
+                    .BatchChildBindingFailed,
+                manifestRead:
+                    null,
+                [],
+                "The supplied batch child journal directory identity " +
+                    "could not be captured: " +
+                    (suppliedIdentity.Error ??
+                        suppliedIdentity.State.ToString())
+            );
+        }
+
+        LinuxOpenChildDirectoryReadOnlyAtResult expectedChildOpen =
+            LinuxOpenChildDirectoryReadOnlyAt.Open(
+                batchDirectory,
+                batchContext.CurrentChild.ChildName
+            );
+
+        if (
+            !expectedChildOpen.Success ||
+            expectedChildOpen.OpenedDirectory is null)
+        {
+            return PlanResult(
+                DataRelativePathRepairPlanForwardExecutionState
+                    .BatchChildBindingFailed,
+                manifestRead:
+                    null,
+                [],
+                "The exact current batch child directory could not be " +
+                    "opened descriptor-relative from the retained batch " +
+                    "directory: " +
+                    (expectedChildOpen.Error ??
+                        expectedChildOpen.State.ToString())
+            );
+        }
+
+        using LinuxNoFollowPathHandle expectedChildDirectory =
+            expectedChildOpen.OpenedDirectory;
+
+        LinuxOpenedDirectoryIdentityResult expectedIdentity =
+            LinuxOpenedDirectoryIdentity.Capture(
+                expectedChildDirectory
+            );
+
+        if (!expectedIdentity.Success)
+        {
+            return PlanResult(
+                DataRelativePathRepairPlanForwardExecutionState
+                    .BatchChildBindingFailed,
+                manifestRead:
+                    null,
+                [],
+                "The exact current batch child directory identity " +
+                    "could not be captured: " +
+                    (expectedIdentity.Error ??
+                        expectedIdentity.State.ToString())
+            );
+        }
+
+        if (
+            !suppliedIdentity.SameObjectAs(
+                expectedIdentity
+            ))
+        {
+            return PlanResult(
+                DataRelativePathRepairPlanForwardExecutionState
+                    .BatchChildBindingFailed,
+                manifestRead:
+                    null,
+                [],
+                "The supplied batch child journal directory is not the " +
+                    "same mounted filesystem object as the exact current " +
+                    $"batch child '{batchContext.CurrentChild.ChildName}'."
+            );
+        }
+
+        var batchScope =
+            new BatchExecutionScope(
+                BatchDirectory:
+                    batchDirectory,
+                Context:
+                    batchContext
+            );
+
+        return ExecuteCore(
+            journalDirectory,
+            batchContext.ChildManifestName,
+            trustedDataRoot,
+            nowUtc,
+            batchContext.CurrentChild.PlanId,
+            batchContext.CurrentChild.ManifestSha256,
+            batchScope
         );
     }
 
@@ -71,7 +209,8 @@ public static class DataRelativePathRepairPlanForwardExecutor
             string trustedDataRoot,
             DateTimeOffset nowUtc,
             Guid? expectedPlanId,
-            string? expectedManifestSha256)
+            string? expectedManifestSha256,
+            BatchExecutionScope? batchScope)
     {
         ArgumentNullException.ThrowIfNull(
             journalDirectory
@@ -339,7 +478,8 @@ public static class DataRelativePathRepairPlanForwardExecutor
                                     entry,
                                     trustedDataRootHandle,
                                     trustedDataRoot,
-                                    nowUtc
+                                    nowUtc,
+                                    batchScope
                                 ),
 
                         DataRelativePathRepairPlanOperationKind
@@ -808,8 +948,18 @@ public static class DataRelativePathRepairPlanForwardExecutor
             DataRelativePathRepairPlanManifestOperation entry,
             LinuxNoFollowPathHandle trustedDataRootHandle,
             string trustedDataRoot,
-            DateTimeOffset nowUtc)
+            DateTimeOffset nowUtc,
+            BatchExecutionScope? batchScope)
     {
+        /*
+         * Plumbing checkpoint only.
+         *
+         * The batch capability is intentionally carried but not consumed
+         * for authorization or mutation in this increment.
+         */
+        _ =
+            batchScope;
+
         DataRelativePathRepairDestinationParentSnapshotCaptureResult?
             parentCapture =
                 null;
@@ -1679,6 +1829,17 @@ public static class DataRelativePathRepairPlanForwardExecutor
             ? capture.Snapshot
             : null;
     }
+
+    /*
+     * The descriptor and logical context travel together so future
+     * same-batch authorization cannot receive membership metadata without
+     * the retained batch descriptor needed to reauthenticate earlier
+     * children. This record itself grants no mutation authority.
+     */
+    private sealed record BatchExecutionScope(
+        LinuxNoFollowPathHandle BatchDirectory,
+        DataRelativePathRepairBatchExecutionContext Context
+    );
 
     private sealed record PreflightResult(
         DataRelativePathRepairPlanForwardOperationExecution?

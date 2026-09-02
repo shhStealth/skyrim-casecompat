@@ -12,6 +12,8 @@ public enum DataRelativePathRepairPlanForwardExecutionState
     ManifestRevalidationFailed,
     ExpectedManifestMismatch,
 
+    BatchChildBindingFailed,
+
     PreflightFailed,
     OperationFailed
 }

@@ -193,6 +193,59 @@ public static class RepairApplyBatchCommand
             return 0;
         }
 
+        /*
+         * Build every immutable child context before the first recorded
+         * plan is permitted to mutate anything.
+         *
+         * Completion inspection has already authenticated this exact
+         * completed batch. Therefore a context-construction failure is an
+         * internal invariant failure and aborts the batch before plan 1.
+         */
+        var executionContexts =
+            new DataRelativePathRepairBatchExecutionContext[
+                manifest.Children.Count
+            ];
+
+        for (
+            int index = 0;
+            index < manifest.Children.Count;
+            index++)
+        {
+            DataRelativePathRepairBatchExecutionContextCreation
+                contextCreation =
+                    DataRelativePathRepairBatchExecutionContext.Create(
+                        manifest,
+                        index,
+                        manifest.Children[index]
+                    );
+
+            if (
+                !contextCreation.Success ||
+                contextCreation.Context is null)
+            {
+                Console.Error.WriteLine();
+
+                Console.Error.WriteLine(
+                    "Repair-apply-batch could not create the exact " +
+                    $"execution context for recorded child index {index}."
+                );
+
+                Console.Error.WriteLine(
+                    contextCreation.Error ??
+                    contextCreation.State.ToString()
+                );
+
+                Console.Error.WriteLine(
+                    "No recorded child plan was executed by this invocation."
+                );
+
+                return 4;
+            }
+
+            executionContexts[index] =
+                contextCreation.Context;
+        }
+
         Console.WriteLine();
 
         Console.WriteLine(
@@ -210,6 +263,9 @@ public static class RepairApplyBatchCommand
             DataRelativePathRepairBatchManifestChild expectedChild =
                 manifest.Children[index];
 
+            DataRelativePathRepairBatchExecutionContext batchContext =
+                executionContexts[index];
+
             LinuxOpenChildDirectoryReadOnlyAtResult childOpen;
 
             try
@@ -223,7 +279,7 @@ public static class RepairApplyBatchCommand
                 childOpen =
                     LinuxOpenChildDirectoryReadOnlyAt.Open(
                         batchDirectory,
-                        expectedChild.ChildName
+                        batchContext.CurrentChild.ChildName
                     );
             }
             catch (Exception ex)
@@ -299,13 +355,12 @@ public static class RepairApplyBatchCommand
                  */
                 execution =
                     DataRelativePathRepairPlanForwardExecutor
-                        .ExecuteExpectedManifest(
+                        .ExecuteExpectedBatchManifest(
+                            batchDirectory,
+                            batchContext,
                             childDirectory,
-                            manifestChildName,
                             trustedDataRoot,
-                            DateTimeOffset.UtcNow,
-                            expectedChild.PlanId,
-                            expectedChild.ManifestSha256
+                            DateTimeOffset.UtcNow
                         );
             }
             catch (Exception ex)
