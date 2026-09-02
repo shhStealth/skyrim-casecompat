@@ -5,13 +5,9 @@ namespace CaseCompat.Tests;
 
 public sealed class LinuxOpenedDirectoryIncarnationTests
 {
-    [Fact]
+    [LinuxDirectoryInodeGenerationFact]
     public void Capture_SameDescriptor_IsSameIncarnation()
     {
-        if (!OperatingSystem.IsLinux())
-        {
-            return;
-        }
 
         using Fixture fixture =
             new();
@@ -30,13 +26,6 @@ public sealed class LinuxOpenedDirectoryIncarnationTests
                 opened
             );
 
-        if (
-            first.State ==
-            LinuxOpenedDirectoryIncarnationState
-                .GenerationUnavailable)
-        {
-            return;
-        }
 
         Assert.True(
             first.Success,
@@ -61,13 +50,9 @@ public sealed class LinuxOpenedDirectoryIncarnationTests
         );
     }
 
-    [Fact]
+    [LinuxDirectoryInodeGenerationFact]
     public void Capture_TwoDescriptorsForSameDirectory_AreSameIncarnation()
     {
-        if (!OperatingSystem.IsLinux())
-        {
-            return;
-        }
 
         using Fixture fixture =
             new();
@@ -91,13 +76,6 @@ public sealed class LinuxOpenedDirectoryIncarnationTests
                 firstHandle
             );
 
-        if (
-            first.State ==
-            LinuxOpenedDirectoryIncarnationState
-                .GenerationUnavailable)
-        {
-            return;
-        }
 
         LinuxOpenedDirectoryIncarnationResult second =
             LinuxOpenedDirectoryIncarnation.Capture(
@@ -122,13 +100,9 @@ public sealed class LinuxOpenedDirectoryIncarnationTests
         );
     }
 
-    [Fact]
+    [LinuxDirectoryInodeGenerationFact]
     public void Capture_RecreatedDirectory_IsDifferentIncarnation()
     {
-        if (!OperatingSystem.IsLinux())
-        {
-            return;
-        }
 
         using Fixture fixture =
             new();
@@ -150,13 +124,6 @@ public sealed class LinuxOpenedDirectoryIncarnationTests
                     first
                 );
 
-            if (
-                capture.State ==
-                LinuxOpenedDirectoryIncarnationState
-                    .GenerationUnavailable)
-            {
-                return;
-            }
 
             Assert.True(
                 capture.Success,

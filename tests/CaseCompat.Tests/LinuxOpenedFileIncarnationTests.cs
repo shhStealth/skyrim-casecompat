@@ -5,13 +5,9 @@ namespace CaseCompat.Tests;
 
 public sealed class LinuxOpenedFileIncarnationTests
 {
-    [Fact]
+    [LinuxFileInodeGenerationFact]
     public void Capture_SameDescriptor_IsSameIncarnation()
     {
-        if (!OperatingSystem.IsLinux())
-        {
-            return;
-        }
 
         using Fixture fixture =
             new();
@@ -31,13 +27,6 @@ public sealed class LinuxOpenedFileIncarnationTests
                 opened
             );
 
-        if (
-            first.State ==
-            LinuxOpenedFileIncarnationState
-                .GenerationUnavailable)
-        {
-            return;
-        }
 
         Assert.True(
             first.Success,
@@ -62,13 +51,9 @@ public sealed class LinuxOpenedFileIncarnationTests
         );
     }
 
-    [Fact]
+    [LinuxFileInodeGenerationFact]
     public void Capture_TwoDescriptorsForSameFile_AreSameIncarnation()
     {
-        if (!OperatingSystem.IsLinux())
-        {
-            return;
-        }
 
         using Fixture fixture =
             new();
@@ -93,13 +78,6 @@ public sealed class LinuxOpenedFileIncarnationTests
                 firstHandle
             );
 
-        if (
-            first.State ==
-            LinuxOpenedFileIncarnationState
-                .GenerationUnavailable)
-        {
-            return;
-        }
 
         LinuxOpenedFileIncarnationResult second =
             LinuxOpenedFileIncarnation.Capture(
@@ -124,13 +102,9 @@ public sealed class LinuxOpenedFileIncarnationTests
         );
     }
 
-    [Fact]
+    [LinuxFileInodeGenerationFact]
     public void Capture_RecreatedFile_IsDifferentIncarnation()
     {
-        if (!OperatingSystem.IsLinux())
-        {
-            return;
-        }
 
         using Fixture fixture =
             new();
@@ -153,13 +127,6 @@ public sealed class LinuxOpenedFileIncarnationTests
                     first
                 );
 
-            if (
-                capture.State ==
-                LinuxOpenedFileIncarnationState
-                    .GenerationUnavailable)
-            {
-                return;
-            }
 
             Assert.True(
                 capture.Success,

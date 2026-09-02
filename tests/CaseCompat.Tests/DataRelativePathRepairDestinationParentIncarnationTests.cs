@@ -7,13 +7,9 @@ namespace CaseCompat.Tests;
 public sealed class
     DataRelativePathRepairDestinationParentIncarnationTests
 {
-    [Fact]
+    [LinuxDirectoryInodeGenerationFact]
     public void Acquire_ValidParent_LeaseRetainsSameIncarnation()
     {
-        if (!OperatingSystem.IsLinux())
-        {
-            return;
-        }
 
         string root =
             Path.Combine(
@@ -125,13 +121,6 @@ public sealed class
             LinuxOpenedDirectoryIncarnationResult incarnation =
                 lease.ActualIncarnation;
 
-            if (
-                incarnation.State ==
-                LinuxOpenedDirectoryIncarnationState
-                    .GenerationUnavailable)
-            {
-                return;
-            }
 
             Assert.True(
                 incarnation.Success,

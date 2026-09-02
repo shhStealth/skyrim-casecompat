@@ -5,13 +5,9 @@ namespace CaseCompat.Tests;
 
 public sealed class LinuxOpenedInodeGenerationTests
 {
-    [Fact]
+    [LinuxDirectoryInodeGenerationFact]
     public void Capture_SameDescriptor_IsStable()
     {
-        if (!OperatingSystem.IsLinux())
-        {
-            return;
-        }
 
         using Fixture fixture =
             new();
@@ -30,13 +26,6 @@ public sealed class LinuxOpenedInodeGenerationTests
                 opened
             );
 
-        if (
-            first.State ==
-            LinuxOpenedInodeGenerationState
-                .GenerationUnavailable)
-        {
-            return;
-        }
 
         Assert.True(
             first.Success,
@@ -59,13 +48,9 @@ public sealed class LinuxOpenedInodeGenerationTests
         );
     }
 
-    [Fact]
+    [LinuxDirectoryInodeGenerationFact]
     public void Capture_TwoDescriptorsForSameDirectory_Agree()
     {
-        if (!OperatingSystem.IsLinux())
-        {
-            return;
-        }
 
         using Fixture fixture =
             new();
@@ -89,13 +74,6 @@ public sealed class LinuxOpenedInodeGenerationTests
                 firstHandle
             );
 
-        if (
-            first.State ==
-            LinuxOpenedInodeGenerationState
-                .GenerationUnavailable)
-        {
-            return;
-        }
 
         LinuxOpenedInodeGenerationResult second =
             LinuxOpenedInodeGeneration.Capture(
@@ -118,13 +96,9 @@ public sealed class LinuxOpenedInodeGenerationTests
         );
     }
 
-    [Fact]
+    [LinuxDirectoryInodeGenerationFact]
     public void Capture_RecreatedDirectory_HasDifferentGeneration()
     {
-        if (!OperatingSystem.IsLinux())
-        {
-            return;
-        }
 
         using Fixture fixture =
             new();
@@ -161,13 +135,6 @@ public sealed class LinuxOpenedInodeGenerationTests
                 );
         }
 
-        if (
-            firstGeneration.State ==
-            LinuxOpenedInodeGenerationState
-                .GenerationUnavailable)
-        {
-            return;
-        }
 
         Assert.True(
             firstGeneration.Success,

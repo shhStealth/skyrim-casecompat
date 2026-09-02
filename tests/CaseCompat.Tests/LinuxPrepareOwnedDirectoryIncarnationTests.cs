@@ -5,13 +5,9 @@ namespace CaseCompat.Tests;
 
 public sealed class LinuxPrepareOwnedDirectoryIncarnationTests
 {
-    [Fact]
+    [LinuxDirectoryInodeGenerationFact]
     public void Prepare_Success_LeaseCarriesStrongIncarnationIdentity()
     {
-        if (!OperatingSystem.IsLinux())
-        {
-            return;
-        }
 
         string root =
             Path.Combine(
@@ -59,13 +55,6 @@ public sealed class LinuxPrepareOwnedDirectoryIncarnationTests
                     stagingPath
                 );
 
-            if (
-                prepared.State ==
-                LinuxPrepareOwnedDirectoryAtState
-                    .StagingGenerationUnavailable)
-            {
-                return;
-            }
 
             Assert.True(
                 prepared.Success,
