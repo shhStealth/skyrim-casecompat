@@ -28,6 +28,18 @@ public enum DataRelativePathRepairDirectoryRecoveryState
     RolledBackBothMissing,
     RolledBackConflict,
 
+    ReusedAppliedFinalMissing,
+    ReusedAppliedFinalMatches,
+    ReusedAppliedConflict,
+
+    ReusedRollbackRequestedFinalMissing,
+    ReusedRollbackRequestedFinalMatches,
+    ReusedRollbackRequestedConflict,
+
+    ReusedRolledBackFinalMissing,
+    ReusedRolledBackFinalMatches,
+    ReusedRolledBackConflict,
+
     RecoveryConflictTerminal
 }
 
@@ -93,6 +105,16 @@ public sealed record
         Journal.PreparedDirectoryIncarnationIdentity is not null &&
         FinalIncarnationIdentity is not null &&
         Journal.PreparedDirectoryIncarnationIdentity
+            .SameIncarnationAs(
+                FinalIncarnationIdentity
+            );
+
+
+    public bool FinalMatchesBatchReuseIdentity =>
+        Journal.BatchReuseProvenance is not null &&
+        FinalIncarnationIdentity is not null &&
+        Journal.BatchReuseProvenance
+            .ReusedDirectoryIncarnationIdentity
             .SameIncarnationAs(
                 FinalIncarnationIdentity
             );

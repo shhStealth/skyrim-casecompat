@@ -205,6 +205,25 @@ public static class
         }
 
         /*
+         * BatchReused journals never owned a staging directory.
+         *
+         * Branch before any staging-name or prepared-incarnation logic
+         * so borrowed-object evidence can never be mistaken for the
+         * destructive authority of an owned directory journal.
+         */
+        if (
+            journal.OwnershipDisposition ==
+            DataRelativePathRepairDirectoryOwnershipDisposition
+                .BatchReused)
+        {
+            return ClassifyBatchReused(
+                journal,
+                parentAcquisition.Validation,
+                final
+            );
+        }
+
+        /*
          * IntentRecorded has no prepared staging name yet.
          * Only the final destination namespace entry is relevant.
          */
@@ -353,6 +372,102 @@ public static class
                         $"{journal.State}."
                 )
         };
+    }
+
+    private static
+        DataRelativePathRepairDirectoryRecoveryClassification
+        ClassifyBatchReused(
+            DataRelativePathRepairDirectoryJournalRecord journal,
+            DataRelativePathRepairDestinationParentValidation
+                parentValidation,
+            ChildObservation final)
+    {
+        LinuxDirectoryIncarnationIdentity expectedIdentity =
+            journal.BatchReuseProvenance!
+                .ReusedDirectoryIncarnationIdentity;
+
+        bool finalMatches =
+            final.State ==
+                ChildObservationState.Directory &&
+            final.Incarnation?.Identity is not null &&
+            expectedIdentity.SameIncarnationAs(
+                final.Incarnation.Identity
+            );
+
+        DataRelativePathRepairDirectoryRecoveryState state =
+            journal.State switch
+            {
+                DataRelativePathRepairDirectoryJournalState.Applied =>
+                    final.State ==
+                        ChildObservationState.Missing
+                        ? DataRelativePathRepairDirectoryRecoveryState
+                            .ReusedAppliedFinalMissing
+                        : finalMatches
+                            ? DataRelativePathRepairDirectoryRecoveryState
+                                .ReusedAppliedFinalMatches
+                            : DataRelativePathRepairDirectoryRecoveryState
+                                .ReusedAppliedConflict,
+
+                DataRelativePathRepairDirectoryJournalState
+                    .RollbackRequested =>
+                    final.State ==
+                        ChildObservationState.Missing
+                        ? DataRelativePathRepairDirectoryRecoveryState
+                            .ReusedRollbackRequestedFinalMissing
+                        : finalMatches
+                            ? DataRelativePathRepairDirectoryRecoveryState
+                                .ReusedRollbackRequestedFinalMatches
+                            : DataRelativePathRepairDirectoryRecoveryState
+                                .ReusedRollbackRequestedConflict,
+
+                DataRelativePathRepairDirectoryJournalState.RolledBack =>
+                    final.State ==
+                        ChildObservationState.Missing
+                        ? DataRelativePathRepairDirectoryRecoveryState
+                            .ReusedRolledBackFinalMissing
+                        : finalMatches
+                            ? DataRelativePathRepairDirectoryRecoveryState
+                                .ReusedRolledBackFinalMatches
+                            : DataRelativePathRepairDirectoryRecoveryState
+                                .ReusedRolledBackConflict,
+
+                _ =>
+                    DataRelativePathRepairDirectoryRecoveryState
+                        .InvalidRecord
+            };
+
+        string? error =
+            state is
+                DataRelativePathRepairDirectoryRecoveryState
+                    .ReusedAppliedConflict or
+                DataRelativePathRepairDirectoryRecoveryState
+                    .ReusedRollbackRequestedConflict or
+                DataRelativePathRepairDirectoryRecoveryState
+                    .ReusedRolledBackConflict
+                ? "The final destination does not identify the " +
+                    "generation-aware directory incarnation recorded " +
+                    "by BatchReused provenance."
+                : state ==
+                    DataRelativePathRepairDirectoryRecoveryState
+                        .InvalidRecord
+                    ? $"Unsupported BatchReused journal state " +
+                        $"{journal.State}."
+                    : null;
+
+        return Result(
+            state,
+            journal,
+            parentValidation:
+                parentValidation,
+            finalOpenState:
+                final.OpenState,
+            finalSnapshot:
+                final.Snapshot,
+            finalIncarnation:
+                final.Incarnation,
+            error:
+                error
+        );
     }
 
     private static

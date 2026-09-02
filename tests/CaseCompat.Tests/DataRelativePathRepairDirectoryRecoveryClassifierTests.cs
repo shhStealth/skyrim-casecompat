@@ -633,6 +633,160 @@ public sealed class
     }
 
     [Fact]
+    public void BatchReusedApplied_FinalMatches_IsConsistent()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        DataRelativePathRepairDirectoryJournalRecord journal =
+            fixture.BatchReusedAppliedWithFinal();
+
+        DataRelativePathRepairDirectoryRecoveryClassification result =
+            DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
+                journal,
+                fixture.DataRoot
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryRecoveryState
+                .ReusedAppliedFinalMatches,
+            result.State
+        );
+
+        Assert.True(
+            result.FinalMatchesBatchReuseIdentity
+        );
+    }
+
+    [Fact]
+    public void BatchReusedApplied_FinalMissing_IsDetected()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        DataRelativePathRepairDirectoryJournalRecord journal =
+            fixture.BatchReusedApplied(
+                SyntheticDirectoryJournalIncarnation.FromPhysical(
+                    fixture.SyntheticIdentity()
+                )
+            );
+
+        DataRelativePathRepairDirectoryRecoveryClassification result =
+            DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
+                journal,
+                fixture.DataRoot
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryRecoveryState
+                .ReusedAppliedFinalMissing,
+            result.State
+        );
+    }
+
+    [Fact]
+    public void BatchReusedRolledBack_FinalMatches_IsConsistent()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        DataRelativePathRepairDirectoryJournalRecord applied =
+            fixture.BatchReusedAppliedWithFinal();
+
+        DataRelativePathRepairDirectoryJournalRecord requested =
+            RequireRecord(
+                DataRelativePathRepairDirectoryJournal.RequestRollback(
+                    applied,
+                    T0.AddSeconds(1)
+                )
+            );
+
+        DataRelativePathRepairDirectoryJournalRecord rolledBack =
+            RequireRecord(
+                DataRelativePathRepairDirectoryJournal.MarkRolledBack(
+                    requested,
+                    T0.AddSeconds(2)
+                )
+            );
+
+        DataRelativePathRepairDirectoryRecoveryClassification result =
+            DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
+                rolledBack,
+                fixture.DataRoot
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryRecoveryState
+                .ReusedRolledBackFinalMatches,
+            result.State
+        );
+    }
+
+    [Fact]
+    public void BatchReusedRolledBack_FinalMissing_IsConsistent()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        DataRelativePathRepairDirectoryJournalRecord applied =
+            fixture.BatchReusedAppliedWithFinal();
+
+        DataRelativePathRepairDirectoryJournalRecord requested =
+            RequireRecord(
+                DataRelativePathRepairDirectoryJournal.RequestRollback(
+                    applied,
+                    T0.AddSeconds(1)
+                )
+            );
+
+        DataRelativePathRepairDirectoryJournalRecord rolledBack =
+            RequireRecord(
+                DataRelativePathRepairDirectoryJournal.MarkRolledBack(
+                    requested,
+                    T0.AddSeconds(2)
+                )
+            );
+
+        Directory.Delete(
+            fixture.PathFor(
+                "Final"
+            )
+        );
+
+        DataRelativePathRepairDirectoryRecoveryClassification result =
+            DataRelativePathRepairDirectoryRecoveryClassifier.Classify(
+                rolledBack,
+                fixture.DataRoot
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryRecoveryState
+                .ReusedRolledBackFinalMissing,
+            result.State
+        );
+    }
+
+    [Fact]
     public void ParentMountIdMismatch_IsValidationFailure()
     {
         if (!OperatingSystem.IsLinux())
@@ -859,6 +1013,71 @@ public sealed class
                 DataRelativePathRepairDirectoryJournal.MarkApplied(
                     prepared,
                     T0.AddSeconds(2)
+                )
+            );
+        }
+
+        public DataRelativePathRepairDirectoryJournalRecord
+            BatchReusedApplied(
+                LinuxDirectoryIncarnationIdentity reusedIdentity)
+        {
+            DataRelativePathRepairDirectoryBatchReuseProvenance provenance =
+                new(
+                    BatchId:
+                        Guid.NewGuid(),
+                    OwnerChildName:
+                        "plan-000001",
+                    OwnerPlanId:
+                        Guid.NewGuid(),
+                    OwnerManifestSha256:
+                        new string(
+                            'A',
+                            64
+                        ),
+                    OwnerOperationIndex:
+                        0,
+                    OwnerJournalChildName:
+                        "owner-journal.json",
+                    ReusedDirectoryIncarnationIdentity:
+                        reusedIdentity
+                );
+
+            return RequireRecord(
+                DataRelativePathRepairDirectoryJournal
+                    .CreateBatchReuseApplied(
+                        Guid.NewGuid(),
+                        T0,
+                        DataRoot,
+                        new DataRelativePathRepairPlanOperation(
+                            Kind:
+                                DataRelativePathRepairPlanOperationKind
+                                    .CreateDirectory,
+                            DestinationPath:
+                                PathFor(
+                                    "Final"
+                                ),
+                            SourcePath:
+                                null
+                        ),
+                        CaptureParentSnapshot(),
+                        LiveDirectoryJournalIncarnation.Capture(
+                            Parent
+                        ),
+                        provenance
+                    )
+            );
+        }
+
+        public DataRelativePathRepairDirectoryJournalRecord
+            BatchReusedAppliedWithFinal()
+        {
+            CreateDirectory(
+                "Final"
+            );
+
+            return BatchReusedApplied(
+                CaptureIdentity(
+                    "Final"
                 )
             );
         }

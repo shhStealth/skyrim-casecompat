@@ -64,8 +64,18 @@ public sealed record DataRelativePathRepairDirectoryJournalRecord(
     public const int SchemaVersion2 =
         2;
 
+    public const int SchemaVersion3 =
+        3;
+
+    /*
+     * Highest schema version understood by this binary.
+     *
+     * Ordinary owned-directory creation intentionally remains
+     * pinned to schema v2 until that proven lifecycle itself
+     * requires a migration.
+     */
     public const int CurrentSchemaVersion =
-        SchemaVersion2;
+        SchemaVersion3;
 
     [JsonIgnore(
         Condition =
@@ -150,7 +160,7 @@ public static class DataRelativePathRepairDirectoryJournal
             new DataRelativePathRepairDirectoryJournalRecord(
                 SchemaVersion:
                     DataRelativePathRepairDirectoryJournalRecord
-                        .CurrentSchemaVersion,
+                        .SchemaVersion2,
                 JournalId:
                     journalId,
                 Revision:
@@ -177,6 +187,94 @@ public static class DataRelativePathRepairDirectoryJournal
                 RecoveryConflictReason:
                     null
             );
+
+        string? validationError =
+            Validate(
+                record
+            );
+
+        if (validationError is not null)
+        {
+            return Failure(
+                DataRelativePathRepairDirectoryJournalTransitionState
+                    .InvalidRecord,
+                validationError
+            );
+        }
+
+        return Success(
+            record
+        );
+    }
+
+    public static
+        DataRelativePathRepairDirectoryJournalTransitionResult
+        CreateBatchReuseApplied(
+            Guid journalId,
+            DateTimeOffset nowUtc,
+            string dataRoot,
+            DataRelativePathRepairPlanOperation operation,
+            DataRelativePathRepairDestinationParentSnapshot
+                destinationParentSnapshot,
+            LinuxDirectoryIncarnationIdentity
+                destinationParentIncarnationIdentity,
+            DataRelativePathRepairDirectoryBatchReuseProvenance
+                provenance)
+    {
+        ArgumentNullException.ThrowIfNull(
+            operation
+        );
+
+        ArgumentNullException.ThrowIfNull(
+            destinationParentSnapshot
+        );
+
+        ArgumentNullException.ThrowIfNull(
+            destinationParentIncarnationIdentity
+        );
+
+        ArgumentNullException.ThrowIfNull(
+            provenance
+        );
+
+        var record =
+            new DataRelativePathRepairDirectoryJournalRecord(
+                SchemaVersion:
+                    DataRelativePathRepairDirectoryJournalRecord
+                        .SchemaVersion3,
+                JournalId:
+                    journalId,
+                Revision:
+                    0,
+                CreatedUtc:
+                    nowUtc,
+                UpdatedUtc:
+                    nowUtc,
+                State:
+                    DataRelativePathRepairDirectoryJournalState
+                        .Applied,
+                DataRoot:
+                    dataRoot,
+                Operation:
+                    operation,
+                DestinationParentSnapshot:
+                    destinationParentSnapshot,
+                DestinationParentIncarnationIdentity:
+                    destinationParentIncarnationIdentity,
+                PreparedStagingChildName:
+                    null,
+                PreparedDirectoryIncarnationIdentity:
+                    null,
+                RecoveryConflictReason:
+                    null
+            )
+            {
+                OwnershipDisposition =
+                    DataRelativePathRepairDirectoryOwnershipDisposition
+                        .BatchReused,
+                BatchReuseProvenance =
+                    provenance
+            };
 
         string? validationError =
             Validate(
@@ -486,8 +584,11 @@ public static class DataRelativePathRepairDirectoryJournal
 
         if (
             record.SchemaVersion !=
-            DataRelativePathRepairDirectoryJournalRecord
-                .CurrentSchemaVersion)
+                DataRelativePathRepairDirectoryJournalRecord
+                    .SchemaVersion2 &&
+            record.SchemaVersion !=
+                DataRelativePathRepairDirectoryJournalRecord
+                    .SchemaVersion3)
         {
             return
                 "The directory journal schema version is unsupported.";
@@ -521,6 +622,104 @@ public static class DataRelativePathRepairDirectoryJournal
             return
                 "Schema-v2 directory journals cannot contain batch-reuse " +
                 "provenance metadata.";
+        }
+
+        if (
+            record.SchemaVersion ==
+                DataRelativePathRepairDirectoryJournalRecord
+                    .SchemaVersion3)
+        {
+            if (
+                record.OwnershipDisposition !=
+                DataRelativePathRepairDirectoryOwnershipDisposition
+                    .BatchReused)
+            {
+                return
+                    "Schema-v3 directory journals currently require " +
+                    "BatchReused ownership disposition.";
+            }
+
+            if (record.BatchReuseProvenance is null)
+            {
+                return
+                    "Schema-v3 BatchReused directory journals require " +
+                    "batch-reuse provenance.";
+            }
+
+            if (
+                record.State ==
+                    DataRelativePathRepairDirectoryJournalState
+                        .IntentRecorded ||
+                record.State ==
+                    DataRelativePathRepairDirectoryJournalState
+                        .Prepared)
+            {
+                return
+                    "Schema-v3 BatchReused directory journals cannot " +
+                    "use owned-directory preparation states.";
+            }
+
+            DataRelativePathRepairDirectoryBatchReuseProvenance
+                provenance =
+                    record.BatchReuseProvenance;
+
+            if (provenance.BatchId == Guid.Empty)
+            {
+                return
+                    "Batch-reuse provenance requires a non-empty BatchId.";
+            }
+
+            if (
+                !IsValidDirectChildName(
+                    provenance.OwnerChildName))
+            {
+                return
+                    "Batch-reuse provenance owner child must identify " +
+                    "exactly one direct child.";
+            }
+
+            if (provenance.OwnerPlanId == Guid.Empty)
+            {
+                return
+                    "Batch-reuse provenance requires a non-empty " +
+                    "owner PlanId.";
+            }
+
+            if (
+                !IsSha256(
+                    provenance.OwnerManifestSha256))
+            {
+                return
+                    "Batch-reuse provenance requires a 64-character " +
+                    "owner manifest SHA-256 value.";
+            }
+
+            if (provenance.OwnerOperationIndex < 0)
+            {
+                return
+                    "Batch-reuse provenance owner operation index " +
+                    "cannot be negative.";
+            }
+
+            if (
+                !IsValidDirectChildName(
+                    provenance.OwnerJournalChildName))
+            {
+                return
+                    "Batch-reuse provenance owner journal must identify " +
+                    "exactly one direct child.";
+            }
+
+            if (
+                provenance.ReusedDirectoryIncarnationIdentity is null ||
+                !HasCompleteDirectoryIncarnationIdentity(
+                    provenance.ReusedDirectoryIncarnationIdentity))
+            {
+                return
+                    "Batch-reuse provenance requires strong reused-" +
+                    "directory incarnation identity including device, " +
+                    "inode, mount ID, and inode generation.";
+            }
         }
 
         if (record.JournalId == Guid.Empty)
@@ -649,45 +848,67 @@ public static class DataRelativePathRepairDirectoryJournal
                 "case-repair directory journal.";
         }
 
-        bool requiresPreparedEvidence =
-            record.State !=
-            DataRelativePathRepairDirectoryJournalState
-                .IntentRecorded;
+        bool isBatchReused =
+            record.SchemaVersion ==
+                DataRelativePathRepairDirectoryJournalRecord
+                    .SchemaVersion3 &&
+            record.OwnershipDisposition ==
+                DataRelativePathRepairDirectoryOwnershipDisposition
+                    .BatchReused;
 
-        if (requiresPreparedEvidence)
-        {
-            if (
-                !IsValidStagingName(
-                    record,
-                    record.PreparedStagingChildName
-                ))
-            {
-                return
-                    "This journal state requires a valid recorded " +
-                    "staging child name.";
-            }
-
-            if (
-                record.PreparedDirectoryIncarnationIdentity is null ||
-                !HasCompleteDirectoryIncarnationIdentity(
-                    record.PreparedDirectoryIncarnationIdentity
-                ))
-            {
-                return
-                    "This journal state requires strong prepared-" +
-                    "directory incarnation identity including inode " +
-                    "generation.";
-            }
-        }
-        else
+        if (isBatchReused)
         {
             if (
                 record.PreparedStagingChildName is not null ||
                 record.PreparedDirectoryIncarnationIdentity is not null)
             {
                 return
-                    "IntentRecorded cannot already contain prepared " +
-                    "directory evidence.";
+                    "BatchReused directory journals cannot contain " +
+                    "owned staging or prepared-directory evidence.";
+            }
+        }
+        else
+        {
+            bool requiresPreparedEvidence =
+                record.State !=
+                DataRelativePathRepairDirectoryJournalState
+                    .IntentRecorded;
+
+            if (requiresPreparedEvidence)
+            {
+                if (
+                    !IsValidStagingName(
+                        record,
+                        record.PreparedStagingChildName
+                    ))
+                {
+                    return
+                        "This journal state requires a valid recorded " +
+                        "staging child name.";
+                }
+
+                if (
+                    record.PreparedDirectoryIncarnationIdentity is null ||
+                    !HasCompleteDirectoryIncarnationIdentity(
+                        record.PreparedDirectoryIncarnationIdentity
+                    ))
+                {
+                    return
+                        "This journal state requires strong prepared-" +
+                        "directory incarnation identity including inode " +
+                        "generation.";
+                }
+            }
+            else
+            {
+                if (
+                    record.PreparedStagingChildName is not null ||
+                    record.PreparedDirectoryIncarnationIdentity is not null)
+                {
+                    return
+                        "IntentRecorded cannot already contain prepared " +
+                        "directory evidence.";
+                }
             }
         }
 
@@ -923,6 +1144,49 @@ public static class DataRelativePathRepairDirectoryJournal
                 "The directory journal contains an invalid " +
                 $"filesystem path: {ex.Message}";
         }
+    }
+
+    private static bool IsValidDirectChildName(
+        string? childName)
+    {
+        if (
+            string.IsNullOrEmpty(
+                childName) ||
+            childName is "." or "..")
+        {
+            return false;
+        }
+
+        return
+            !childName.Contains('/') &&
+            !childName.Contains('\\') &&
+            !childName.Contains('\0');
+    }
+
+    private static bool IsSha256(
+        string? value)
+    {
+        if (
+            value is null ||
+            value.Length != 64)
+        {
+            return false;
+        }
+
+        foreach (char character in value)
+        {
+            bool isHex =
+                character is >= '0' and <= '9' ||
+                character is >= 'a' and <= 'f' ||
+                character is >= 'A' and <= 'F';
+
+            if (!isHex)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool IsValidStagingName(

@@ -44,6 +44,13 @@ public sealed class DataRelativePathRepairDirectoryJournalTests
             record.Revision
         );
 
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryJournalRecord
+                .SchemaVersion2,
+            record.SchemaVersion
+        );
+
         Assert.Null(
             record.PreparedStagingChildName
         );
@@ -73,7 +80,7 @@ public sealed class DataRelativePathRepairDirectoryJournalTests
             {
                 SchemaVersion =
                     DataRelativePathRepairDirectoryJournalRecord
-                        .CurrentSchemaVersion + 1
+                        .SchemaVersion3 + 1
             };
 
         string? error =
@@ -189,6 +196,161 @@ public sealed class DataRelativePathRepairDirectoryJournalTests
         Assert.DoesNotContain(
             "\"BatchReuseProvenance\"",
             json
+        );
+    }
+
+    [Fact]
+    public void
+        CreateBatchReuseApplied_ValidRecord_UsesSchema3WithoutOwnedEvidence()
+    {
+        DataRelativePathRepairDestinationParentSnapshot parent =
+            ParentSnapshot();
+
+        LinuxDirectoryIncarnationIdentity reusedIdentity =
+            SyntheticDirectoryJournalIncarnation.FromPhysical(
+                parent.Identity
+            );
+
+        DataRelativePathRepairDirectoryBatchReuseProvenance provenance =
+            new(
+                BatchId:
+                    Guid.NewGuid(),
+                OwnerChildName:
+                    "plan-000001",
+                OwnerPlanId:
+                    Guid.NewGuid(),
+                OwnerManifestSha256:
+                    new string(
+                        'A',
+                        64
+                    ),
+                OwnerOperationIndex:
+                    0,
+                OwnerJournalChildName:
+                    "owner-journal.json",
+                ReusedDirectoryIncarnationIdentity:
+                    reusedIdentity
+            );
+
+        DataRelativePathRepairDirectoryJournalTransitionResult result =
+            DataRelativePathRepairDirectoryJournal
+                .CreateBatchReuseApplied(
+                    Guid.NewGuid(),
+                    T0,
+                    "/game/Data",
+                    Operation(),
+                    parent,
+                    SyntheticDirectoryJournalIncarnation.FromPhysical(
+                        parent.Identity
+                    ),
+                    provenance
+                );
+
+        Assert.True(
+            result.Success,
+            result.Error
+        );
+
+        DataRelativePathRepairDirectoryJournalRecord record =
+            RequireRecord(
+                result
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryJournalRecord
+                .SchemaVersion3,
+            record.SchemaVersion
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryJournalState.Applied,
+            record.State
+        );
+
+        Assert.Equal(
+            0,
+            record.Revision
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairDirectoryOwnershipDisposition
+                .BatchReused,
+            record.OwnershipDisposition
+        );
+
+        Assert.Equal(
+            provenance,
+            record.BatchReuseProvenance
+        );
+
+        Assert.Null(
+            record.PreparedStagingChildName
+        );
+
+        Assert.Null(
+            record.PreparedDirectoryIncarnationIdentity
+        );
+
+        Assert.Null(
+            DataRelativePathRepairDirectoryJournal.Validate(
+                record
+            )
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaVersion3OwnedDisposition_IsRejected()
+    {
+        DataRelativePathRepairDirectoryJournalRecord record =
+            RequireRecord(
+                CreateIntent()
+            ) with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairDirectoryJournalRecord
+                        .SchemaVersion3,
+                OwnershipDisposition =
+                    DataRelativePathRepairDirectoryOwnershipDisposition
+                        .Owned
+            };
+
+        string? error =
+            DataRelativePathRepairDirectoryJournal.Validate(
+                record
+            );
+
+        Assert.Equal(
+            "Schema-v3 directory journals currently require " +
+                "BatchReused ownership disposition.",
+            error
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaVersion3MissingProvenance_IsRejected()
+    {
+        DataRelativePathRepairDirectoryJournalRecord record =
+            RequireRecord(
+                CreateIntent()
+            ) with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairDirectoryJournalRecord
+                        .SchemaVersion3,
+                OwnershipDisposition =
+                    DataRelativePathRepairDirectoryOwnershipDisposition
+                        .BatchReused
+            };
+
+        string? error =
+            DataRelativePathRepairDirectoryJournal.Validate(
+                record
+            );
+
+        Assert.Equal(
+            "Schema-v3 BatchReused directory journals require " +
+                "batch-reuse provenance.",
+            error
         );
     }
 
