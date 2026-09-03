@@ -6,6 +6,94 @@ namespace CaseCompat.Tests;
 public class WindowsNamespaceAnalyzerTests
 {
     [Fact]
+    public void Analyze_RecordsCompleteDataRootChildNameSnapshot()
+    {
+        string root =
+            CreateTempDirectory();
+
+        try
+        {
+            string data =
+                Path.Combine(
+                    root,
+                    "Data"
+                );
+
+            Directory.CreateDirectory(
+                Path.Combine(
+                    data,
+                    "Meshes"
+                )
+            );
+
+            Directory.CreateDirectory(
+                Path.Combine(
+                    data,
+                    "Textures"
+                )
+            );
+
+            File.WriteAllText(
+                Path.Combine(
+                    data,
+                    "README.txt"
+                ),
+                "fixture"
+            );
+
+            WindowsNamespaceAnalysis result =
+                WindowsNamespaceAnalyzer.Analyze(
+                    data,
+                    "Meshes"
+                );
+
+            Assert.True(
+                result.Complete,
+                string.Join(
+                    Environment.NewLine,
+                    result.Errors
+                )
+            );
+
+            Assert.NotNull(
+                result.DataRootChildNames
+            );
+
+            Assert.Equal(
+                new[]
+                {
+                    "Meshes",
+                    "README.txt",
+                    "Textures"
+                },
+                result.DataRootChildNames
+            );
+
+            Assert.DoesNotContain(
+                result.Nodes
+                    .SelectMany(
+                        node =>
+                            node.Participants
+                    ),
+                participant =>
+                    string.Equals(
+                        participant.RelativePath,
+                        "Textures",
+                        StringComparison.Ordinal
+                    )
+            );
+        }
+        finally
+        {
+            Directory.Delete(
+                root,
+                recursive:
+                    true
+            );
+        }
+    }
+
+    [Fact]
     public void Analyze_DiscoversSplitRootAndDistributedDescendants()
     {
         string root =

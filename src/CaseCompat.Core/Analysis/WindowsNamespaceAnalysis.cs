@@ -109,6 +109,16 @@ public sealed record WindowsNamespaceAnalysis(
     IReadOnlyList<string> Errors
 )
 {
+    /*
+     * Complete exact physical child-name inventory captured from the
+     * descriptor-relative Data-root enumeration.
+     *
+     * This is observational namespace evidence only. A null value means
+     * that complete Data-root enumeration evidence was unavailable.
+     */
+    public IReadOnlyList<string>? DataRootChildNames { get; init; }
+
     public bool Complete =>
-        Errors.Count == 0;
+        Errors.Count == 0 &&
+        DataRootChildNames is not null;
 }

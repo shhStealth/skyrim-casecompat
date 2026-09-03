@@ -472,7 +472,17 @@ public static class WindowsNamespaceAnalyzer
             directoryIncarnationObservations,
             fileIncarnationObservations,
             errors
-        );
+        ) with
+        {
+            DataRootChildNames =
+                rootEnumeration.ChildNames
+                    .OrderBy(
+                        childName =>
+                            childName,
+                        StringComparer.Ordinal
+                    )
+                    .ToArray()
+        };
     }
 
     private static void AnalyzeDirectory(
