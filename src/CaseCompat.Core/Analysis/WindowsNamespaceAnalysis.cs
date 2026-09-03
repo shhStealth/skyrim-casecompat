@@ -37,6 +37,22 @@ public sealed record WindowsNamespaceDirectoryLookupObservation(
     string? Error
 );
 
+/*
+ * Descriptor-bound incarnation evidence for one regular-file participant.
+ *
+ * InodeGeneration is published only after the safely opened descriptor's
+ * device, inode, and mount identity has been matched back to the participant
+ * observed by descriptor-relative statx(AT_SYMLINK_NOFOLLOW).
+ *
+ * A null generation means complete incarnation evidence was unavailable.
+ */
+public sealed record WindowsNamespaceFileIncarnationObservation(
+    string FullPath,
+    string RelativePath,
+    uint? InodeGeneration,
+    string? Error
+);
+
 public sealed record WindowsNamespaceNode(
     WindowsLogicalPath LogicalPath,
     IReadOnlyList<WindowsNamespacePhysicalParticipant> Participants
@@ -65,6 +81,8 @@ public sealed record WindowsNamespaceAnalysis(
     WindowsLogicalPath RootLogicalPath,
     IReadOnlyList<WindowsNamespaceDirectoryLookupObservation>
         DirectoryLookupObservations,
+    IReadOnlyList<WindowsNamespaceFileIncarnationObservation>
+        FileIncarnationObservations,
     IReadOnlyList<WindowsNamespaceNode> Nodes,
     IReadOnlyList<string> Errors
 )

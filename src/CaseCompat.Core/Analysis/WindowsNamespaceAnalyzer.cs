@@ -74,6 +74,11 @@ public static class WindowsNamespaceAnalyzer
                 WindowsNamespaceDirectoryLookupObservation
             >();
 
+        var fileIncarnationObservations =
+            new List<
+                WindowsNamespaceFileIncarnationObservation
+            >();
+
         LinuxNoFollowPathOpenResult rootOpen =
             LinuxNoFollowPath.OpenRootReadOnly(
                 dataRootPath
@@ -97,6 +102,7 @@ public static class WindowsNamespaceAnalyzer
                 rootLogicalPath,
                 participantsByLogicalPath,
                 directoryLookupObservations,
+                fileIncarnationObservations,
                 errors
             );
         }
@@ -155,6 +161,7 @@ public static class WindowsNamespaceAnalyzer
                 rootLogicalPath,
                 participantsByLogicalPath,
                 directoryLookupObservations,
+                fileIncarnationObservations,
                 errors
             );
         }
@@ -339,6 +346,7 @@ public static class WindowsNamespaceAnalyzer
                         rootLogicalPath,
                         participantsByLogicalPath,
                         directoryLookupObservations,
+                        fileIncarnationObservations,
                         errors,
                         visitedDirectories
                     );
@@ -399,6 +407,7 @@ public static class WindowsNamespaceAnalyzer
             rootLogicalPath,
             participantsByLogicalPath,
             directoryLookupObservations,
+            fileIncarnationObservations,
             errors
         );
     }
@@ -414,6 +423,8 @@ public static class WindowsNamespaceAnalyzer
         > participantsByLogicalPath,
         List<WindowsNamespaceDirectoryLookupObservation>
             directoryLookupObservations,
+        List<WindowsNamespaceFileIncarnationObservation>
+            fileIncarnationObservations,
         List<string> errors,
         HashSet<DirectoryIdentity> visitedDirectories)
     {
@@ -603,6 +614,7 @@ public static class WindowsNamespaceAnalyzer
                         childLogicalPath,
                         participantsByLogicalPath,
                         directoryLookupObservations,
+                        fileIncarnationObservations,
                         errors,
                         visitedDirectories
                     );
@@ -611,7 +623,19 @@ public static class WindowsNamespaceAnalyzer
                 }
 
                 case LinuxChildObjectKind.RegularFile:
+                {
+                    ObserveRegularFileIncarnation(
+                        directory,
+                        childName,
+                        childRelativePath,
+                        participant,
+                        inspection,
+                        fileIncarnationObservations,
+                        errors
+                    );
+
                     break;
+                }
 
                 case LinuxChildObjectKind.SymbolicLink:
                     errors.Add(
@@ -637,6 +661,130 @@ public static class WindowsNamespaceAnalyzer
                     break;
             }
         }
+    }
+
+    private static void ObserveRegularFileIncarnation(
+        LinuxNoFollowPathHandle parentDirectory,
+        string childName,
+        string relativePath,
+        WindowsNamespacePhysicalParticipant participant,
+        LinuxInspectChildAtResult inspection,
+        List<WindowsNamespaceFileIncarnationObservation> observations,
+        List<string> errors)
+    {
+        LinuxOpenChildRegularFileReadOnlyAtResult opened =
+            LinuxOpenChildRegularFileReadOnlyAt.Open(
+                parentDirectory,
+                childName
+            );
+
+        if (
+            !opened.Success ||
+            opened.OpenedFile is null ||
+            opened.Identity is null)
+        {
+            string error =
+                opened.Error ??
+                opened.State.ToString();
+
+            observations.Add(
+                new WindowsNamespaceFileIncarnationObservation(
+                    FullPath:
+                        participant.FullPath,
+                    RelativePath:
+                        relativePath,
+                    InodeGeneration:
+                        null,
+                    Error:
+                        error
+                )
+            );
+
+            errors.Add(
+                $"{relativePath}: regular-file descriptor acquisition " +
+                $"failed ({opened.State}): {error}"
+            );
+
+            return;
+        }
+
+        using LinuxOpenedChildHandle openedFile =
+            opened.OpenedFile;
+
+        if (!SameFileIdentity(
+                inspection,
+                opened.Identity))
+        {
+            const string error =
+                "The safely opened regular file does not match the " +
+                "physical identity observed before opening.";
+
+            observations.Add(
+                new WindowsNamespaceFileIncarnationObservation(
+                    FullPath:
+                        participant.FullPath,
+                    RelativePath:
+                        relativePath,
+                    InodeGeneration:
+                        null,
+                    Error:
+                        error
+                )
+            );
+
+            errors.Add(
+                $"{relativePath}: {error}"
+            );
+
+            return;
+        }
+
+        LinuxOpenedFileIncarnationResult incarnation =
+            LinuxOpenedFileIncarnation.Capture(
+                openedFile
+            );
+
+        if (
+            !incarnation.Success ||
+            incarnation.Identity is null)
+        {
+            string error =
+                incarnation.Error ??
+                incarnation.State.ToString();
+
+            observations.Add(
+                new WindowsNamespaceFileIncarnationObservation(
+                    FullPath:
+                        participant.FullPath,
+                    RelativePath:
+                        relativePath,
+                    InodeGeneration:
+                        null,
+                    Error:
+                        error
+                )
+            );
+
+            errors.Add(
+                $"{relativePath}: regular-file incarnation unavailable " +
+                $"({incarnation.State}): {error}"
+            );
+
+            return;
+        }
+
+        observations.Add(
+            new WindowsNamespaceFileIncarnationObservation(
+                FullPath:
+                    participant.FullPath,
+                RelativePath:
+                    relativePath,
+                InodeGeneration:
+                    incarnation.Identity.InodeGeneration,
+                Error:
+                    null
+            )
+        );
     }
 
     private static WindowsNamespacePhysicalParticipant
@@ -722,6 +870,33 @@ public static class WindowsNamespaceAnalyzer
             MountId:
                 identity.MountId.Value
         );
+    }
+
+    private static bool SameFileIdentity(
+        LinuxInspectChildAtResult inspected,
+        LinuxOpenedFileIdentityResult opened)
+    {
+        return
+            inspected.Success &&
+            inspected.Kind ==
+                LinuxChildObjectKind.RegularFile &&
+            opened.Success &&
+            inspected.DeviceMajor is not null &&
+            inspected.DeviceMinor is not null &&
+            inspected.Inode is not null &&
+            inspected.MountId is not null &&
+            opened.DeviceMajor is not null &&
+            opened.DeviceMinor is not null &&
+            opened.Inode is not null &&
+            opened.MountId is not null &&
+            inspected.DeviceMajor ==
+                opened.DeviceMajor &&
+            inspected.DeviceMinor ==
+                opened.DeviceMinor &&
+            inspected.Inode ==
+                opened.Inode &&
+            inspected.MountId ==
+                opened.MountId;
     }
 
     private static bool SameDirectoryIdentity(
@@ -827,6 +1002,8 @@ public static class WindowsNamespaceAnalyzer
         > participantsByLogicalPath,
         List<WindowsNamespaceDirectoryLookupObservation>
             directoryLookupObservations,
+        List<WindowsNamespaceFileIncarnationObservation>
+            fileIncarnationObservations,
         List<string> errors)
     {
         WindowsNamespaceNode[] nodes =
@@ -859,6 +1036,14 @@ public static class WindowsNamespaceAnalyzer
                 rootLogicalPath,
             DirectoryLookupObservations:
                 directoryLookupObservations
+                    .OrderBy(
+                        observation =>
+                            observation.RelativePath,
+                        StringComparer.Ordinal
+                    )
+                    .ToArray(),
+            FileIncarnationObservations:
+                fileIncarnationObservations
                     .OrderBy(
                         observation =>
                             observation.RelativePath,

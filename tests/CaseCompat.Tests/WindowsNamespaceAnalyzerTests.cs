@@ -713,6 +713,135 @@ public class WindowsNamespaceAnalyzerTests
         }
     }
 
+    [LinuxFileInodeGenerationFact]
+    public void Analyze_RecordsDescriptorBoundRegularFileIncarnation()
+    {
+        string root =
+            CreateTempDirectory();
+
+        try
+        {
+            string data =
+                Path.Combine(
+                    root,
+                    "Data"
+                );
+
+            string meshes =
+                Path.Combine(
+                    data,
+                    "Meshes"
+                );
+
+            Directory.CreateDirectory(
+                meshes
+            );
+
+            string filePath =
+                Path.Combine(
+                    meshes,
+                    "Example.nif"
+                );
+
+            File.WriteAllText(
+                filePath,
+                "example"
+            );
+
+            WindowsNamespaceAnalysis result =
+                WindowsNamespaceAnalyzer.Analyze(
+                    data,
+                    "Meshes"
+                );
+
+            Assert.True(
+                result.Complete,
+                string.Join(
+                    Environment.NewLine,
+                    result.Errors
+                )
+            );
+
+            WindowsNamespaceFileIncarnationObservation
+                observation =
+                    Assert.Single(
+                        result.FileIncarnationObservations
+                    );
+
+            Assert.Equal(
+                "Meshes/Example.nif",
+                observation.RelativePath
+                    .Replace('\\', '/')
+            );
+
+            Assert.NotNull(
+                observation.InodeGeneration
+            );
+
+            Assert.Null(
+                observation.Error
+            );
+
+            LinuxNoFollowPathOpenResult parentOpen =
+                LinuxNoFollowPath.OpenRootReadOnly(
+                    meshes
+                );
+
+            Assert.True(
+                parentOpen.Success,
+                parentOpen.Error
+            );
+
+            using LinuxNoFollowPathHandle parent =
+                Assert.IsType<
+                    LinuxNoFollowPathHandle
+                >(
+                    parentOpen.OpenedPath
+                );
+
+            LinuxOpenChildRegularFileReadOnlyAtResult opened =
+                LinuxOpenChildRegularFileReadOnlyAt.Open(
+                    parent,
+                    "Example.nif"
+                );
+
+            Assert.True(
+                opened.Success,
+                opened.Error
+            );
+
+            using LinuxOpenedChildHandle openedFile =
+                Assert.IsType<
+                    LinuxOpenedChildHandle
+                >(
+                    opened.OpenedFile
+                );
+
+            LinuxOpenedFileIncarnationResult expected =
+                LinuxOpenedFileIncarnation.Capture(
+                    openedFile
+                );
+
+            Assert.True(
+                expected.Success,
+                expected.Error
+            );
+
+            Assert.Equal(
+                expected.Identity!.InodeGeneration,
+                observation.InodeGeneration
+            );
+        }
+        finally
+        {
+            Directory.Delete(
+                root,
+                recursive:
+                    true
+            );
+        }
+    }
+
     [Fact]
     public void Analyze_ReportsSymbolicLinkAsIncompleteWithoutTraversal()
     {
