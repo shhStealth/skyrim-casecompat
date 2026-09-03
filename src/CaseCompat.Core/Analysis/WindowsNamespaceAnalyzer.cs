@@ -69,6 +69,11 @@ public static class WindowsNamespaceAnalyzer
         var errors =
             new List<string>();
 
+        var directoryLookupObservations =
+            new List<
+                WindowsNamespaceDirectoryLookupObservation
+            >();
+
         LinuxNoFollowPathOpenResult rootOpen =
             LinuxNoFollowPath.OpenRootReadOnly(
                 dataRootPath
@@ -91,12 +96,41 @@ public static class WindowsNamespaceAnalyzer
                 dataRootPath,
                 rootLogicalPath,
                 participantsByLogicalPath,
+                directoryLookupObservations,
                 errors
             );
         }
 
         using LinuxNoFollowPathHandle dataRoot =
             rootOpen.OpenedPath;
+
+        LinuxOpenedDirectorySnapshotResult
+            dataRootLookupSnapshot =
+                LinuxOpenedDirectorySnapshot.Capture(
+                    dataRoot,
+                    dataRootPath
+                );
+
+        AddDirectoryLookupObservation(
+            directoryLookupObservations,
+            fullPath:
+                dataRootPath,
+            relativePath:
+                ".",
+            dataRootLookupSnapshot
+        );
+
+        if (!dataRootLookupSnapshot.Success)
+        {
+            errors.Add(
+                $"Data: directory lookup semantics unavailable " +
+                $"({dataRootLookupSnapshot.State}): " +
+                (
+                    dataRootLookupSnapshot.Error ??
+                    "no additional error"
+                )
+            );
+        }
 
         LinuxEnumerateDirectoryAtResult
             rootEnumeration =
@@ -120,6 +154,7 @@ public static class WindowsNamespaceAnalyzer
                 dataRootPath,
                 rootLogicalPath,
                 participantsByLogicalPath,
+                directoryLookupObservations,
                 errors
             );
         }
@@ -251,6 +286,33 @@ public static class WindowsNamespaceAnalyzer
                         continue;
                     }
 
+                    LinuxOpenedDirectorySnapshotResult
+                        lookupSnapshot =
+                            LinuxOpenedDirectorySnapshot.Capture(
+                                directory,
+                                participant.FullPath
+                            );
+
+                    AddDirectoryLookupObservation(
+                        directoryLookupObservations,
+                        participant.FullPath,
+                        relativePath,
+                        lookupSnapshot
+                    );
+
+                    if (!lookupSnapshot.Success)
+                    {
+                        errors.Add(
+                            $"Data/{childName}: directory lookup " +
+                            $"semantics unavailable " +
+                            $"({lookupSnapshot.State}): " +
+                            (
+                                lookupSnapshot.Error ??
+                                "no additional error"
+                            )
+                        );
+                    }
+
                     retainedDirectoryRepresentative =
                         true;
 
@@ -276,6 +338,7 @@ public static class WindowsNamespaceAnalyzer
                         relativePath,
                         rootLogicalPath,
                         participantsByLogicalPath,
+                        directoryLookupObservations,
                         errors,
                         visitedDirectories
                     );
@@ -335,6 +398,7 @@ public static class WindowsNamespaceAnalyzer
             dataRootPath,
             rootLogicalPath,
             participantsByLogicalPath,
+            directoryLookupObservations,
             errors
         );
     }
@@ -348,6 +412,8 @@ public static class WindowsNamespaceAnalyzer
             WindowsLogicalPath,
             List<WindowsNamespacePhysicalParticipant>
         > participantsByLogicalPath,
+        List<WindowsNamespaceDirectoryLookupObservation>
+            directoryLookupObservations,
         List<string> errors,
         HashSet<DirectoryIdentity> visitedDirectories)
     {
@@ -487,6 +553,33 @@ public static class WindowsNamespaceAnalyzer
                         continue;
                     }
 
+                    LinuxOpenedDirectorySnapshotResult
+                        lookupSnapshot =
+                            LinuxOpenedDirectorySnapshot.Capture(
+                                childDirectory,
+                                participant.FullPath
+                            );
+
+                    AddDirectoryLookupObservation(
+                        directoryLookupObservations,
+                        participant.FullPath,
+                        childRelativePath,
+                        lookupSnapshot
+                    );
+
+                    if (!lookupSnapshot.Success)
+                    {
+                        errors.Add(
+                            $"{childRelativePath}: directory lookup " +
+                            $"semantics unavailable " +
+                            $"({lookupSnapshot.State}): " +
+                            (
+                                lookupSnapshot.Error ??
+                                "no additional error"
+                            )
+                        );
+                    }
+
                     DirectoryIdentity identity =
                         ToDirectoryIdentity(
                             openedIdentity
@@ -509,6 +602,7 @@ public static class WindowsNamespaceAnalyzer
                         childRelativePath,
                         childLogicalPath,
                         participantsByLogicalPath,
+                        directoryLookupObservations,
                         errors,
                         visitedDirectories
                     );
@@ -649,6 +743,31 @@ public static class WindowsNamespaceAnalyzer
                 opened.MountId;
     }
 
+    private static void AddDirectoryLookupObservation(
+        List<WindowsNamespaceDirectoryLookupObservation> observations,
+        string fullPath,
+        string relativePath,
+        LinuxOpenedDirectorySnapshotResult snapshot)
+    {
+        observations.Add(
+            new WindowsNamespaceDirectoryLookupObservation(
+                FullPath:
+                    fullPath,
+                RelativePath:
+                    relativePath,
+                CasefoldEnabled:
+                    snapshot.CasefoldEnabled,
+                RawFlags:
+                    snapshot.RawFlags,
+                Error:
+                    snapshot.Success
+                        ? null
+                        : snapshot.Error ??
+                            snapshot.State.ToString()
+            )
+        );
+    }
+
     private static string CombineRelativePath(
         string parent,
         string child)
@@ -706,6 +825,8 @@ public static class WindowsNamespaceAnalyzer
             WindowsLogicalPath,
             List<WindowsNamespacePhysicalParticipant>
         > participantsByLogicalPath,
+        List<WindowsNamespaceDirectoryLookupObservation>
+            directoryLookupObservations,
         List<string> errors)
     {
         WindowsNamespaceNode[] nodes =
@@ -736,6 +857,14 @@ public static class WindowsNamespaceAnalyzer
                 dataRootPath,
             RootLogicalPath:
                 rootLogicalPath,
+            DirectoryLookupObservations:
+                directoryLookupObservations
+                    .OrderBy(
+                        observation =>
+                            observation.RelativePath,
+                        StringComparer.Ordinal
+                    )
+                    .ToArray(),
             Nodes:
                 nodes,
             Errors:

@@ -1,4 +1,5 @@
 using CaseCompat.Core.Analysis;
+using CaseCompat.Filesystem.Linux;
 
 namespace CaseCompat.Tests;
 
@@ -545,6 +546,170 @@ public class WindowsNamespaceAnalyzerTests
         finally
         {
             Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public void Analyze_RecordsDescriptorDirectoryLookupSemantics()
+    {
+        string root =
+            CreateTempDirectory();
+
+        try
+        {
+            string data =
+                Path.Combine(
+                    root,
+                    "Data"
+                );
+
+            string meshes =
+                Path.Combine(
+                    data,
+                    "Meshes"
+                );
+
+            string armor =
+                Path.Combine(
+                    meshes,
+                    "Armor"
+                );
+
+            Directory.CreateDirectory(
+                armor
+            );
+
+            File.WriteAllText(
+                Path.Combine(
+                    armor,
+                    "Example.nif"
+                ),
+                "example"
+            );
+
+            WindowsNamespaceAnalysis result =
+                WindowsNamespaceAnalyzer.Analyze(
+                    data,
+                    "Meshes"
+                );
+
+            Assert.True(
+                result.Complete,
+                string.Join(
+                    Environment.NewLine,
+                    result.Errors
+                )
+            );
+
+            Assert.Equal(
+                3,
+                result.DirectoryLookupObservations.Count
+            );
+
+            WindowsNamespaceDirectoryLookupObservation
+                dataObservation =
+                    Assert.Single(
+                        result.DirectoryLookupObservations,
+                        observation =>
+                            observation.RelativePath == "."
+                    );
+
+            WindowsNamespaceDirectoryLookupObservation
+                meshesObservation =
+                    Assert.Single(
+                        result.DirectoryLookupObservations,
+                        observation =>
+                            observation.RelativePath
+                                .Replace('\\', '/') ==
+                            "Meshes"
+                    );
+
+            WindowsNamespaceDirectoryLookupObservation
+                armorObservation =
+                    Assert.Single(
+                        result.DirectoryLookupObservations,
+                        observation =>
+                            observation.RelativePath
+                                .Replace('\\', '/') ==
+                            "Meshes/Armor"
+                    );
+
+            DirectoryCasefoldResult dataFlags =
+                LinuxDirectoryFlags.Inspect(
+                    data
+                );
+
+            DirectoryCasefoldResult meshesFlags =
+                LinuxDirectoryFlags.Inspect(
+                    meshes
+                );
+
+            DirectoryCasefoldResult armorFlags =
+                LinuxDirectoryFlags.Inspect(
+                    armor
+                );
+
+            Assert.Null(
+                dataFlags.Error
+            );
+
+            Assert.Null(
+                meshesFlags.Error
+            );
+
+            Assert.Null(
+                armorFlags.Error
+            );
+
+            Assert.Equal(
+                dataFlags.CasefoldEnabled,
+                dataObservation.CasefoldEnabled
+            );
+
+            Assert.Equal(
+                dataFlags.RawFlags,
+                dataObservation.RawFlags
+            );
+
+            Assert.Equal(
+                meshesFlags.CasefoldEnabled,
+                meshesObservation.CasefoldEnabled
+            );
+
+            Assert.Equal(
+                meshesFlags.RawFlags,
+                meshesObservation.RawFlags
+            );
+
+            Assert.Equal(
+                armorFlags.CasefoldEnabled,
+                armorObservation.CasefoldEnabled
+            );
+
+            Assert.Equal(
+                armorFlags.RawFlags,
+                armorObservation.RawFlags
+            );
+
+            Assert.Null(
+                dataObservation.Error
+            );
+
+            Assert.Null(
+                meshesObservation.Error
+            );
+
+            Assert.Null(
+                armorObservation.Error
+            );
+        }
+        finally
+        {
+            Directory.Delete(
+                root,
+                recursive:
+                    true
+            );
         }
     }
 
