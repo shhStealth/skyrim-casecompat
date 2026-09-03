@@ -38,6 +38,26 @@ public sealed record WindowsNamespaceDirectoryLookupObservation(
 );
 
 /*
+ * Generation-aware incarnation evidence for one safely retained physical
+ * directory observed during namespace analysis.
+ *
+ * RelativePath "." represents the Data root itself.
+ *
+ * Device/inode/mount plus InodeGeneration distinguish the exact directory
+ * incarnation rather than merely its textual path.
+ */
+public sealed record WindowsNamespaceDirectoryIncarnationObservation(
+    string FullPath,
+    string RelativePath,
+    uint? DeviceMajor,
+    uint? DeviceMinor,
+    ulong? Inode,
+    ulong? MountId,
+    uint? InodeGeneration,
+    string? Error
+);
+
+/*
  * Descriptor-bound incarnation evidence for one regular-file participant.
  *
  * InodeGeneration is published only after the safely opened descriptor's
@@ -81,6 +101,8 @@ public sealed record WindowsNamespaceAnalysis(
     WindowsLogicalPath RootLogicalPath,
     IReadOnlyList<WindowsNamespaceDirectoryLookupObservation>
         DirectoryLookupObservations,
+    IReadOnlyList<WindowsNamespaceDirectoryIncarnationObservation>
+        DirectoryIncarnationObservations,
     IReadOnlyList<WindowsNamespaceFileIncarnationObservation>
         FileIncarnationObservations,
     IReadOnlyList<WindowsNamespaceNode> Nodes,

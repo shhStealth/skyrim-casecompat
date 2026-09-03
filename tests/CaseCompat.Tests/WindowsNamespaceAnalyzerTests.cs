@@ -713,6 +713,220 @@ public class WindowsNamespaceAnalyzerTests
         }
     }
 
+    [LinuxDirectoryInodeGenerationFact]
+    public void Analyze_RecordsDescriptorDirectoryIncarnations()
+    {
+        string root =
+            CreateTempDirectory();
+
+        try
+        {
+            string data =
+                Path.Combine(
+                    root,
+                    "Data"
+                );
+
+            string meshes =
+                Path.Combine(
+                    data,
+                    "Meshes"
+                );
+
+            string armor =
+                Path.Combine(
+                    meshes,
+                    "Armor"
+                );
+
+            Directory.CreateDirectory(
+                armor
+            );
+
+            WindowsNamespaceAnalysis result =
+                WindowsNamespaceAnalyzer.Analyze(
+                    data,
+                    "Meshes"
+                );
+
+            Assert.True(
+                result.Complete,
+                string.Join(
+                    Environment.NewLine,
+                    result.Errors
+                )
+            );
+
+            Assert.Equal(
+                3,
+                result.DirectoryIncarnationObservations.Count
+            );
+
+            WindowsNamespaceDirectoryIncarnationObservation
+                dataObservation =
+                    Assert.Single(
+                        result.DirectoryIncarnationObservations,
+                        observation =>
+                            observation.RelativePath == "."
+                    );
+
+            WindowsNamespaceDirectoryIncarnationObservation
+                meshesObservation =
+                    Assert.Single(
+                        result.DirectoryIncarnationObservations,
+                        observation =>
+                            observation.RelativePath
+                                .Replace('\\', '/') ==
+                            "Meshes"
+                    );
+
+            WindowsNamespaceDirectoryIncarnationObservation
+                armorObservation =
+                    Assert.Single(
+                        result.DirectoryIncarnationObservations,
+                        observation =>
+                            observation.RelativePath
+                                .Replace('\\', '/') ==
+                            "Meshes/Armor"
+                    );
+
+            Assert.All(
+                result.DirectoryIncarnationObservations,
+                observation =>
+                {
+                    Assert.Null(
+                        observation.Error
+                    );
+
+                    Assert.NotNull(
+                        observation.DeviceMajor
+                    );
+
+                    Assert.NotNull(
+                        observation.DeviceMinor
+                    );
+
+                    Assert.NotNull(
+                        observation.Inode
+                    );
+
+                    Assert.NotNull(
+                        observation.MountId
+                    );
+
+                    Assert.NotNull(
+                        observation.InodeGeneration
+                    );
+                }
+            );
+
+            LinuxNoFollowPathOpenResult rootOpen =
+                LinuxNoFollowPath.OpenRootReadOnly(
+                    data
+                );
+
+            Assert.True(
+                rootOpen.Success,
+                rootOpen.Error
+            );
+
+            using LinuxNoFollowPathHandle openedData =
+                Assert.IsType<LinuxNoFollowPathHandle>(
+                    rootOpen.OpenedPath
+                );
+
+            LinuxOpenedDirectoryIncarnationResult
+                independentDataIncarnation =
+                    LinuxOpenedDirectoryIncarnation.Capture(
+                        openedData,
+                        data
+                    );
+
+            Assert.True(
+                independentDataIncarnation.Success,
+                independentDataIncarnation.Error
+            );
+
+            LinuxDirectoryIncarnationIdentity dataIdentity =
+                independentDataIncarnation.Identity!;
+
+            Assert.Equal(
+                dataIdentity.PhysicalIdentity.DeviceMajor,
+                dataObservation.DeviceMajor
+            );
+
+            Assert.Equal(
+                dataIdentity.PhysicalIdentity.DeviceMinor,
+                dataObservation.DeviceMinor
+            );
+
+            Assert.Equal(
+                dataIdentity.PhysicalIdentity.Inode,
+                dataObservation.Inode
+            );
+
+            Assert.Equal(
+                dataIdentity.PhysicalIdentity.MountId,
+                dataObservation.MountId
+            );
+
+            Assert.Equal(
+                dataIdentity.InodeGeneration,
+                dataObservation.InodeGeneration
+            );
+
+            foreach (
+                WindowsNamespaceDirectoryIncarnationObservation observation
+                in new[]
+                {
+                    meshesObservation,
+                    armorObservation
+                })
+            {
+                WindowsNamespacePhysicalParticipant participant =
+                    Assert.Single(
+                        result.Nodes
+                            .SelectMany(node => node.Participants),
+                        candidate =>
+                            candidate.Kind ==
+                                WindowsNamespacePhysicalObjectKind.Directory &&
+                            candidate.RelativePath
+                                .Replace('\\', '/') ==
+                            observation.RelativePath
+                                .Replace('\\', '/')
+                    );
+
+                Assert.Equal(
+                    participant.DeviceMajor,
+                    observation.DeviceMajor
+                );
+
+                Assert.Equal(
+                    participant.DeviceMinor,
+                    observation.DeviceMinor
+                );
+
+                Assert.Equal(
+                    participant.Inode,
+                    observation.Inode
+                );
+
+                Assert.Equal(
+                    participant.MountId,
+                    observation.MountId
+                );
+            }
+        }
+        finally
+        {
+            Directory.Delete(
+                root,
+                recursive:
+                    true
+            );
+        }
+    }
+
     [LinuxFileInodeGenerationFact]
     public void Analyze_RecordsDescriptorBoundRegularFileIncarnation()
     {

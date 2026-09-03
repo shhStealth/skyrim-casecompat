@@ -74,6 +74,11 @@ public static class WindowsNamespaceAnalyzer
                 WindowsNamespaceDirectoryLookupObservation
             >();
 
+        var directoryIncarnationObservations =
+            new List<
+                WindowsNamespaceDirectoryIncarnationObservation
+            >();
+
         var fileIncarnationObservations =
             new List<
                 WindowsNamespaceFileIncarnationObservation
@@ -102,6 +107,7 @@ public static class WindowsNamespaceAnalyzer
                 rootLogicalPath,
                 participantsByLogicalPath,
                 directoryLookupObservations,
+                directoryIncarnationObservations,
                 fileIncarnationObservations,
                 errors
             );
@@ -109,6 +115,34 @@ public static class WindowsNamespaceAnalyzer
 
         using LinuxNoFollowPathHandle dataRoot =
             rootOpen.OpenedPath;
+
+        LinuxOpenedDirectoryIncarnationResult
+            dataRootIncarnation =
+                LinuxOpenedDirectoryIncarnation.Capture(
+                    dataRoot,
+                    dataRootPath
+                );
+
+        AddDirectoryIncarnationObservation(
+            directoryIncarnationObservations,
+            fullPath:
+                dataRootPath,
+            relativePath:
+                ".",
+            dataRootIncarnation
+        );
+
+        if (!dataRootIncarnation.Success)
+        {
+            errors.Add(
+                $"Data: directory incarnation unavailable " +
+                $"({dataRootIncarnation.State}): " +
+                (
+                    dataRootIncarnation.Error ??
+                    "no additional error"
+                )
+            );
+        }
 
         LinuxOpenedDirectorySnapshotResult
             dataRootLookupSnapshot =
@@ -161,6 +195,7 @@ public static class WindowsNamespaceAnalyzer
                 rootLogicalPath,
                 participantsByLogicalPath,
                 directoryLookupObservations,
+                directoryIncarnationObservations,
                 fileIncarnationObservations,
                 errors
             );
@@ -293,6 +328,32 @@ public static class WindowsNamespaceAnalyzer
                         continue;
                     }
 
+                    LinuxOpenedDirectoryIncarnationResult
+                        directoryIncarnation =
+                            LinuxOpenedDirectoryIncarnation.Capture(
+                                directory,
+                                participant.FullPath
+                            );
+
+                    AddDirectoryIncarnationObservation(
+                        directoryIncarnationObservations,
+                        participant.FullPath,
+                        relativePath,
+                        directoryIncarnation
+                    );
+
+                    if (!directoryIncarnation.Success)
+                    {
+                        errors.Add(
+                            $"Data/{childName}: directory incarnation " +
+                            $"unavailable ({directoryIncarnation.State}): " +
+                            (
+                                directoryIncarnation.Error ??
+                                "no additional error"
+                            )
+                        );
+                    }
+
                     LinuxOpenedDirectorySnapshotResult
                         lookupSnapshot =
                             LinuxOpenedDirectorySnapshot.Capture(
@@ -346,6 +407,7 @@ public static class WindowsNamespaceAnalyzer
                         rootLogicalPath,
                         participantsByLogicalPath,
                         directoryLookupObservations,
+                        directoryIncarnationObservations,
                         fileIncarnationObservations,
                         errors,
                         visitedDirectories
@@ -407,6 +469,7 @@ public static class WindowsNamespaceAnalyzer
             rootLogicalPath,
             participantsByLogicalPath,
             directoryLookupObservations,
+            directoryIncarnationObservations,
             fileIncarnationObservations,
             errors
         );
@@ -423,6 +486,8 @@ public static class WindowsNamespaceAnalyzer
         > participantsByLogicalPath,
         List<WindowsNamespaceDirectoryLookupObservation>
             directoryLookupObservations,
+        List<WindowsNamespaceDirectoryIncarnationObservation>
+            directoryIncarnationObservations,
         List<WindowsNamespaceFileIncarnationObservation>
             fileIncarnationObservations,
         List<string> errors,
@@ -564,6 +629,32 @@ public static class WindowsNamespaceAnalyzer
                         continue;
                     }
 
+                    LinuxOpenedDirectoryIncarnationResult
+                        directoryIncarnation =
+                            LinuxOpenedDirectoryIncarnation.Capture(
+                                childDirectory,
+                                participant.FullPath
+                            );
+
+                    AddDirectoryIncarnationObservation(
+                        directoryIncarnationObservations,
+                        participant.FullPath,
+                        childRelativePath,
+                        directoryIncarnation
+                    );
+
+                    if (!directoryIncarnation.Success)
+                    {
+                        errors.Add(
+                            $"{childRelativePath}: directory incarnation " +
+                            $"unavailable ({directoryIncarnation.State}): " +
+                            (
+                                directoryIncarnation.Error ??
+                                "no additional error"
+                            )
+                        );
+                    }
+
                     LinuxOpenedDirectorySnapshotResult
                         lookupSnapshot =
                             LinuxOpenedDirectorySnapshot.Capture(
@@ -614,6 +705,7 @@ public static class WindowsNamespaceAnalyzer
                         childLogicalPath,
                         participantsByLogicalPath,
                         directoryLookupObservations,
+                        directoryIncarnationObservations,
                         fileIncarnationObservations,
                         errors,
                         visitedDirectories
@@ -918,6 +1010,40 @@ public static class WindowsNamespaceAnalyzer
                 opened.MountId;
     }
 
+    private static void AddDirectoryIncarnationObservation(
+        List<WindowsNamespaceDirectoryIncarnationObservation> observations,
+        string fullPath,
+        string relativePath,
+        LinuxOpenedDirectoryIncarnationResult incarnation)
+    {
+        LinuxDirectoryIncarnationIdentity? identity =
+            incarnation.Identity;
+
+        observations.Add(
+            new WindowsNamespaceDirectoryIncarnationObservation(
+                FullPath:
+                    fullPath,
+                RelativePath:
+                    relativePath,
+                DeviceMajor:
+                    identity?.PhysicalIdentity.DeviceMajor,
+                DeviceMinor:
+                    identity?.PhysicalIdentity.DeviceMinor,
+                Inode:
+                    identity?.PhysicalIdentity.Inode,
+                MountId:
+                    identity?.PhysicalIdentity.MountId,
+                InodeGeneration:
+                    identity?.InodeGeneration,
+                Error:
+                    incarnation.Success
+                        ? null
+                        : incarnation.Error ??
+                            incarnation.State.ToString()
+            )
+        );
+    }
+
     private static void AddDirectoryLookupObservation(
         List<WindowsNamespaceDirectoryLookupObservation> observations,
         string fullPath,
@@ -1002,6 +1128,8 @@ public static class WindowsNamespaceAnalyzer
         > participantsByLogicalPath,
         List<WindowsNamespaceDirectoryLookupObservation>
             directoryLookupObservations,
+        List<WindowsNamespaceDirectoryIncarnationObservation>
+            directoryIncarnationObservations,
         List<WindowsNamespaceFileIncarnationObservation>
             fileIncarnationObservations,
         List<string> errors)
@@ -1036,6 +1164,14 @@ public static class WindowsNamespaceAnalyzer
                 rootLogicalPath,
             DirectoryLookupObservations:
                 directoryLookupObservations
+                    .OrderBy(
+                        observation =>
+                            observation.RelativePath,
+                        StringComparer.Ordinal
+                    )
+                    .ToArray(),
+            DirectoryIncarnationObservations:
+                directoryIncarnationObservations
                     .OrderBy(
                         observation =>
                             observation.RelativePath,
