@@ -982,7 +982,7 @@ public sealed class
             manifest with
             {
                 SchemaVersion =
-                    3
+                    4
             };
 
         string? error =

@@ -17,6 +17,8 @@ public static class DataRelativePathRepairPlanProjector
         return ProjectCore(
             resolution,
             requireStandaloneBranchCoverage:
+                true,
+            allowLeafOnlyAlternateBranch:
                 true
         );
     }
@@ -42,13 +44,16 @@ public static class DataRelativePathRepairPlanProjector
         return ProjectCore(
             resolution,
             requireStandaloneBranchCoverage:
+                false,
+            allowLeafOnlyAlternateBranch:
                 false
         );
     }
 
     private static DataRelativePathRepairPlanProjection ProjectCore(
         DataRelativePathResolution resolution,
-        bool requireStandaloneBranchCoverage)
+        bool requireStandaloneBranchCoverage,
+        bool allowLeafOnlyAlternateBranch)
     {
         ArgumentNullException.ThrowIfNull(
             resolution
@@ -59,10 +64,44 @@ public static class DataRelativePathRepairPlanProjector
                 resolution
             );
 
-        if (
-            topologyState !=
+        bool directStrictCaseMismatch =
+            topologyState ==
             DataRelativePathCaseMismatchTopologyState
-                .DirectStrictCaseMismatch)
+                .DirectStrictCaseMismatch;
+
+        /*
+         * CandidateBranchesBeforeFailure normally remains blocked.
+         *
+         * There is one narrower standalone repair shape that does not
+         * create or redirect any directory hierarchy:
+         *
+         * - the requested traversal reaches its existing destination
+         *   parent;
+         * - failure occurs only at the final file component;
+         * - the resolver has already proven exactly one Windows-equivalent
+         *   physical source candidate;
+         * - projection therefore needs only one CreateFile operation.
+         *
+         * Batch projection deliberately does not admit this topology yet.
+         * Durable aggregate authorization still models schema-v2 direct
+         * strict mismatches and must evolve separately.
+         */
+        bool leafOnlyAlternateBranch =
+            allowLeafOnlyAlternateBranch &&
+            topologyState ==
+                DataRelativePathCaseMismatchTopologyState
+                    .CandidateBranchesBeforeFailure &&
+            resolution.FailedComponentIndex is int
+                alternateFailedIndex &&
+            alternateFailedIndex >= 0 &&
+            alternateFailedIndex ==
+                SplitComponents(
+                    resolution.RequestedPath
+                ).Length - 1;
+
+        if (
+            !directStrictCaseMismatch &&
+            !leafOnlyAlternateBranch)
         {
             return Result(
                 resolution,

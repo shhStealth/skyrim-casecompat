@@ -64,12 +64,23 @@ public sealed record DataRelativePathRepairPlanManifestRecord(
         2;
 
     /*
-     * New resolver-derived repair plans use schema v2.
+     * Schema v3 is reserved for the narrowly proven standalone
+     * leaf-only alternate-branch repair:
      *
-     * The legacy Create(...) entry point remains explicitly schema v1
-     * so old-format construction and compatibility tests retain their
-     * original semantics.
+     * - the complete requested destination parent already exists;
+     * - the resolver failed only at the final file component;
+     * - one unique Windows-equivalent source exists through an earlier
+     *   physical branch split;
+     * - the repair contains exactly one CreateFile operation.
+     *
+     * Schema v2 remains the default schema for ordinary direct
+     * strict-case repair plans.  Keeping CurrentSchemaVersion at v2
+     * avoids changing existing v1/v2 consumers while v3 remains a
+     * specialized standalone capability.
      */
+    public const int SchemaVersion3 =
+        3;
+
     public const int CurrentSchemaVersion =
         SchemaVersion2;
 }
@@ -147,10 +158,19 @@ public static class DataRelativePathRepairPlanManifest
                     resolution
                 );
 
-        if (
-            topologyState !=
+        bool directStrictCaseMismatch =
+            topologyState ==
             DataRelativePathCaseMismatchTopologyState
-                .DirectStrictCaseMismatch)
+                .DirectStrictCaseMismatch;
+
+        bool leafOnlyAlternateBranch =
+            topologyState ==
+            DataRelativePathCaseMismatchTopologyState
+                .CandidateBranchesBeforeFailure;
+
+        if (
+            !directStrictCaseMismatch &&
+            !leafOnlyAlternateBranch)
         {
             return new(
                 State:
@@ -159,11 +179,24 @@ public static class DataRelativePathRepairPlanManifest
                 Manifest:
                     null,
                 Error:
-                    "Schema-v2 manifest creation requires a " +
-                    "DirectStrictCaseMismatch resolution; actual " +
-                    $"topology state was {topologyState}."
+                    "Resolver-derived manifest creation requires either " +
+                    "DirectStrictCaseMismatch or the narrowly supported " +
+                    "leaf-only CandidateBranchesBeforeFailure topology; " +
+                    $"actual topology state was {topologyState}."
             );
         }
+
+        int schemaVersion =
+            leafOnlyAlternateBranch
+                ? DataRelativePathRepairPlanManifestRecord
+                    .SchemaVersion3
+                : DataRelativePathRepairPlanManifestRecord
+                    .SchemaVersion2;
+
+        string schemaLabel =
+            leafOnlyAlternateBranch
+                ? "Schema-v3"
+                : "Schema-v2";
 
         if (
             resolution.FailedComponentIndex is not int
@@ -177,9 +210,83 @@ public static class DataRelativePathRepairPlanManifest
                 Manifest:
                     null,
                 Error:
-                    "Schema-v2 manifest creation requires a valid " +
+                    $"{schemaLabel} manifest creation requires a valid " +
                     "failed component index."
             );
+        }
+
+        if (leafOnlyAlternateBranch)
+        {
+            string[] requestedComponents =
+                resolution.RequestedPath.Split('/');
+
+            if (
+                requestedComponents.Length == 0 ||
+                failedIndex !=
+                    requestedComponents.Length - 1)
+            {
+                return new(
+                    State:
+                        DataRelativePathRepairPlanManifestCreationState
+                            .InvalidInput,
+                    Manifest:
+                        null,
+                    Error:
+                        "Schema-v3 manifest creation requires failure " +
+                        "only at the final requested file component."
+                );
+            }
+
+            if (
+                resolution.EquivalentPhysicalCandidates.Count !=
+                    1)
+            {
+                return new(
+                    State:
+                        DataRelativePathRepairPlanManifestCreationState
+                            .InvalidInput,
+                    Manifest:
+                        null,
+                    Error:
+                        "Schema-v3 manifest creation requires exactly " +
+                        "one equivalent physical source candidate."
+                );
+            }
+
+            if (
+                !PathEquals(
+                    resolution.EquivalentPhysicalCandidates[0],
+                    sourceSnapshot.PhysicalPath))
+            {
+                return new(
+                    State:
+                        DataRelativePathRepairPlanManifestCreationState
+                            .InvalidInput,
+                    Manifest:
+                        null,
+                    Error:
+                        "Schema-v3 source snapshot does not match the " +
+                        "resolver's unique equivalent physical candidate."
+                );
+            }
+
+            if (
+                operations.Count != 1 ||
+                operations[0].Kind !=
+                    DataRelativePathRepairPlanOperationKind
+                        .CreateFile)
+            {
+                return new(
+                    State:
+                        DataRelativePathRepairPlanManifestCreationState
+                            .InvalidInput,
+                    Manifest:
+                        null,
+                    Error:
+                        "Schema-v3 supports exactly one CreateFile " +
+                        "operation and no CreateDirectory operations."
+                );
+            }
         }
 
         var resolvedPrefixSteps =
@@ -209,9 +316,9 @@ public static class DataRelativePathRepairPlanManifest
                     Manifest:
                         null,
                     Error:
-                        "Schema-v2 manifest creation requires exactly " +
+                        $"{schemaLabel} manifest creation requires exactly " +
                         "one resolved-prefix traversal step for every " +
-                        "component before the strict mismatch."
+                        "component before the failed file component."
                 );
             }
 
@@ -230,7 +337,7 @@ public static class DataRelativePathRepairPlanManifest
                     Manifest:
                         null,
                     Error:
-                        "Schema-v2 manifest creation requires every " +
+                        $"{schemaLabel} manifest creation requires every " +
                         "resolved-prefix traversal step to have a " +
                         "selected physical name."
                 );
@@ -266,7 +373,7 @@ public static class DataRelativePathRepairPlanManifest
                         Manifest:
                             null,
                         Error:
-                            "Schema-v2 CasefoldEquivalent creation " +
+                            $"{schemaLabel} CasefoldEquivalent creation " +
                             "requires successful evidence that the " +
                             "physical parent was casefold-enabled."
                     );
@@ -285,7 +392,7 @@ public static class DataRelativePathRepairPlanManifest
                     Manifest:
                         null,
                     Error:
-                        "Schema-v2 manifest creation encountered an " +
+                        $"{schemaLabel} manifest creation encountered an " +
                         "unsupported resolved-prefix traversal state."
                 );
             }
@@ -312,8 +419,7 @@ public static class DataRelativePathRepairPlanManifest
 
         return CreateCore(
             schemaVersion:
-                DataRelativePathRepairPlanManifestRecord
-                    .SchemaVersion2,
+                schemaVersion,
             planId,
             createdUtc,
             resolution.DataRoot,
@@ -443,7 +549,10 @@ public static class DataRelativePathRepairPlanManifest
                     .SchemaVersion1 &&
             manifest.SchemaVersion !=
                 DataRelativePathRepairPlanManifestRecord
-                    .SchemaVersion2)
+                    .SchemaVersion2 &&
+            manifest.SchemaVersion !=
+                DataRelativePathRepairPlanManifestRecord
+                    .SchemaVersion3)
         {
             return
                 $"Unsupported plan-manifest schema version " +
@@ -470,6 +579,17 @@ public static class DataRelativePathRepairPlanManifest
             return
                 "Plan-manifest schema version 2 requires " +
                 "resolved-prefix evidence.";
+        }
+
+        if (
+            manifest.SchemaVersion ==
+                DataRelativePathRepairPlanManifestRecord
+                    .SchemaVersion3 &&
+            manifest.ResolvedPrefixSteps is null)
+        {
+            return
+                "Plan-manifest schema version 3 requires " +
+                "destination-prefix evidence.";
         }
 
         if (manifest.PlanId == Guid.Empty)
@@ -974,6 +1094,20 @@ public static class DataRelativePathRepairPlanManifest
         }
 
         if (
+            manifest.SchemaVersion ==
+            DataRelativePathRepairPlanManifestRecord
+                .SchemaVersion3)
+        {
+            return ValidateSchemaVersion3RequestedPathBinding(
+                manifest,
+                requestedPath,
+                finalRequestedPath,
+                dataRoot,
+                initialParentPath
+            );
+        }
+
+        if (
             manifest.SchemaVersion !=
             DataRelativePathRepairPlanManifestRecord
                 .SchemaVersion2)
@@ -1256,6 +1390,432 @@ public static class DataRelativePathRepairPlanManifest
 
         return
             null;
+    }
+
+    private static string?
+        ValidateSchemaVersion3RequestedPathBinding(
+            DataRelativePathRepairPlanManifestRecord manifest,
+            string requestedPath,
+            string finalRequestedPath,
+            string dataRoot,
+            string initialParentPath)
+    {
+        const string mismatchError =
+            "The schema-v3 plan requested path does not match the " +
+            "leaf-only alternate-branch repair evidence.";
+
+        IReadOnlyList<
+            DataRelativePathRepairPlanResolvedPrefixStep
+        >? prefixSteps =
+            manifest.ResolvedPrefixSteps;
+
+        if (prefixSteps is null)
+        {
+            return
+                "Plan-manifest schema version 3 requires " +
+                "destination-prefix evidence.";
+        }
+
+        string[] requestedComponents =
+            requestedPath.Split('/');
+
+        string[] finalComponents =
+            finalRequestedPath.Split('/');
+
+        if (
+            requestedComponents.Length == 0 ||
+            finalComponents.Length !=
+                requestedComponents.Length ||
+            prefixSteps.Count !=
+                requestedComponents.Length - 1)
+        {
+            return
+                "Schema-v3 requires a complete existing destination " +
+                "prefix ending immediately before the final file component.";
+        }
+
+        if (
+            manifest.Operations.Count != 1 ||
+            manifest.Operations[0] is null ||
+            manifest.Operations[0].Operation is null ||
+            manifest.Operations[0].Operation.Kind !=
+                DataRelativePathRepairPlanOperationKind.CreateFile)
+        {
+            return
+                "Schema-v3 supports exactly one CreateFile operation.";
+        }
+
+        string sourceRelative;
+
+        try
+        {
+            sourceRelative =
+                Path.GetRelativePath(
+                    dataRoot,
+                    manifest.SourceSnapshot.PhysicalPath
+                );
+        }
+        catch (
+            Exception ex)
+            when (
+                ex is ArgumentException or
+                NotSupportedException or
+                PathTooLongException)
+        {
+            return
+                "Schema-v3 source evidence could not be expressed " +
+                "relative to the Data root.";
+        }
+
+        if (
+            !TryNormalizeRequestedPath(
+                sourceRelative,
+                out string normalizedSourceRelative))
+        {
+            return
+                "Schema-v3 source evidence is not a valid " +
+                "Data-relative path.";
+        }
+
+        string[] sourceComponents =
+            normalizedSourceRelative.Split('/');
+
+        if (
+            sourceComponents.Length !=
+                requestedComponents.Length)
+        {
+            return
+                "Schema-v3 source and requested paths must have the " +
+                "same component count.";
+        }
+
+        for (
+            int index = 0;
+            index < requestedComponents.Length;
+            index++)
+        {
+            if (
+                !SchemaVersion3ComponentsAreWindowsEquivalent(
+                    sourceComponents[index],
+                    requestedComponents[index]))
+            {
+                return
+                    "Schema-v3 source path is not Windows-logically " +
+                    "equivalent to the requested path.";
+            }
+        }
+
+        string expectedParent;
+
+        try
+        {
+            expectedParent =
+                Path.GetFullPath(
+                    dataRoot
+                );
+        }
+        catch (
+            Exception ex)
+            when (
+                ex is ArgumentException or
+                NotSupportedException or
+                PathTooLongException)
+        {
+            return
+                "Schema-v3 destination-prefix Data root could not " +
+                "be normalized.";
+        }
+
+        bool sourceHasBranched =
+            false;
+
+        for (
+            int index = 0;
+            index < prefixSteps.Count;
+            index++)
+        {
+            DataRelativePathRepairPlanResolvedPrefixStep? step =
+                prefixSteps[index];
+
+            if (step is null)
+            {
+                return
+                    "Schema-v3 destination-prefix evidence contains " +
+                    "a null step.";
+            }
+
+            if (step.ComponentIndex != index)
+            {
+                return
+                    "Schema-v3 destination-prefix evidence is not " +
+                    "contiguous from component zero.";
+            }
+
+            if (
+                !string.Equals(
+                    step.RequestedComponent,
+                    requestedComponents[index],
+                    StringComparison.Ordinal))
+            {
+                return mismatchError;
+            }
+
+            if (
+                string.IsNullOrEmpty(
+                    step.SelectedPhysicalName))
+            {
+                return
+                    "Schema-v3 destination-prefix evidence requires " +
+                    "a selected physical name.";
+            }
+
+            if (
+                !PathEquals(
+                    step.ParentPhysicalPath,
+                    expectedParent))
+            {
+                return
+                    "Schema-v3 destination-prefix evidence does not " +
+                    "match the physical destination hierarchy.";
+            }
+
+            if (
+                !string.Equals(
+                    finalComponents[index],
+                    step.SelectedPhysicalName,
+                    StringComparison.Ordinal))
+            {
+                return mismatchError;
+            }
+
+            IReadOnlyList<string>? equivalentNames =
+                step.EquivalentPhysicalNames;
+
+            if (
+                equivalentNames is null ||
+                equivalentNames.Count == 0)
+            {
+                return
+                    "Schema-v3 destination-prefix evidence requires " +
+                    "at least one equivalent physical name.";
+            }
+
+            var seenEquivalentNames =
+                new HashSet<string>(
+                    StringComparer.Ordinal
+                );
+
+            bool selectedPresent =
+                false;
+
+            foreach (string name in equivalentNames)
+            {
+                if (
+                    string.IsNullOrEmpty(name) ||
+                    name is "." or ".." ||
+                    name.Contains('/') ||
+                    name.Contains('\\') ||
+                    name.Contains('\0') ||
+                    !seenEquivalentNames.Add(name))
+                {
+                    return
+                        "Schema-v3 destination-prefix equivalent-name " +
+                        "evidence is invalid.";
+                }
+
+                if (
+                    !SchemaVersion3ComponentsAreWindowsEquivalent(
+                        name,
+                        step.RequestedComponent))
+                {
+                    return
+                        "Schema-v3 destination-prefix equivalent names " +
+                        "are not Windows-logically equivalent.";
+                }
+
+                if (
+                    string.Equals(
+                        name,
+                        step.SelectedPhysicalName,
+                        StringComparison.Ordinal))
+                {
+                    selectedPresent =
+                        true;
+                }
+            }
+
+            if (!selectedPresent)
+            {
+                return
+                    "Schema-v3 selected destination spelling is not " +
+                    "represented by its equivalent-name evidence.";
+            }
+
+            switch (step.Kind)
+            {
+                case
+                    DataRelativePathRepairPlanResolvedPrefixStepKind
+                        .ExactSpelling:
+                {
+                    if (
+                        !string.Equals(
+                            step.RequestedComponent,
+                            step.SelectedPhysicalName,
+                            StringComparison.Ordinal))
+                    {
+                        return mismatchError;
+                    }
+
+                    if (
+                        equivalentNames.Count > 1 &&
+                        step.ParentCasefoldEnabled != false)
+                    {
+                        return
+                            "Schema-v3 multiple physical equivalents " +
+                            "require a proven case-sensitive parent.";
+                    }
+
+                    break;
+                }
+
+                case
+                    DataRelativePathRepairPlanResolvedPrefixStepKind
+                        .CasefoldEquivalent:
+                {
+                    if (
+                        step.ParentCasefoldEnabled != true ||
+                        equivalentNames.Count != 1 ||
+                        !string.Equals(
+                            equivalentNames[0],
+                            step.SelectedPhysicalName,
+                            StringComparison.Ordinal) ||
+                        string.Equals(
+                            step.RequestedComponent,
+                            step.SelectedPhysicalName,
+                            StringComparison.Ordinal) ||
+                        !SchemaVersion3ComponentsAreWindowsEquivalent(
+                            step.RequestedComponent,
+                            step.SelectedPhysicalName))
+                    {
+                        return
+                            "Schema-v3 CasefoldEquivalent destination " +
+                            "evidence is invalid.";
+                    }
+
+                    break;
+                }
+
+                default:
+                    return
+                        "Schema-v3 destination-prefix evidence contains " +
+                        "an unsupported step kind.";
+            }
+
+            if (!sourceHasBranched)
+            {
+                string sourceComponent =
+                    sourceComponents[index];
+
+                if (
+                    !string.Equals(
+                        sourceComponent,
+                        step.SelectedPhysicalName,
+                        StringComparison.Ordinal))
+                {
+                    if (
+                        equivalentNames.Count <= 1 ||
+                        !equivalentNames.Contains(
+                            sourceComponent,
+                            StringComparer.Ordinal))
+                    {
+                        return
+                            "Schema-v3 source branch divergence is not " +
+                            "supported by the resolver's equivalent-name " +
+                            "evidence.";
+                    }
+
+                    sourceHasBranched =
+                        true;
+                }
+            }
+
+            try
+            {
+                expectedParent =
+                    Path.GetFullPath(
+                        Path.Combine(
+                            expectedParent,
+                            step.SelectedPhysicalName
+                        )
+                    );
+            }
+            catch (
+                Exception ex)
+                when (
+                    ex is ArgumentException or
+                    NotSupportedException or
+                    PathTooLongException)
+            {
+                return
+                    "Schema-v3 destination-prefix evidence produced " +
+                    "an invalid physical hierarchy.";
+            }
+        }
+
+        if (!sourceHasBranched)
+        {
+            return
+                "Schema-v3 source must branch from the persisted " +
+                "destination hierarchy before the final component.";
+        }
+
+        if (
+            !PathEquals(
+                expectedParent,
+                initialParentPath))
+        {
+            return
+                "Schema-v3 destination-prefix evidence does not " +
+                "terminate at the immutable initial destination parent.";
+        }
+
+        for (
+            int index = prefixSteps.Count;
+            index < requestedComponents.Length;
+            index++)
+        {
+            if (
+                !string.Equals(
+                    requestedComponents[index],
+                    finalComponents[index],
+                    StringComparison.Ordinal))
+            {
+                return mismatchError;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool
+        SchemaVersion3ComponentsAreWindowsEquivalent(
+            string left,
+            string right)
+    {
+        try
+        {
+            return
+                WindowsLogicalPath.FromRelativePath(
+                    left
+                ) ==
+                WindowsLogicalPath.FromRelativePath(
+                    right
+                );
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 
     private static bool TryNormalizeRequestedPath(

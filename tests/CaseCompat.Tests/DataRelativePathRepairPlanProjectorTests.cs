@@ -807,6 +807,614 @@ public sealed class DataRelativePathRepairPlanProjectorTests
     }
 
     [Fact]
+    public void Project_LeafOnlyAlternatePhysicalHierarchy_ProjectsSingleCreateFile()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var temp =
+            new TemporaryDirectory();
+
+        string dataRoot =
+            CreateDataRoot(
+                temp
+            );
+
+        string requestedParent =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    dataRoot,
+                    "meshes",
+                    "Actors",
+                    "Character",
+                    "Character Assets"
+                )
+            ).FullName;
+
+        string alternateParent =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    dataRoot,
+                    "meshes",
+                    "actors",
+                    "character",
+                    "character assets"
+                )
+            ).FullName;
+
+        string sourceFile =
+            Path.Combine(
+                alternateParent,
+                "MaleHead.tri"
+            );
+
+        File.WriteAllText(
+            sourceFile,
+            "facegen-leaf-alternate-branch-fixture"
+        );
+
+        string destinationFile =
+            Path.Combine(
+                requestedParent,
+                "MaleHead.tri"
+            );
+
+        Assert.False(
+            File.Exists(
+                destinationFile
+            )
+        );
+
+        DataRelativePathResolution resolution =
+            Resolve(
+                dataRoot,
+                "Meshes/Actors/Character/Character Assets/" +
+                "MaleHead.tri"
+            );
+
+        Assert.Equal(
+            DataRelativePathCaseMismatchTopologyState
+                .CandidateBranchesBeforeFailure,
+            DataRelativePathCaseMismatchTopologyClassifier
+                .Classify(
+                    resolution
+                )
+        );
+
+        Assert.Equal(
+            4,
+            resolution.FailedComponentIndex
+        );
+
+        Assert.Single(
+            resolution.EquivalentPhysicalCandidates
+        );
+
+        Assert.Equal(
+            Path.GetFullPath(
+                sourceFile
+            ),
+            Path.GetFullPath(
+                resolution
+                    .EquivalentPhysicalCandidates[0]
+            )
+        );
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector.Project(
+                resolution
+            );
+
+        /*
+         * This is intentionally narrower than general
+         * CandidateBranchesBeforeFailure support.
+         *
+         * The exact requested destination parent already exists.
+         * Only the final file component is missing, so the safe repair
+         * shape requires no parallel directory hierarchy at all:
+         *
+         *     existing requested parent
+         *         + one CreateFile from the unique equivalent source.
+         */
+        Assert.Equal(
+            DataRelativePathRepairPlanProjectionState
+                .Projected,
+            projection.State
+        );
+
+        Assert.True(
+            projection.HasPlan
+        );
+
+        Assert.Equal(
+            DataRelativePathCaseMismatchTopologyState
+                .CandidateBranchesBeforeFailure,
+            projection.TopologyState
+        );
+
+        DataRelativePathRepairSourceSnapshot sourceSnapshot =
+            Assert.IsType<
+                DataRelativePathRepairSourceSnapshot
+            >(
+                projection.SourceSnapshot
+            );
+
+        Assert.Equal(
+            Path.GetFullPath(
+                sourceFile
+            ),
+            sourceSnapshot.PhysicalPath
+        );
+
+        DataRelativePathRepairDestinationParentSnapshot
+            destinationParentSnapshot =
+                Assert.IsType<
+                    DataRelativePathRepairDestinationParentSnapshot
+                >(
+                    projection.DestinationParentSnapshot
+                );
+
+        Assert.Equal(
+            Path.GetFullPath(
+                requestedParent
+            ),
+            destinationParentSnapshot.PhysicalPath
+        );
+
+        Assert.False(
+            destinationParentSnapshot.CasefoldEnabled
+        );
+
+        DataRelativePathRepairPlanOperation operation =
+            Assert.Single(
+                projection.Operations
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanOperationKind
+                .CreateFile,
+            operation.Kind
+        );
+
+        Assert.Equal(
+            Path.GetFullPath(
+                destinationFile
+            ),
+            operation.DestinationPath
+        );
+
+        Assert.Equal(
+            Path.GetFullPath(
+                sourceFile
+            ),
+            operation.SourcePath
+        );
+
+        /*
+         * FaceGen alternate-branch projection must be durably representable
+         * before it can ever be allowed to reach repair-apply.
+         *
+         * Schema v2 deliberately describes direct strict-case mismatch.
+         * This alternate-source / existing-destination-parent shape requires
+         * a distinct durable schema while retaining the same immutable source
+         * snapshot, destination-parent snapshot, and CreateFile operation.
+         */
+        DataRelativePathRepairPlanManifestCreation creation =
+            DataRelativePathRepairPlanManifest.CreateFromResolution(
+                Guid.NewGuid(),
+                DateTimeOffset.UtcNow,
+                resolution,
+                sourceSnapshot,
+                destinationParentSnapshot,
+                projection.Operations
+            );
+
+        Assert.True(
+            creation.Success,
+            creation.Error ??
+            creation.State.ToString()
+        );
+
+        DataRelativePathRepairPlanManifestRecord manifest =
+            Assert.IsType<
+                DataRelativePathRepairPlanManifestRecord
+            >(
+                creation.Manifest
+            );
+
+        Assert.Equal(
+            3,
+            manifest.SchemaVersion
+        );
+
+        Assert.NotNull(
+            manifest.ResolvedPrefixSteps
+        );
+
+        Assert.Equal(
+            4,
+            manifest.ResolvedPrefixSteps!.Count
+        );
+
+        Assert.Equal(
+            Path.GetFullPath(
+                requestedParent
+            ),
+            manifest.InitialDestinationParentSnapshot
+                .PhysicalPath
+        );
+
+        Assert.Equal(
+            Path.GetFullPath(
+                sourceFile
+            ),
+            manifest.SourceSnapshot
+                .PhysicalPath
+        );
+
+        DataRelativePathRepairPlanManifestOperation
+            persistedOperation =
+                Assert.Single(
+                    manifest.Operations
+                );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanOperationKind
+                .CreateFile,
+            persistedOperation.Operation.Kind
+        );
+
+        Assert.Equal(
+            Path.GetFullPath(
+                destinationFile
+            ),
+            persistedOperation.Operation
+                .DestinationPath
+        );
+
+        /*
+         * ===== SCHEMA-V3 NEGATIVE / TAMPER COVERAGE =====
+         *
+         * A valid v3 record is not enough.  Persisted evidence must fail
+         * closed if its alternate source, branch proof, destination prefix,
+         * or operation cardinality is changed.
+         */
+
+        // ------------------------------------------------------------
+        // A. The source must remain Windows-logically equivalent to
+        //    the requested path.
+        // ------------------------------------------------------------
+
+        string nonEquivalentSource =
+            Path.Combine(
+                alternateParent,
+                "DefinitelyNotMaleHead.tri"
+            );
+
+        File.WriteAllText(
+            nonEquivalentSource,
+            "schema-v3-non-equivalent-source"
+        );
+
+        LinuxFileIdentityResult nonEquivalentIdentity =
+            LinuxFileIdentity.Inspect(
+                nonEquivalentSource
+            );
+
+        Assert.True(
+            nonEquivalentIdentity.Success,
+            nonEquivalentIdentity.Error
+        );
+
+        DataRelativePathRepairPlanManifestOperation
+            nonEquivalentOperation =
+                persistedOperation with
+                {
+                    Operation =
+                        persistedOperation.Operation with
+                        {
+                            SourcePath =
+                                nonEquivalentSource
+                        }
+                };
+
+        DataRelativePathRepairPlanManifestRecord
+            nonEquivalentSourceManifest =
+                manifest with
+                {
+                    SourceSnapshot =
+                        manifest.SourceSnapshot with
+                        {
+                            PhysicalPath =
+                                nonEquivalentSource,
+                            Identity =
+                                nonEquivalentIdentity
+                        },
+                    Operations =
+                    [
+                        nonEquivalentOperation
+                    ]
+                };
+
+        string? nonEquivalentSourceError =
+            DataRelativePathRepairPlanManifest.Validate(
+                nonEquivalentSourceManifest
+            );
+
+        Assert.NotNull(
+            nonEquivalentSourceError
+        );
+
+        Assert.Contains(
+            "not Windows-logically equivalent",
+            nonEquivalentSourceError ??
+            string.Empty
+        );
+
+        // ------------------------------------------------------------
+        // B. Merely differing at the file leaf is insufficient.
+        //    Schema v3 requires the source to have branched from the
+        //    persisted destination hierarchy BEFORE the final component.
+        // ------------------------------------------------------------
+
+        string unbranchedSource =
+            Path.Combine(
+                requestedParent,
+                "malehead.tri"
+            );
+
+        File.WriteAllText(
+            unbranchedSource,
+            "schema-v3-unbranched-source"
+        );
+
+        LinuxFileIdentityResult unbranchedIdentity =
+            LinuxFileIdentity.Inspect(
+                unbranchedSource
+            );
+
+        Assert.True(
+            unbranchedIdentity.Success,
+            unbranchedIdentity.Error
+        );
+
+        DataRelativePathRepairPlanManifestOperation
+            unbranchedOperation =
+                persistedOperation with
+                {
+                    Operation =
+                        persistedOperation.Operation with
+                        {
+                            SourcePath =
+                                unbranchedSource
+                        }
+                };
+
+        DataRelativePathRepairPlanManifestRecord
+            unbranchedSourceManifest =
+                manifest with
+                {
+                    SourceSnapshot =
+                        manifest.SourceSnapshot with
+                        {
+                            PhysicalPath =
+                                unbranchedSource,
+                            Identity =
+                                unbranchedIdentity
+                        },
+                    Operations =
+                    [
+                        unbranchedOperation
+                    ]
+                };
+
+        string? unbranchedSourceError =
+            DataRelativePathRepairPlanManifest.Validate(
+                unbranchedSourceManifest
+            );
+
+        Assert.NotNull(
+            unbranchedSourceError
+        );
+
+        Assert.Contains(
+            "must branch",
+            unbranchedSourceError ??
+            string.Empty
+        );
+
+        // ------------------------------------------------------------
+        // C. The first physical branch divergence must be supported by
+        //    the resolver's recorded Windows-equivalent-name evidence.
+        // ------------------------------------------------------------
+
+        string sourceRelative =
+            Path.GetRelativePath(
+                dataRoot,
+                sourceFile
+            )
+            .Replace(
+                Path.DirectorySeparatorChar,
+                '/'
+            );
+
+        string[] sourceComponents =
+            sourceRelative.Split('/');
+
+        DataRelativePathRepairPlanResolvedPrefixStep[]
+            branchEvidence =
+                manifest.ResolvedPrefixSteps!
+                    .ToArray();
+
+        int branchStepIndex =
+            Array.FindIndex(
+                branchEvidence,
+                step =>
+                    step.ComponentIndex <
+                        sourceComponents.Length &&
+                    !string.Equals(
+                        sourceComponents[
+                            step.ComponentIndex
+                        ],
+                        step.SelectedPhysicalName,
+                        StringComparison.Ordinal
+                    )
+            );
+
+        Assert.InRange(
+            branchStepIndex,
+            0,
+            branchEvidence.Length - 1
+        );
+
+        DataRelativePathRepairPlanResolvedPrefixStep
+            branchStep =
+                branchEvidence[
+                    branchStepIndex
+                ];
+
+        Assert.Contains(
+            sourceComponents[
+                branchStep.ComponentIndex
+            ],
+            branchStep.EquivalentPhysicalNames
+        );
+
+        branchEvidence[
+            branchStepIndex
+        ] =
+            branchStep with
+            {
+                EquivalentPhysicalNames =
+                [
+                    branchStep.SelectedPhysicalName
+                ]
+            };
+
+        DataRelativePathRepairPlanManifestRecord
+            missingBranchEvidenceManifest =
+                manifest with
+                {
+                    ResolvedPrefixSteps =
+                        branchEvidence
+                };
+
+        string? missingBranchEvidenceError =
+            DataRelativePathRepairPlanManifest.Validate(
+                missingBranchEvidenceManifest
+            );
+
+        Assert.NotNull(
+            missingBranchEvidenceError
+        );
+
+        Assert.Contains(
+            "branch divergence",
+            missingBranchEvidenceError ??
+            string.Empty
+        );
+
+        // ------------------------------------------------------------
+        // D. The persisted destination prefix must be complete through
+        //    the already-existing parent immediately above the file.
+        // ------------------------------------------------------------
+
+        DataRelativePathRepairPlanManifestRecord
+            truncatedPrefixManifest =
+                manifest with
+                {
+                    ResolvedPrefixSteps =
+                        manifest.ResolvedPrefixSteps!
+                            .Take(
+                                manifest.ResolvedPrefixSteps.Count - 1
+                            )
+                            .ToArray()
+                };
+
+        string? truncatedPrefixError =
+            DataRelativePathRepairPlanManifest.Validate(
+                truncatedPrefixManifest
+            );
+
+        Assert.NotNull(
+            truncatedPrefixError
+        );
+
+        Assert.Contains(
+            "complete existing destination",
+            truncatedPrefixError ??
+            string.Empty
+        );
+
+        // ------------------------------------------------------------
+        // E. Creation itself must reject operation cardinality greater
+        //    than the single permitted CreateFile.
+        // ------------------------------------------------------------
+
+        DataRelativePathRepairPlanManifestCreation
+            multipleOperationCreation =
+                DataRelativePathRepairPlanManifest
+                    .CreateFromResolution(
+                        Guid.NewGuid(),
+                        DateTimeOffset.UtcNow,
+                        resolution,
+                        sourceSnapshot,
+                        destinationParentSnapshot,
+                        [
+                            operation,
+                            operation
+                        ]
+                    );
+
+        Assert.False(
+            multipleOperationCreation.Success
+        );
+
+        Assert.Contains(
+            "exactly one CreateFile",
+            multipleOperationCreation.Error ??
+            string.Empty
+        );
+
+        // ------------------------------------------------------------
+        // F. Batch projection remains deliberately excluded.  Schema v3
+        //    is still a standalone single-plan capability only.
+        // ------------------------------------------------------------
+
+        DataRelativePathRepairPlanProjection
+            batchProjection =
+                DataRelativePathRepairPlanProjector
+                    .ProjectBatchCandidate(
+                        resolution
+                    );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanProjectionState
+                .NotDirectStrictCaseMismatch,
+            batchProjection.State
+        );
+
+        Assert.Equal(
+            DataRelativePathCaseMismatchTopologyState
+                .CandidateBranchesBeforeFailure,
+            batchProjection.TopologyState
+        );
+
+        Assert.False(
+            batchProjection.HasPlan
+        );
+
+        // Projection itself must remain read-only.
+        Assert.False(
+            File.Exists(
+                destinationFile
+            )
+        );
+    }
+
+    [Fact]
     public void Project_AlternatePhysicalHierarchy_IsNotProjected()
     {
         if (!OperatingSystem.IsLinux())
