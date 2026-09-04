@@ -103,6 +103,9 @@ switch (command)
     case "effective-armor-addon-archive-candidates":
         return EffectiveArmorAddonArchiveCandidatesCommand.Run(args);
 
+    case "armor-addon-snapshot-diagnostics":
+        return ArmorAddonSnapshotDiagnosticsCommand.Run(args);
+
     default:
         Console.Error.WriteLine($"Unknown command: {args[0]}");
         Console.Error.WriteLine();
@@ -566,6 +569,11 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat effective-armor-addon-archive-candidates " +
+        "<Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> " +
+        "<INI directory> [path search]"
+    );
+    Console.WriteLine(
+        "  casecompat armor-addon-snapshot-diagnostics " +
         "<Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> " +
         "<INI directory> [path search]"
     );
