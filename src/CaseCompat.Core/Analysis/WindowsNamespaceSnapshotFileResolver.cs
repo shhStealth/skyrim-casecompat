@@ -17,6 +17,66 @@ public static class WindowsNamespaceSnapshotFileResolver
         WindowsNamespacePhysicalParticipant Participant
     );
 
+    /*
+     * WindowsNamespaceAnalysis is immutable snapshot evidence for the
+     * lifetime of a lookup operation graph.
+     *
+     * Preparing that evidence is comparatively expensive on large
+     * deployments: validating/building physical entries and directory
+     * observations walks the entire analyzed namespace.
+     *
+     * ConditionalWeakTable keeps one derived index per analysis object
+     * without extending the lifetime of the source analysis itself.
+     */
+    private sealed record AnalysisShapeValidation(
+        bool Valid,
+        string? Error
+    );
+
+    private static readonly
+        System.Runtime.CompilerServices.ConditionalWeakTable<
+            WindowsNamespaceAnalysis,
+            AnalysisShapeValidation
+        > AnalysisShapeValidations =
+            new();
+
+    private sealed record PreparedSnapshot(
+        bool Valid,
+        string? Error,
+        Dictionary<
+            string,
+            WindowsNamespaceDirectoryLookupObservation
+        > LookupObservations,
+        Dictionary<
+            string,
+            SnapshotEntry[]
+        > DirectChildrenByParent,
+        Dictionary<
+            string,
+            string[]
+        > ChildNamesByParent,
+        Dictionary<
+            string,
+            HashSet<string>
+        > ExactChildNamesByParent,
+        Dictionary<
+            string,
+            Dictionary<
+                WindowsLogicalPath,
+                string[]
+            >
+        > WindowsEquivalentChildNamesByParent,
+        string[]? DataRootChildNames,
+        bool HasRootParticipant
+    );
+
+    private static readonly
+        System.Runtime.CompilerServices.ConditionalWeakTable<
+            WindowsNamespaceAnalysis,
+            PreparedSnapshot
+        > PreparedSnapshots =
+            new();
+
     public static WindowsNamespaceSnapshotFileLookup Resolve(
         WindowsNamespaceAnalysis analysis,
         string? requestedRelativePath)
@@ -55,9 +115,13 @@ public static class WindowsNamespaceSnapshotFileResolver
                 )
             );
 
-        if (!TryValidateAnalysisShape(
+        AnalysisShapeValidation shapeValidation =
+            AnalysisShapeValidations.GetValue(
                 analysis,
-                out string? shapeError))
+                ValidateAnalysisShape
+            );
+
+        if (!shapeValidation.Valid)
         {
             return Failure(
                 analysis,
@@ -71,7 +135,7 @@ public static class WindowsNamespaceSnapshotFileResolver
                     Array.Empty<
                         WindowsNamespaceSnapshotFileLookupStep
                     >(),
-                shapeError
+                shapeValidation.Error
             );
         }
 
@@ -115,10 +179,13 @@ public static class WindowsNamespaceSnapshotFileResolver
             );
         }
 
-        if (!TryBuildSnapshotEntries(
+        PreparedSnapshot prepared =
+            PreparedSnapshots.GetValue(
                 analysis,
-                out SnapshotEntry[] entries,
-                out string? entryError))
+                PrepareSnapshot
+            );
+
+        if (!prepared.Valid)
         {
             return Failure(
                 analysis,
@@ -132,38 +199,17 @@ public static class WindowsNamespaceSnapshotFileResolver
                     Array.Empty<
                         WindowsNamespaceSnapshotFileLookupStep
                     >(),
-                entryError
+                prepared.Error
             );
         }
 
-        if (!TryBuildLookupObservationMap(
-                analysis,
-                out Dictionary<
-                    string,
-                    WindowsNamespaceDirectoryLookupObservation
-                > lookupObservations,
-                out string? lookupError))
-        {
-            return Failure(
-                analysis,
-                requestedRelativePath,
-                requestedLogicalPath,
-                WindowsNamespaceSnapshotFileLookupState
-                    .InvalidSnapshotEvidence,
-                failedComponentIndex:
-                    null,
-                steps:
-                    Array.Empty<
-                        WindowsNamespaceSnapshotFileLookupStep
-                    >(),
-                lookupError
-            );
-        }
+        Dictionary<
+            string,
+            WindowsNamespaceDirectoryLookupObservation
+        > lookupObservations =
+            prepared.LookupObservations;
 
-        if (!entries.Any(
-                entry =>
-                    entry.LogicalPath ==
-                        analysis.RootLogicalPath))
+        if (!prepared.HasRootParticipant)
         {
             return Failure(
                 analysis,
@@ -222,21 +268,12 @@ public static class WindowsNamespaceSnapshotFileResolver
             }
 
             SnapshotEntry[] directChildren =
-                entries
-                    .Where(
-                        entry =>
-                            string.Equals(
-                                entry.ParentRelativePath,
-                                currentParent,
-                                StringComparison.Ordinal
-                            )
-                    )
-                    .OrderBy(
-                        entry =>
-                            entry.Name,
-                        StringComparer.Ordinal
-                    )
-                    .ToArray();
+                prepared.DirectChildrenByParent.TryGetValue(
+                    currentParent,
+                    out SnapshotEntry[]? preparedChildren
+                )
+                    ? preparedChildren
+                    : Array.Empty<SnapshotEntry>();
 
             string[] physicalChildNames =
                 string.Equals(
@@ -244,17 +281,47 @@ public static class WindowsNamespaceSnapshotFileResolver
                     ".",
                     StringComparison.Ordinal
                 )
-                    ? analysis.DataRootChildNames!
-                        .OrderBy(
+                    ? prepared.DataRootChildNames!
+                    : prepared.ChildNamesByParent.TryGetValue(
+                        currentParent,
+                        out string[]? preparedChildNames
+                    )
+                        ? preparedChildNames
+                        : Array.Empty<string>();
+
+            WindowsLogicalPath requestedComponentLogicalPath =
+                WindowsLogicalPath.FromRelativePath(
+                    requestedComponent
+                );
+
+            string[] windowsEquivalentNames;
+
+            if (
+                prepared.WindowsEquivalentChildNamesByParent.TryGetValue(
+                    currentParent,
+                    out Dictionary<
+                        WindowsLogicalPath,
+                        string[]
+                    >? equivalentNamesByLogicalPath))
+            {
+                windowsEquivalentNames =
+                    equivalentNamesByLogicalPath.TryGetValue(
+                        requestedComponentLogicalPath,
+                        out string[]? preparedEquivalentNames
+                    )
+                        ? preparedEquivalentNames
+                        : Array.Empty<string>();
+            }
+            else
+            {
+                windowsEquivalentNames =
+                    physicalChildNames
+                        .Where(
                             name =>
-                                name,
-                            StringComparer.Ordinal
-                        )
-                        .ToArray()
-                    : directChildren
-                        .Select(
-                            entry =>
-                                entry.Name
+                                WindowsEquivalentComponent(
+                                    name,
+                                    requestedComponent
+                                )
                         )
                         .OrderBy(
                             name =>
@@ -262,32 +329,31 @@ public static class WindowsNamespaceSnapshotFileResolver
                             StringComparer.Ordinal
                         )
                         .ToArray();
+            }
 
-            string[] windowsEquivalentNames =
-                physicalChildNames
-                    .Where(
+            bool exactNameExists;
+
+            if (prepared.ExactChildNamesByParent.TryGetValue(
+                    currentParent,
+                    out HashSet<string>? preparedExactNames))
+            {
+                exactNameExists =
+                    preparedExactNames.Contains(
+                        requestedComponent
+                    );
+            }
+            else
+            {
+                exactNameExists =
+                    physicalChildNames.Any(
                         name =>
-                            WindowsEquivalentComponent(
+                            string.Equals(
                                 name,
-                                requestedComponent
+                                requestedComponent,
+                                StringComparison.Ordinal
                             )
-                    )
-                    .OrderBy(
-                        name =>
-                            name,
-                        StringComparer.Ordinal
-                    )
-                    .ToArray();
-
-            bool exactNameExists =
-                physicalChildNames.Any(
-                    name =>
-                        string.Equals(
-                            name,
-                            requestedComponent,
-                            StringComparison.Ordinal
-                        )
-                );
+                    );
+            }
 
             if (exactNameExists)
             {
@@ -699,6 +765,23 @@ public static class WindowsNamespaceSnapshotFileResolver
         );
     }
 
+    private static AnalysisShapeValidation ValidateAnalysisShape(
+        WindowsNamespaceAnalysis analysis)
+    {
+        bool valid =
+            TryValidateAnalysisShape(
+                analysis,
+                out string? error
+            );
+
+        return new AnalysisShapeValidation(
+            Valid:
+                valid,
+            Error:
+                error
+        );
+    }
+
     private static bool TryValidateAnalysisShape(
         WindowsNamespaceAnalysis analysis,
         out string? error)
@@ -832,6 +915,241 @@ public static class WindowsNamespaceSnapshotFileResolver
         return requested.Value.StartsWith(
             root.Value + "/",
             StringComparison.Ordinal
+        );
+    }
+
+    private static PreparedSnapshot PrepareSnapshot(
+        WindowsNamespaceAnalysis analysis)
+    {
+        if (!TryBuildSnapshotEntries(
+                analysis,
+                out SnapshotEntry[] entries,
+                out string? entryError))
+        {
+            return PreparationFailure(
+                entryError
+            );
+        }
+
+        if (!TryBuildLookupObservationMap(
+                analysis,
+                out Dictionary<
+                    string,
+                    WindowsNamespaceDirectoryLookupObservation
+                > lookupObservations,
+                out string? lookupError))
+        {
+            return PreparationFailure(
+                lookupError
+            );
+        }
+
+        Dictionary<
+            string,
+            SnapshotEntry[]
+        > directChildrenByParent =
+            entries
+                .GroupBy(
+                    entry =>
+                        entry.ParentRelativePath,
+                    StringComparer.Ordinal
+                )
+                .ToDictionary(
+                    group =>
+                        group.Key,
+                    group =>
+                        group
+                            .OrderBy(
+                                entry =>
+                                    entry.Name,
+                                StringComparer.Ordinal
+                            )
+                            .ToArray(),
+                    StringComparer.Ordinal
+                );
+
+        Dictionary<
+            string,
+            string[]
+        > childNamesByParent =
+            directChildrenByParent
+                .ToDictionary(
+                    pair =>
+                        pair.Key,
+                    pair =>
+                        pair.Value
+                            .Select(
+                                entry =>
+                                    entry.Name
+                            )
+                            .ToArray(),
+                    StringComparer.Ordinal
+                );
+
+        string[]? dataRootChildNames =
+            analysis.DataRootChildNames?
+                .OrderBy(
+                    name =>
+                        name,
+                    StringComparer.Ordinal
+                )
+                .ToArray();
+
+        var lookupChildNamesByParent =
+            new Dictionary<
+                string,
+                string[]
+            >(
+                childNamesByParent,
+                StringComparer.Ordinal
+            );
+
+        if (dataRootChildNames is not null)
+        {
+            lookupChildNamesByParent["."] =
+                dataRootChildNames;
+        }
+        else
+        {
+            /*
+             * Preserve the old resolver's fallback behavior when a
+             * Data-root child inventory is unavailable rather than
+             * inventing namespace-wide authority for ".".
+             */
+            lookupChildNamesByParent.Remove(
+                "."
+            );
+        }
+
+        Dictionary<
+            string,
+            HashSet<string>
+        > exactChildNamesByParent =
+            lookupChildNamesByParent
+                .ToDictionary(
+                    pair =>
+                        pair.Key,
+                    pair =>
+                        new HashSet<string>(
+                            pair.Value,
+                            StringComparer.Ordinal
+                        ),
+                    StringComparer.Ordinal
+                );
+
+        Dictionary<
+            string,
+            Dictionary<
+                WindowsLogicalPath,
+                string[]
+            >
+        > windowsEquivalentChildNamesByParent =
+            lookupChildNamesByParent
+                .ToDictionary(
+                    pair =>
+                        pair.Key,
+                    pair =>
+                        pair.Value
+                            .GroupBy(
+                                name =>
+                                    WindowsLogicalPath.FromRelativePath(
+                                        name
+                                    )
+                            )
+                            .ToDictionary(
+                                group =>
+                                    group.Key,
+                                group =>
+                                    group
+                                        .OrderBy(
+                                            name =>
+                                                name,
+                                            StringComparer.Ordinal
+                                        )
+                                        .ToArray()
+                            ),
+                    StringComparer.Ordinal
+                );
+
+        bool hasRootParticipant =
+            entries.Any(
+                entry =>
+                    entry.LogicalPath ==
+                        analysis.RootLogicalPath
+            );
+
+        return new PreparedSnapshot(
+            Valid:
+                true,
+            Error:
+                null,
+            LookupObservations:
+                lookupObservations,
+            DirectChildrenByParent:
+                directChildrenByParent,
+            ChildNamesByParent:
+                childNamesByParent,
+            ExactChildNamesByParent:
+                exactChildNamesByParent,
+            WindowsEquivalentChildNamesByParent:
+                windowsEquivalentChildNamesByParent,
+            DataRootChildNames:
+                dataRootChildNames,
+            HasRootParticipant:
+                hasRootParticipant
+        );
+    }
+
+    private static PreparedSnapshot PreparationFailure(
+        string? error)
+    {
+        return new PreparedSnapshot(
+            Valid:
+                false,
+            Error:
+                error,
+            LookupObservations:
+                new Dictionary<
+                    string,
+                    WindowsNamespaceDirectoryLookupObservation
+                >(
+                    StringComparer.Ordinal
+                ),
+            DirectChildrenByParent:
+                new Dictionary<
+                    string,
+                    SnapshotEntry[]
+                >(
+                    StringComparer.Ordinal
+                ),
+            ChildNamesByParent:
+                new Dictionary<
+                    string,
+                    string[]
+                >(
+                    StringComparer.Ordinal
+                ),
+            ExactChildNamesByParent:
+                new Dictionary<
+                    string,
+                    HashSet<string>
+                >(
+                    StringComparer.Ordinal
+                ),
+            WindowsEquivalentChildNamesByParent:
+                new Dictionary<
+                    string,
+                    Dictionary<
+                        WindowsLogicalPath,
+                        string[]
+                    >
+                >(
+                    StringComparer.Ordinal
+                ),
+            DataRootChildNames:
+                null,
+            HasRootParticipant:
+                false
         );
     }
 
