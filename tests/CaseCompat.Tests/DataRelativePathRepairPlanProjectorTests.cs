@@ -1030,6 +1030,195 @@ public sealed class DataRelativePathRepairPlanProjectorTests
         );
 
         /*
+         * The ordinary resolver-derived manifest factory must remain
+         * leaf-only for CandidateBranchesBeforeFailure.  Missing-parent
+         * aggregate topology has a separately named schema-v4 factory.
+         */
+        DataRelativePathRepairPlanManifestCreation legacyCreation =
+            DataRelativePathRepairPlanManifest.CreateFromResolution(
+                Guid.NewGuid(),
+                DateTimeOffset.UtcNow,
+                resolution,
+                sourceSnapshot,
+                destinationParentSnapshot,
+                projection.Operations
+            );
+
+        Assert.False(
+            legacyCreation.Success
+        );
+
+        Assert.Contains(
+            "final requested file component",
+            legacyCreation.Error ??
+                string.Empty
+        );
+
+        DataRelativePathRepairPlanManifestCreation schema4Creation =
+            DataRelativePathRepairPlanManifest
+                .CreateAggregateAlternateBranchFromResolution(
+                    Guid.NewGuid(),
+                    DateTimeOffset.UtcNow,
+                    resolution,
+                    sourceSnapshot,
+                    destinationParentSnapshot,
+                    projection.Operations
+                );
+
+        Assert.True(
+            schema4Creation.Success,
+            schema4Creation.Error ??
+                schema4Creation.State.ToString()
+        );
+
+        DataRelativePathRepairPlanManifestRecord schema4Manifest =
+            Assert.IsType<
+                DataRelativePathRepairPlanManifestRecord
+            >(
+                schema4Creation.Manifest
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanManifestRecord
+                .SchemaVersion4,
+            schema4Manifest.SchemaVersion
+        );
+
+        /*
+         * Current/default manifest meaning remains schema-v2.
+         */
+        Assert.Equal(
+            DataRelativePathRepairPlanManifestRecord
+                .SchemaVersion2,
+            DataRelativePathRepairPlanManifestRecord
+                .CurrentSchemaVersion
+        );
+
+        Assert.NotNull(
+            schema4Manifest.ResolvedPrefixSteps
+        );
+
+        Assert.Equal(
+            4,
+            schema4Manifest.ResolvedPrefixSteps!.Count
+        );
+
+        Assert.Equal(
+            2,
+            schema4Manifest.Operations.Count
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanOperationKind
+                .CreateDirectory,
+            schema4Manifest.Operations[0]
+                .Operation.Kind
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanOperationKind
+                .CreateFile,
+            schema4Manifest.Operations[1]
+                .Operation.Kind
+        );
+
+        Assert.Null(
+            DataRelativePathRepairPlanManifest.Validate(
+                schema4Manifest
+            )
+        );
+
+        /*
+         * Fail closed if the durable prefix no longer proves the first
+         * physical source/destination branch divergence.
+         */
+        string schema4SourceRelative =
+            Path.GetRelativePath(
+                dataRoot,
+                sourceFile
+            )
+            .Replace(
+                Path.DirectorySeparatorChar,
+                '/'
+            );
+
+        string[] schema4SourceComponents =
+            schema4SourceRelative.Split('/');
+
+        DataRelativePathRepairPlanResolvedPrefixStep[]
+            schema4BranchEvidence =
+                schema4Manifest.ResolvedPrefixSteps!
+                    .ToArray();
+
+        int schema4BranchIndex =
+            Array.FindIndex(
+                schema4BranchEvidence,
+                step =>
+                    step.ComponentIndex <
+                        schema4SourceComponents.Length &&
+                    !string.Equals(
+                        schema4SourceComponents[
+                            step.ComponentIndex
+                        ],
+                        step.SelectedPhysicalName,
+                        StringComparison.Ordinal
+                    )
+            );
+
+        Assert.InRange(
+            schema4BranchIndex,
+            0,
+            schema4BranchEvidence.Length - 1
+        );
+
+        DataRelativePathRepairPlanResolvedPrefixStep
+            schema4BranchStep =
+                schema4BranchEvidence[
+                    schema4BranchIndex
+                ];
+
+        Assert.Contains(
+            schema4SourceComponents[
+                schema4BranchStep.ComponentIndex
+            ],
+            schema4BranchStep.EquivalentPhysicalNames
+        );
+
+        schema4BranchEvidence[
+            schema4BranchIndex
+        ] =
+            schema4BranchStep with
+            {
+                EquivalentPhysicalNames =
+                [
+                    schema4BranchStep.SelectedPhysicalName
+                ]
+            };
+
+        DataRelativePathRepairPlanManifestRecord
+            missingSchema4BranchEvidence =
+                schema4Manifest with
+                {
+                    ResolvedPrefixSteps =
+                        schema4BranchEvidence
+                };
+
+        string? missingSchema4BranchError =
+            DataRelativePathRepairPlanManifest.Validate(
+                missingSchema4BranchEvidence
+            );
+
+        Assert.NotNull(
+            missingSchema4BranchError
+        );
+
+        Assert.Contains(
+            "branch divergence",
+            missingSchema4BranchError ??
+                string.Empty
+        );
+
+        /*
          * Projection is metadata only. The future aggregate caller still
          * has no durable persistence or execution authority here.
          */

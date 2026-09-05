@@ -982,7 +982,8 @@ public sealed class
             manifest with
             {
                 SchemaVersion =
-                    4
+                    DataRelativePathRepairPlanManifestRecord
+                        .SchemaVersion4 + 1
             };
 
         string? error =
