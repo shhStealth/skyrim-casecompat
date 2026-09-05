@@ -19,7 +19,9 @@ public static class DataRelativePathRepairPlanProjector
             requireStandaloneBranchCoverage:
                 true,
             allowLeafOnlyAlternateBranch:
-                true
+                true,
+            allowAggregateAlternateBranch:
+                false
         );
     }
 
@@ -46,14 +48,46 @@ public static class DataRelativePathRepairPlanProjector
             requireStandaloneBranchCoverage:
                 false,
             allowLeafOnlyAlternateBranch:
+                false,
+            allowAggregateAlternateBranch:
                 false
+        );
+    }
+
+    /*
+     * Produce a technically projectable alternate-physical-branch form
+     * intended only for a future aggregate namespace-coverage policy.
+     *
+     * IMPORTANT:
+     *
+     * This entry point grants no standalone persistence or execution
+     * authority. It deliberately does not alter Project() or
+     * ProjectBatchCandidate().
+     *
+     * A caller must establish complete recursive aggregate namespace
+     * coverage before any result from this method may become durable
+     * repair authority.
+     */
+    public static DataRelativePathRepairPlanProjection
+        ProjectAggregateAlternateBranchBatchCandidate(
+            DataRelativePathResolution resolution)
+    {
+        return ProjectCore(
+            resolution,
+            requireStandaloneBranchCoverage:
+                false,
+            allowLeafOnlyAlternateBranch:
+                false,
+            allowAggregateAlternateBranch:
+                true
         );
     }
 
     private static DataRelativePathRepairPlanProjection ProjectCore(
         DataRelativePathResolution resolution,
         bool requireStandaloneBranchCoverage,
-        bool allowLeafOnlyAlternateBranch)
+        bool allowLeafOnlyAlternateBranch,
+        bool allowAggregateAlternateBranch)
     {
         ArgumentNullException.ThrowIfNull(
             resolution
@@ -99,9 +133,23 @@ public static class DataRelativePathRepairPlanProjector
                     resolution.RequestedPath
                 ).Length - 1;
 
+        bool aggregateAlternateBranch =
+            allowAggregateAlternateBranch &&
+            topologyState ==
+                DataRelativePathCaseMismatchTopologyState
+                    .CandidateBranchesBeforeFailure &&
+            resolution.FailedComponentIndex is int
+                aggregateFailedIndex &&
+            aggregateFailedIndex >= 0 &&
+            aggregateFailedIndex <
+                SplitComponents(
+                    resolution.RequestedPath
+                ).Length - 1;
+
         if (
             !directStrictCaseMismatch &&
-            !leafOnlyAlternateBranch)
+            !leafOnlyAlternateBranch &&
+            !aggregateAlternateBranch)
         {
             return Result(
                 resolution,

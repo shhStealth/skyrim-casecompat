@@ -807,6 +807,414 @@ public sealed class DataRelativePathRepairPlanProjectorTests
     }
 
     [Fact]
+    public void ProjectAggregateAlternateBranchBatchCandidate_OneMissingParent_ProjectsDirectoryThenFile()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var temp =
+            new TemporaryDirectory();
+
+        string dataRoot =
+            CreateDataRoot(
+                temp
+            );
+
+        string requestedParent =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    dataRoot,
+                    "meshes",
+                    "Actors",
+                    "Character",
+                    "Character Assets"
+                )
+            ).FullName;
+
+        string alternateParent =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    dataRoot,
+                    "meshes",
+                    "actors",
+                    "character",
+                    "character assets",
+                    "faceparts"
+                )
+            ).FullName;
+
+        string sourceFile =
+            Path.Combine(
+                alternateParent,
+                "MaleHeadbrows.tri"
+            );
+
+        File.WriteAllText(
+            sourceFile,
+            "aggregate-alternate-faceparts-fixture"
+        );
+
+        string destinationDirectory =
+            Path.Combine(
+                requestedParent,
+                "FaceParts"
+            );
+
+        string destinationFile =
+            Path.Combine(
+                destinationDirectory,
+                "MaleHeadbrows.tri"
+            );
+
+        Assert.False(
+            Directory.Exists(
+                destinationDirectory
+            )
+        );
+
+        Assert.False(
+            File.Exists(
+                destinationFile
+            )
+        );
+
+        DataRelativePathResolution resolution =
+            Resolve(
+                dataRoot,
+                "meshes/Actors/Character/Character Assets/" +
+                "FaceParts/MaleHeadbrows.tri"
+            );
+
+        Assert.Equal(
+            DataRelativePathCaseMismatchTopologyState
+                .CandidateBranchesBeforeFailure,
+            DataRelativePathCaseMismatchTopologyClassifier
+                .Classify(
+                    resolution
+                )
+        );
+
+        Assert.Equal(
+            4,
+            resolution.FailedComponentIndex
+        );
+
+        Assert.Single(
+            resolution.EquivalentPhysicalCandidates
+        );
+
+        Assert.Equal(
+            Path.GetFullPath(
+                sourceFile
+            ),
+            Path.GetFullPath(
+                resolution
+                    .EquivalentPhysicalCandidates[0]
+            )
+        );
+
+        DataRelativePathRepairPlanProjection projection =
+            DataRelativePathRepairPlanProjector
+                .ProjectAggregateAlternateBranchBatchCandidate(
+                    resolution
+                );
+
+        Assert.True(
+            projection.HasPlan,
+            projection.Error
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanProjectionState
+                .Projected,
+            projection.State
+        );
+
+        Assert.Equal(
+            DataRelativePathCaseMismatchTopologyState
+                .CandidateBranchesBeforeFailure,
+            projection.TopologyState
+        );
+
+        DataRelativePathRepairSourceSnapshot sourceSnapshot =
+            Assert.IsType<
+                DataRelativePathRepairSourceSnapshot
+            >(
+                projection.SourceSnapshot
+            );
+
+        Assert.Equal(
+            Path.GetFullPath(
+                sourceFile
+            ),
+            Path.GetFullPath(
+                sourceSnapshot.PhysicalPath
+            )
+        );
+
+        DataRelativePathRepairDestinationParentSnapshot
+            destinationParentSnapshot =
+                Assert.IsType<
+                    DataRelativePathRepairDestinationParentSnapshot
+                >(
+                    projection.DestinationParentSnapshot
+                );
+
+        Assert.Equal(
+            Path.GetFullPath(
+                requestedParent
+            ),
+            Path.GetFullPath(
+                destinationParentSnapshot.PhysicalPath
+            )
+        );
+
+        Assert.Equal(
+            2,
+            projection.Operations.Count
+        );
+
+        DataRelativePathRepairPlanOperation createDirectory =
+            projection.Operations[0];
+
+        Assert.Equal(
+            DataRelativePathRepairPlanOperationKind
+                .CreateDirectory,
+            createDirectory.Kind
+        );
+
+        Assert.Equal(
+            Path.GetFullPath(
+                destinationDirectory
+            ),
+            Path.GetFullPath(
+                createDirectory.DestinationPath
+            )
+        );
+
+        Assert.Null(
+            createDirectory.SourcePath
+        );
+
+        DataRelativePathRepairPlanOperation createFile =
+            projection.Operations[1];
+
+        Assert.Equal(
+            DataRelativePathRepairPlanOperationKind
+                .CreateFile,
+            createFile.Kind
+        );
+
+        Assert.Equal(
+            Path.GetFullPath(
+                destinationFile
+            ),
+            Path.GetFullPath(
+                createFile.DestinationPath
+            )
+        );
+
+        Assert.Equal(
+            Path.GetFullPath(
+                sourceFile
+            ),
+            Path.GetFullPath(
+                createFile.SourcePath!
+            )
+        );
+
+        Assert.Null(
+            projection.Error
+        );
+
+        /*
+         * Projection is metadata only. The future aggregate caller still
+         * has no durable persistence or execution authority here.
+         */
+        Assert.False(
+            Directory.Exists(
+                destinationDirectory
+            )
+        );
+
+        Assert.False(
+            File.Exists(
+                destinationFile
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                sourceFile
+            )
+        );
+    }
+
+    [Fact]
+    public void ProjectAggregateAlternateBranchBatchCandidate_MissingParent_DoesNotBroadenExistingEntryPoints()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var temp =
+            new TemporaryDirectory();
+
+        string dataRoot =
+            CreateDataRoot(
+                temp
+            );
+
+        string requestedParent =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    dataRoot,
+                    "meshes",
+                    "Actors",
+                    "Character",
+                    "Character Assets"
+                )
+            ).FullName;
+
+        string alternateParent =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    dataRoot,
+                    "meshes",
+                    "actors",
+                    "character",
+                    "character assets",
+                    "faceparts"
+                )
+            ).FullName;
+
+        string sourceFile =
+            Path.Combine(
+                alternateParent,
+                "MaleHeadbrows.tri"
+            );
+
+        File.WriteAllText(
+            sourceFile,
+            "aggregate-entry-point-isolation-fixture"
+        );
+
+        string destinationDirectory =
+            Path.Combine(
+                requestedParent,
+                "FaceParts"
+            );
+
+        DataRelativePathResolution resolution =
+            Resolve(
+                dataRoot,
+                "meshes/Actors/Character/Character Assets/" +
+                "FaceParts/MaleHeadbrows.tri"
+            );
+
+        Assert.Equal(
+            DataRelativePathCaseMismatchTopologyState
+                .CandidateBranchesBeforeFailure,
+            DataRelativePathCaseMismatchTopologyClassifier
+                .Classify(
+                    resolution
+                )
+        );
+
+        Assert.Equal(
+            4,
+            resolution.FailedComponentIndex
+        );
+
+        DataRelativePathRepairPlanProjection standalone =
+            DataRelativePathRepairPlanProjector
+                .Project(
+                    resolution
+                );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanProjectionState
+                .NotDirectStrictCaseMismatch,
+            standalone.State
+        );
+
+        Assert.False(
+            standalone.HasPlan
+        );
+
+        Assert.Empty(
+            standalone.Operations
+        );
+
+        DataRelativePathRepairPlanProjection existingBatch =
+            DataRelativePathRepairPlanProjector
+                .ProjectBatchCandidate(
+                    resolution
+                );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanProjectionState
+                .NotDirectStrictCaseMismatch,
+            existingBatch.State
+        );
+
+        Assert.False(
+            existingBatch.HasPlan
+        );
+
+        Assert.Empty(
+            existingBatch.Operations
+        );
+
+        DataRelativePathRepairPlanProjection aggregate =
+            DataRelativePathRepairPlanProjector
+                .ProjectAggregateAlternateBranchBatchCandidate(
+                    resolution
+                );
+
+        Assert.True(
+            aggregate.HasPlan,
+            aggregate.Error
+        );
+
+        Assert.Equal(
+            2,
+            aggregate.Operations.Count
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanOperationKind
+                .CreateDirectory,
+            aggregate.Operations[0].Kind
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanOperationKind
+                .CreateFile,
+            aggregate.Operations[1].Kind
+        );
+
+        /*
+         * Merely projecting through the dormant aggregate entry point must
+         * not publish the requested parallel namespace.
+         */
+        Assert.False(
+            Directory.Exists(
+                destinationDirectory
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                sourceFile
+            )
+        );
+    }
+
+    [Fact]
     public void Project_LeafOnlyAlternatePhysicalHierarchy_ProjectsSingleCreateFile()
     {
         if (!OperatingSystem.IsLinux())
