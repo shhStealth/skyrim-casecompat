@@ -34,6 +34,9 @@ switch (command)
     case "content-summary":
         return ContentSummaryCommand.Run(args);
 
+    case "aggregate-namespace-manifest":
+        return AggregateNamespaceManifestCommand.Run(args);
+
     case "plugin-probe":
         return PluginProbeCommand.Run(args);
 
@@ -510,6 +513,10 @@ static void ShowUsage()
     Console.WriteLine(
         "  Default repair plan manifest file name: repair-plan.json"
     );
+    Console.WriteLine(
+        "  Default aggregate namespace manifest file name: " +
+        "aggregate-namespace-manifest.json"
+    );
     Console.WriteLine();
 
     Console.WriteLine("Other commands:");
@@ -527,6 +534,11 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat namespace-summary <directory>"
+    );
+    Console.WriteLine(
+        "  casecompat aggregate-namespace-manifest " +
+        "<Skyrim Data directory> <direct Data child namespace> " +
+        "<output directory> [manifest file name]"
     );
     Console.WriteLine(
         "  casecompat content-summary <directory>"

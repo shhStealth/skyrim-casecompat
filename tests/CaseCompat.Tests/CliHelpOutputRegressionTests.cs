@@ -7,11 +7,11 @@ namespace CaseCompat.Tests;
 public sealed class CliHelpOutputRegressionTests
 {
     private const string ExpectedHelpSha256 =
-        "2eb0ad3b2139a403df9bf28c596192afd84a5757dd4599f87956b305a5b7731f";
+        "37b9353f6fcfe187a0c8843e9f54c3ac490cf942a571e40d5d9b989ae146b4cd";
 
-    private const int ExpectedHelpUtf8ByteCount = 4201;
+    private const int ExpectedHelpUtf8ByteCount = 4421;
 
-    private const int ExpectedHelpNewlineCount = 65;
+    private const int ExpectedHelpNewlineCount = 67;
 
     [Fact]
     public async Task
@@ -72,6 +72,19 @@ public sealed class CliHelpOutputRegressionTests
 
         Assert.Contains(
             "Default repair plan manifest file name: repair-plan.json",
+            result.StandardOutput
+        );
+
+        Assert.Contains(
+            "Default aggregate namespace manifest file name: " +
+            "aggregate-namespace-manifest.json",
+            result.StandardOutput
+        );
+
+        Assert.Contains(
+            "casecompat aggregate-namespace-manifest " +
+            "<Skyrim Data directory> <direct Data child namespace> " +
+            "<output directory> [manifest file name]",
             result.StandardOutput
         );
 
