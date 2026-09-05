@@ -52,6 +52,9 @@ switch (command)
     case "repair-plan-batch":
         return RepairPlanBatchCommand.Run(args);
 
+    case "repair-plan-aggregate-batch":
+        return RepairPlanAggregateBatchCommand.Run(args);
+
     case "repair-status":
         return RepairStatusCommand.Run(args);
 
@@ -396,6 +399,10 @@ static void ShowUsage()
         "independent safe repair plans; does not modify Skyrim Data."
     );
     Console.WriteLine(
+        "  repair-plan-aggregate-batch  Persist one explicit, complete " +
+        "alternate-branch aggregate batch; planning only."
+    );
+    Console.WriteLine(
         "  repair-status    Inspect persisted repair state; read-only."
     );
     Console.WriteLine(
@@ -424,6 +431,10 @@ static void ShowUsage()
         "repair-apply-batch -> repair-status-batch"
     );
     Console.WriteLine(
+        "  Aggregate:   repair-plan-aggregate-batch -> " +
+        "repair-status-batch  (planning/status only)"
+    );
+    Console.WriteLine(
         "  Batch undo:  repair-rollback-batch -> repair-status-batch"
     );
     Console.WriteLine(
@@ -440,6 +451,11 @@ static void ShowUsage()
     Console.WriteLine(
         "  casecompat repair-plan-batch <Skyrim Data directory> " +
         "<path-list file> <batch directory> [manifest file name]"
+    );
+    Console.WriteLine(
+        "  casecompat repair-plan-aggregate-batch " +
+        "<Skyrim Data directory> <path-list file> " +
+        "<batch directory> [manifest file name]"
     );
     Console.WriteLine(
         "  casecompat repair-status <journal directory> " +
