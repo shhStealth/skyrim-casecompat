@@ -3,8 +3,8 @@ using CaseCompat.Filesystem.Linux;
 namespace CaseCompat.Core.Analysis;
 
 /*
- * Targeted, read-only content evidence for one regular-file participant
- * belonging to a Windows-logical MultipleFiles node.
+ * Stable, read-only content evidence for one regular-file participant
+ * belonging to a complete Windows-logical namespace analysis.
  *
  * StableContentEvidence means:
  *

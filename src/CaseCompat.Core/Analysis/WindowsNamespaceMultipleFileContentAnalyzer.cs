@@ -90,11 +90,12 @@ public static class WindowsNamespaceMultipleFileContentAnalyzer
                     )
                     .Select(
                         participant =>
-                            ObserveParticipant(
-                                analysis,
-                                participant,
-                                afterStableContentObservation
-                            )
+                            WindowsNamespacePhysicalFileContentObserver
+                                .ObserveCore(
+                                    analysis,
+                                    participant,
+                                    afterStableContentObservation
+                                )
                     )
                     .ToArray();
 
@@ -127,159 +128,6 @@ public static class WindowsNamespaceMultipleFileContentAnalyzer
                 nodes.ToArray(),
             Errors:
                 errors.ToArray()
-        );
-    }
-
-    private static WindowsNamespacePhysicalFileContentEvidence
-        ObserveParticipant(
-            WindowsNamespaceAnalysis analysis,
-            WindowsNamespacePhysicalParticipant participant,
-            Action<WindowsNamespacePhysicalParticipant>?
-                afterStableContentObservation)
-    {
-        using WindowsNamespacePhysicalFileReacquisition initial =
-            WindowsNamespacePhysicalFileReacquirer.Reacquire(
-                analysis,
-                participant
-            );
-
-        if (!initial.Success)
-        {
-            return new WindowsNamespacePhysicalFileContentEvidence(
-                Participant:
-                    participant,
-                State:
-                    WindowsNamespacePhysicalFileContentEvidenceState
-                        .InitialReacquisitionFailed,
-                ExpectedIncarnationObservation:
-                    initial.ExpectedIncarnationObservation,
-                InitialReacquisitionState:
-                    initial.State,
-                InitialIncarnation:
-                    initial.ActualIncarnation,
-                ContentObservation:
-                    null,
-                PostObservationReacquisitionState:
-                    null,
-                PostObservationIncarnation:
-                    null,
-                FailedComponent:
-                    initial.FailedComponent,
-                Error:
-                    initial.Error ??
-                    initial.State.ToString()
-            );
-        }
-
-        LinuxOpenedFileContentObservationResult content =
-            LinuxOpenedFileContentObservation.Observe(
-                initial.OpenedFile!,
-                participant.FullPath
-            );
-
-        if (!content.Success)
-        {
-            return new WindowsNamespacePhysicalFileContentEvidence(
-                Participant:
-                    participant,
-                State:
-                    WindowsNamespacePhysicalFileContentEvidenceState
-                        .ContentObservationFailed,
-                ExpectedIncarnationObservation:
-                    initial.ExpectedIncarnationObservation,
-                InitialReacquisitionState:
-                    initial.State,
-                InitialIncarnation:
-                    initial.ActualIncarnation,
-                ContentObservation:
-                    content,
-                PostObservationReacquisitionState:
-                    null,
-                PostObservationIncarnation:
-                    null,
-                FailedComponent:
-                    participant.Name,
-                Error:
-                    content.Error ??
-                    content.State.ToString()
-            );
-        }
-
-        /*
-         * This private callback is null in normal production use.
-         *
-         * The deterministic regression test uses it to alter only namespace
-         * spelling after stable descriptor-backed content observation has
-         * completed and immediately before the required post-observation
-         * reacquisition.
-         */
-        afterStableContentObservation?.Invoke(
-            participant
-        );
-
-        /*
-         * Reacquire from the same complete pass-1 analysis after hashing.
-         *
-         * This is the post-observation namespace check. It re-observes exact
-         * spelling and rebinds Data + every directory prefix + the final file
-         * to their pass-1 generation-aware incarnations.
-         */
-        using WindowsNamespacePhysicalFileReacquisition post =
-            WindowsNamespacePhysicalFileReacquirer.Reacquire(
-                analysis,
-                participant
-            );
-
-        if (!post.Success)
-        {
-            return new WindowsNamespacePhysicalFileContentEvidence(
-                Participant:
-                    participant,
-                State:
-                    WindowsNamespacePhysicalFileContentEvidenceState
-                        .PostObservationReacquisitionFailed,
-                ExpectedIncarnationObservation:
-                    initial.ExpectedIncarnationObservation,
-                InitialReacquisitionState:
-                    initial.State,
-                InitialIncarnation:
-                    initial.ActualIncarnation,
-                ContentObservation:
-                    content,
-                PostObservationReacquisitionState:
-                    post.State,
-                PostObservationIncarnation:
-                    post.ActualIncarnation,
-                FailedComponent:
-                    post.FailedComponent,
-                Error:
-                    post.Error ??
-                    post.State.ToString()
-            );
-        }
-
-        return new WindowsNamespacePhysicalFileContentEvidence(
-            Participant:
-                participant,
-            State:
-                WindowsNamespacePhysicalFileContentEvidenceState
-                    .StableContentEvidence,
-            ExpectedIncarnationObservation:
-                initial.ExpectedIncarnationObservation,
-            InitialReacquisitionState:
-                initial.State,
-            InitialIncarnation:
-                initial.ActualIncarnation,
-            ContentObservation:
-                content,
-            PostObservationReacquisitionState:
-                post.State,
-            PostObservationIncarnation:
-                post.ActualIncarnation,
-            FailedComponent:
-                null,
-            Error:
-                null
         );
     }
 
