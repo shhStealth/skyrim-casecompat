@@ -5,7 +5,7 @@ using System.Text;
 
 namespace CaseCompat.Tests;
 
-public sealed class DataRelativePathAggregateNamespaceManifestTests
+public sealed partial class DataRelativePathAggregateNamespaceManifestTests
 {
     [Fact]
     public void Validate_CompleteSchemaVersion1Evidence_IsAccepted()
