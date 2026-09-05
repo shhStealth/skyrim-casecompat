@@ -205,6 +205,81 @@ public sealed class
 
     [Fact]
     public void
+        CreateAggregateAlternateBranchCoverageAuthorized_ValidRecord_EmitsSchemaV3CoveragePolicyV2()
+    {
+        var children =
+            new[]
+            {
+                Child(
+                    "plan-000001",
+                    Plan1Id,
+                    Hash1
+                ),
+                Child(
+                    "plan-000002",
+                    Plan2Id,
+                    Hash2
+                )
+            };
+
+        DataRelativePathRepairBatchManifestCreation creation =
+            DataRelativePathRepairBatchManifest
+                .CreateAggregateAlternateBranchCoverageAuthorized(
+                    BatchId,
+                    T0,
+                    "/tmp/Skyrim/Data",
+                    "repair-plan.json",
+                    inputPathCount:
+                        5,
+                    safeRejectionCount:
+                        3,
+                    children
+                );
+
+        Assert.True(
+            creation.Success,
+            creation.Error
+        );
+
+        DataRelativePathRepairBatchManifestRecord manifest =
+            Assert.IsType<
+                DataRelativePathRepairBatchManifestRecord
+            >(
+                creation.Manifest
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord
+                .SchemaVersion3,
+            manifest.SchemaVersion
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord
+                .CoveragePolicyVersion2,
+            manifest.CoveragePolicyVersion
+        );
+
+        Assert.Equal(
+            2,
+            manifest.Children.Count
+        );
+
+        Assert.NotSame(
+            children,
+            manifest.Children
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord
+                .SchemaVersion2,
+            DataRelativePathRepairBatchManifestRecord
+                .CurrentSchemaVersion
+        );
+    }
+
+    [Fact]
+    public void
         Validate_SchemaV1ClaimingCoveragePolicy_Fails()
     {
         DataRelativePathRepairBatchManifestRecord manifest =
@@ -289,6 +364,41 @@ public sealed class
 
     [Fact]
     public void
+        Validate_SchemaV3WithCoveragePolicyV1_Fails()
+    {
+        DataRelativePathRepairBatchManifestRecord manifest =
+            ValidManifest() with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .SchemaVersion3,
+                CoveragePolicyVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .CoveragePolicyVersion1
+            };
+
+        string? error =
+            DataRelativePathRepairBatchManifest.Validate(
+                manifest
+            );
+
+        Assert.NotNull(
+            error
+        );
+
+        Assert.Contains(
+            "Schema-v3",
+            error
+        );
+
+        Assert.Contains(
+            "policy version",
+            error
+        );
+    }
+
+    [Fact]
+    public void
         JsonRoundTrip_CoverageAuthorizedSchemaV2_PreservesMarker()
     {
         DataRelativePathRepairBatchManifestCreation creation =
@@ -359,13 +469,85 @@ public sealed class
     }
 
     [Fact]
+    public void
+        JsonRoundTrip_AggregateAlternateBranchSchemaV3_PreservesCoveragePolicyV2()
+    {
+        DataRelativePathRepairBatchManifestCreation creation =
+            DataRelativePathRepairBatchManifest
+                .CreateAggregateAlternateBranchCoverageAuthorized(
+                    BatchId,
+                    T0,
+                    "/tmp/Skyrim/Data",
+                    "repair-plan.json",
+                    inputPathCount:
+                        2,
+                    safeRejectionCount:
+                        0,
+                    [
+                        Child(
+                            "plan-000001",
+                            Plan1Id,
+                            Hash1
+                        ),
+                        Child(
+                            "plan-000002",
+                            Plan2Id,
+                            Hash2
+                        )
+                    ]
+                );
+
+        Assert.True(
+            creation.Success,
+            creation.Error
+        );
+
+        DataRelativePathRepairBatchManifestRecord manifest =
+            creation.Manifest!;
+
+        byte[] json =
+            DataRelativePathRepairBatchManifestJson.Serialize(
+                manifest
+            );
+
+        DataRelativePathRepairBatchManifestRecord restored =
+            Assert.IsType<
+                DataRelativePathRepairBatchManifestRecord
+            >(
+                DataRelativePathRepairBatchManifestJson
+                    .Deserialize(
+                        json
+                    )
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord
+                .SchemaVersion3,
+            restored.SchemaVersion
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord
+                .CoveragePolicyVersion2,
+            restored.CoveragePolicyVersion
+        );
+
+        Assert.Null(
+            DataRelativePathRepairBatchManifest.Validate(
+                restored
+            )
+        );
+    }
+
+    [Fact]
     public void Validate_UnsupportedSchema_Fails()
     {
         DataRelativePathRepairBatchManifestRecord manifest =
             ValidManifest() with
             {
                 SchemaVersion =
-                    2
+                    DataRelativePathRepairBatchManifestRecord
+                        .SchemaVersion3 + 1
             };
 
         Assert.NotNull(

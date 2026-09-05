@@ -40,8 +40,25 @@ public sealed record DataRelativePathRepairBatchManifestRecord(
     public const int SchemaVersion2 =
         2;
 
+    /*
+     * Schema v3 represents a batch whose complete alternate physical
+     * source namespace was authorized under coverage-policy version 2.
+     *
+     * It does not become the default merely by being representable.
+     */
+    public const int SchemaVersion3 =
+        3;
+
     public const int CoveragePolicyVersion1 =
         1;
+
+    /*
+     * Coverage policy v2 is reserved for aggregate alternate-branch
+     * schema-v4 child plans whose requested destination hierarchy begins
+     * missing before the leaf.
+     */
+    public const int CoveragePolicyVersion2 =
+        2;
 
     public const int CurrentSchemaVersion =
         SchemaVersion2;
@@ -214,6 +231,86 @@ public static class DataRelativePathRepairBatchManifest
     }
 
     /*
+     * Persist a future aggregate alternate-branch batch completion record
+     * as schema-v3 / coverage-policy-v2.
+     *
+     * This factory performs no namespace coverage proof and grants no
+     * execution authority. Its caller must already possess the separately
+     * produced policy-v2 proof.
+     *
+     * No CLI path calls this factory in this increment.
+     */
+    public static DataRelativePathRepairBatchManifestCreation
+        CreateAggregateAlternateBranchCoverageAuthorized(
+            Guid batchId,
+            DateTimeOffset createdUtc,
+            string dataRoot,
+            string childManifestName,
+            int inputPathCount,
+            int safeRejectionCount,
+            IReadOnlyList<
+                DataRelativePathRepairBatchManifestChild
+            > children)
+    {
+        DataRelativePathRepairBatchManifestCreation legacy =
+            Create(
+                batchId,
+                createdUtc,
+                dataRoot,
+                childManifestName,
+                inputPathCount,
+                safeRejectionCount,
+                children
+            );
+
+        if (
+            !legacy.Success ||
+            legacy.Manifest is null)
+        {
+            return legacy;
+        }
+
+        DataRelativePathRepairBatchManifestRecord manifest =
+            legacy.Manifest with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .SchemaVersion3,
+                CoveragePolicyVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .CoveragePolicyVersion2
+            };
+
+        string? validationError =
+            Validate(
+                manifest
+            );
+
+        if (validationError is not null)
+        {
+            return new(
+                State:
+                    DataRelativePathRepairBatchManifestCreationState
+                        .InvalidInput,
+                Manifest:
+                    null,
+                Error:
+                    validationError
+            );
+        }
+
+        return new(
+            State:
+                DataRelativePathRepairBatchManifestCreationState
+                    .Created,
+            Manifest:
+                manifest,
+            Error:
+                null
+        );
+    }
+
+    /*
      * Bind durable batch metadata to an independently supplied trusted
      * Skyrim Data root without exposing the generic repair-authority
      * helper outside Core.
@@ -290,6 +387,22 @@ public static class DataRelativePathRepairBatchManifest
                     "Schema-v2 batch manifests require aggregate " +
                     "namespace-coverage policy version " +
                     $"{DataRelativePathRepairBatchManifestRecord.CoveragePolicyVersion1}.";
+            }
+        }
+        else if (
+            manifest.SchemaVersion ==
+            DataRelativePathRepairBatchManifestRecord
+                .SchemaVersion3)
+        {
+            if (
+                manifest.CoveragePolicyVersion !=
+                DataRelativePathRepairBatchManifestRecord
+                    .CoveragePolicyVersion2)
+            {
+                return
+                    "Schema-v3 batch manifests require aggregate " +
+                    "alternate-branch namespace-coverage policy version " +
+                    $"{DataRelativePathRepairBatchManifestRecord.CoveragePolicyVersion2}.";
             }
         }
         else

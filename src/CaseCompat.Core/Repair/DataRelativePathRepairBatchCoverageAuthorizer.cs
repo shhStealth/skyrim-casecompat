@@ -614,6 +614,304 @@ public static class
     }
 
     /*
+     * Reconstruct coverage-policy-v2 claims from independently validated
+     * schema-v4 aggregate alternate-branch child manifests.
+     *
+     * This method grants no persistence or mutation authority.
+     *
+     * The existing AuthorizePersistedManifests() method remains the
+     * unchanged schema-v2/policy-v1 reconstruction contract.
+     */
+    public static
+        DataRelativePathRepairBatchCoverageAuthorization
+        AuthorizeAggregateAlternateBranchPersistedManifests(
+            IReadOnlyList<
+                DataRelativePathRepairPlanManifestRecord
+            > manifests)
+    {
+        ArgumentNullException.ThrowIfNull(
+            manifests
+        );
+
+        var decisions =
+            new DataRelativePathRepairBatchCoverageDecision?[
+                manifests.Count
+            ];
+
+        var infos =
+            new List<CandidateInfo>(
+                manifests.Count
+            );
+
+        var sourceClaims =
+            new List<SourceClaim>(
+                manifests.Count
+            );
+
+        for (
+            int index = 0;
+            index < manifests.Count;
+            index++)
+        {
+            DataRelativePathRepairPlanManifestRecord? manifest =
+                manifests[index];
+
+            if (manifest is null)
+            {
+                decisions[index] =
+                    Decision(
+                        index,
+                        DataRelativePathRepairBatchCoverageDecisionState
+                            .InvalidCandidate,
+                        "Persisted batch coverage requires a non-null " +
+                        "plan manifest."
+                    );
+
+                continue;
+            }
+
+            string? validationError;
+
+            try
+            {
+                validationError =
+                    DataRelativePathRepairPlanManifest.Validate(
+                        manifest
+                    );
+            }
+            catch (Exception ex)
+            {
+                decisions[index] =
+                    Decision(
+                        index,
+                        DataRelativePathRepairBatchCoverageDecisionState
+                            .InvalidCandidate,
+                        ex.Message
+                    );
+
+                continue;
+            }
+
+            if (validationError is not null)
+            {
+                decisions[index] =
+                    Decision(
+                        index,
+                        DataRelativePathRepairBatchCoverageDecisionState
+                            .InvalidCandidate,
+                        validationError
+                    );
+
+                continue;
+            }
+
+            if (
+                manifest.SchemaVersion !=
+                    DataRelativePathRepairPlanManifestRecord
+                        .SchemaVersion4 ||
+                manifest.ResolvedPrefixSteps is null)
+            {
+                decisions[index] =
+                    Decision(
+                        index,
+                        DataRelativePathRepairBatchCoverageDecisionState
+                            .InvalidCandidate,
+                        "Persisted aggregate namespace coverage requires " +
+                        "a valid schema-v4 aggregate alternate-branch plan manifest with durable " +
+                        "resolved-prefix evidence."
+                    );
+
+                continue;
+            }
+
+            string dataRoot;
+            string sourcePath;
+            string sourceRelative;
+
+            try
+            {
+                dataRoot =
+                    Path.GetFullPath(
+                        manifest.DataRoot
+                    );
+
+                sourcePath =
+                    Path.GetFullPath(
+                        manifest.SourceSnapshot.PhysicalPath
+                    );
+
+                sourceRelative =
+                    Path.GetRelativePath(
+                        dataRoot,
+                        sourcePath
+                    );
+            }
+            catch (Exception ex)
+            {
+                decisions[index] =
+                    Decision(
+                        index,
+                        DataRelativePathRepairBatchCoverageDecisionState
+                            .InvalidCandidateShape,
+                        ex.Message
+                    );
+
+                continue;
+            }
+
+            string[] physicalComponents =
+                SplitComponents(
+                    sourceRelative
+                );
+
+            string[] requestedComponents =
+                SplitComponents(
+                    manifest.RequestedPath
+                );
+
+            int failedIndex =
+                manifest.ResolvedPrefixSteps.Count;
+
+            if (
+                Path.IsPathRooted(
+                    sourceRelative
+                ) ||
+                IsOutsideRelativePath(
+                    sourceRelative
+                ) ||
+                physicalComponents.Length == 0 ||
+                physicalComponents.Length !=
+                    requestedComponents.Length ||
+                failedIndex < 0 ||
+                failedIndex >=
+                    physicalComponents.Length)
+            {
+                decisions[index] =
+                    Decision(
+                        index,
+                        DataRelativePathRepairBatchCoverageDecisionState
+                            .InvalidCandidateShape,
+                        "The persisted source and requested paths do not " +
+                        "describe one valid Data-relative path shape."
+                    );
+
+                continue;
+            }
+
+            /*
+             * Schema-v4 validation has already proved that:
+             *
+             * - the complete physical source is Windows-logically
+             *   equivalent to the requested path;
+             * - the source physically diverged from the persisted
+             *   destination prefix before the first created component;
+             * - ResolvedPrefixSteps.Count is the first missing requested
+             *   destination component.
+             *
+             * Policy-v2 therefore must not require the physical source
+             * prefix to reproduce the requested destination prefix, and
+             * failedIndex must not be reinterpreted as a direct strict-case
+             * mismatch.
+             *
+             * The shared recursive coverage tail is rooted in the actual
+             * physical source branch below.
+             */
+            bool suffixLogicallyEquivalent =
+                true;
+
+            for (
+                int componentIndex = failedIndex;
+                componentIndex <
+                    physicalComponents.Length;
+                componentIndex++)
+            {
+                if (
+                    !AreWindowsLogicallyEquivalentComponents(
+                        physicalComponents[
+                            componentIndex
+                        ],
+                        requestedComponents[
+                            componentIndex
+                        ]))
+                {
+                    suffixLogicallyEquivalent =
+                        false;
+
+                    break;
+                }
+            }
+
+            if (!suffixLogicallyEquivalent)
+            {
+                decisions[index] =
+                    Decision(
+                        index,
+                        DataRelativePathRepairBatchCoverageDecisionState
+                            .InvalidCandidateShape,
+                        "The persisted physical source and requested path " +
+                        "are not Windows-logically equivalent from the " +
+                        "strict mismatch through the source leaf."
+                    );
+
+                continue;
+            }
+
+            sourceClaims.Add(
+                new SourceClaim(
+                    CandidateIndex:
+                        index,
+                    PhysicalPath:
+                        sourcePath
+                )
+            );
+
+            if (
+                failedIndex ==
+                    physicalComponents.Length - 1)
+            {
+                decisions[index] =
+                    Decision(
+                        index,
+                        DataRelativePathRepairBatchCoverageDecisionState
+                            .Authorized
+                    );
+
+                continue;
+            }
+
+            string branchKey =
+                BuildBranchKey(
+                    dataRoot,
+                    physicalComponents,
+                    failedIndex
+                );
+
+            infos.Add(
+                new CandidateInfo(
+                    CandidateIndex:
+                        index,
+                    DataRoot:
+                        dataRoot,
+                    PhysicalComponents:
+                        physicalComponents,
+                    RequestedComponents:
+                        requestedComponents,
+                    FailedIndex:
+                        failedIndex,
+                    BranchKey:
+                        branchKey
+                )
+            );
+        }
+
+        return AuthorizeNormalized(
+            decisions,
+            infos,
+            sourceClaims
+        );
+    }
+
+    /*
      * One authorization tail is shared by projection-derived and
      * persisted-manifest-derived claims. All duplicate-source, branch
      * grouping, namespace-spelling, descriptor-relative traversal, and

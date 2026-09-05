@@ -1129,6 +1129,56 @@ public sealed class DataRelativePathRepairPlanProjectorTests
         );
 
         /*
+         * Policy-v1 persisted reconstruction remains schema-v2-only.
+         */
+        DataRelativePathRepairBatchCoverageAuthorization
+            legacyPersistedCoverage =
+                DataRelativePathRepairBatchCoverageAuthorizer
+                    .AuthorizePersistedManifests(
+                        [
+                            schema4Manifest
+                        ]
+                    );
+
+        Assert.False(
+            legacyPersistedCoverage.AllAuthorized
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchCoverageDecisionState
+                .InvalidCandidate,
+            legacyPersistedCoverage.Decisions[0].State
+        );
+
+        /*
+         * This fixture contains exactly one physical leaf beneath the
+         * affected alternate branch, so one schema-v4 child is complete
+         * aggregate physical namespace coverage.
+         */
+        DataRelativePathRepairBatchCoverageAuthorization
+            policy2PersistedCoverage =
+                DataRelativePathRepairBatchCoverageAuthorizer
+                    .AuthorizeAggregateAlternateBranchPersistedManifests(
+                        [
+                            schema4Manifest
+                        ]
+                    );
+
+        Assert.True(
+            policy2PersistedCoverage.AllAuthorized
+        );
+
+        Assert.Single(
+            policy2PersistedCoverage.Decisions
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchCoverageDecisionState
+                .Authorized,
+            policy2PersistedCoverage.Decisions[0].State
+        );
+
+        /*
          * Fail closed if the durable prefix no longer proves the first
          * physical source/destination branch divergence.
          */
