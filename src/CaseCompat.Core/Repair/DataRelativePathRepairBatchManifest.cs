@@ -392,6 +392,100 @@ public static class DataRelativePathRepairBatchManifest
         return null;
     }
 
+    /*
+     * Create a planning-only schema-v4 / coverage-policy-v3 batch record
+     * after aggregate namespace coverage has already been established by
+     * the separately named policy-v3 authorizer.
+     *
+     * This factory performs no filesystem access, namespace analysis,
+     * policy authorization, persistence, or execution.
+     */
+    public static DataRelativePathRepairBatchManifestCreation
+        CreateAggregateNamespaceCoverageAuthorized(
+            Guid batchId,
+            DateTimeOffset createdUtc,
+            string dataRoot,
+            string childManifestName,
+            int inputPathCount,
+            int safeRejectionCount,
+            IReadOnlyList<
+                DataRelativePathRepairBatchManifestChild
+            > children,
+            IReadOnlyList<
+                DataRelativePathRepairBatchAggregateNamespaceEvidenceReference
+            > aggregateNamespaceEvidence)
+    {
+        ArgumentNullException.ThrowIfNull(
+            children
+        );
+
+        ArgumentNullException.ThrowIfNull(
+            aggregateNamespaceEvidence
+        );
+
+        /*
+         * Preserve the already-proven ordinary/aggregate-alternate batch
+         * input validation before introducing schema-v4 semantics.
+         */
+        DataRelativePathRepairBatchManifestCreation legacy =
+            CreateAggregateAlternateBranchCoverageAuthorized(
+                batchId,
+                createdUtc,
+                dataRoot,
+                childManifestName,
+                inputPathCount,
+                safeRejectionCount,
+                children
+            );
+
+        if (
+            !legacy.Success ||
+            legacy.Manifest is null)
+        {
+            return legacy;
+        }
+
+        DataRelativePathRepairBatchManifestRecord manifest =
+            legacy.Manifest with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .SchemaVersion4,
+                CoveragePolicyVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .CoveragePolicyVersion3,
+                AggregateNamespaceEvidence =
+                    aggregateNamespaceEvidence.ToArray()
+            };
+
+        string? validationError =
+            Validate(
+                manifest
+            );
+
+        if (validationError is not null)
+        {
+            return new(
+                State:
+                    DataRelativePathRepairBatchManifestCreationState
+                        .InvalidInput,
+                Manifest:
+                    null,
+                Error:
+                    validationError
+            );
+        }
+
+        return new(
+            State:
+                DataRelativePathRepairBatchManifestCreationState.Created,
+            Manifest:
+                manifest,
+            Error:
+                null
+        );
+    }
+
     public static string? Validate(
         DataRelativePathRepairBatchManifestRecord manifest)
     {

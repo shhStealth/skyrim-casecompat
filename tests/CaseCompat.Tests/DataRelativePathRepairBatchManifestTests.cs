@@ -1331,4 +1331,223 @@ public sealed class DataRelativePathRepairBatchManifestSchemaV4Tests
                 RealMeshesSidecarSha256
         );
     }
+    [Fact]
+    public void
+        CreateAggregateNamespaceCoverageAuthorized_ValidInput_CreatesSchemaV4PolicyV3()
+    {
+        DataRelativePathRepairBatchManifestCreation creation =
+            DataRelativePathRepairBatchManifest
+                .CreateAggregateNamespaceCoverageAuthorized(
+                    ValidSchemaV4().BatchId,
+                    ValidSchemaV4().CreatedUtc,
+                    "/tmp/Skyrim/Data",
+                    "repair-plan.json",
+                    inputPathCount:
+                        1,
+                    safeRejectionCount:
+                        0,
+                    children:
+                    [
+                        ValidSchemaV4().Children[0]
+                    ],
+                    aggregateNamespaceEvidence:
+                    [
+                        NamespaceEvidence()
+                    ]
+                );
+
+        Assert.True(
+            creation.Success,
+            creation.Error
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord.SchemaVersion4,
+            creation.Manifest!.SchemaVersion
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord
+                .CoveragePolicyVersion3,
+            creation.Manifest.CoveragePolicyVersion
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord.SchemaVersion2,
+            DataRelativePathRepairBatchManifestRecord
+                .CurrentSchemaVersion
+        );
+
+        Assert.Null(
+            DataRelativePathRepairBatchManifest.Validate(
+                creation.Manifest
+            )
+        );
+    }
+
+    [Fact]
+    public void
+        CreateAggregateNamespaceCoverageAuthorized_PreservesExactNamespaceEvidence()
+    {
+        var evidence =
+            new[]
+            {
+                NamespaceEvidence()
+            };
+
+        DataRelativePathRepairBatchManifestCreation creation =
+            DataRelativePathRepairBatchManifest
+                .CreateAggregateNamespaceCoverageAuthorized(
+                    ValidSchemaV4().BatchId,
+                    ValidSchemaV4().CreatedUtc,
+                    "/tmp/Skyrim/Data",
+                    "repair-plan.json",
+                    1,
+                    0,
+                    [
+                        ValidSchemaV4().Children[0]
+                    ],
+                    evidence
+                );
+
+        Assert.True(
+            creation.Success,
+            creation.Error
+        );
+
+        Assert.NotSame(
+            evidence,
+            creation.Manifest!.AggregateNamespaceEvidence
+        );
+
+        Assert.Equal(
+            evidence,
+            creation.Manifest.AggregateNamespaceEvidence
+        );
+    }
+
+    [Fact]
+    public void
+        CreateAggregateNamespaceCoverageAuthorized_NullChildren_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(
+            () =>
+                DataRelativePathRepairBatchManifest
+                    .CreateAggregateNamespaceCoverageAuthorized(
+                        ValidSchemaV4().BatchId,
+                        ValidSchemaV4().CreatedUtc,
+                        "/tmp/Skyrim/Data",
+                        "repair-plan.json",
+                        1,
+                        0,
+                        null!,
+                        [
+                            NamespaceEvidence()
+                        ]
+                    )
+        );
+    }
+
+    [Fact]
+    public void
+        CreateAggregateNamespaceCoverageAuthorized_NullNamespaceEvidence_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(
+            () =>
+                DataRelativePathRepairBatchManifest
+                    .CreateAggregateNamespaceCoverageAuthorized(
+                        ValidSchemaV4().BatchId,
+                        ValidSchemaV4().CreatedUtc,
+                        "/tmp/Skyrim/Data",
+                        "repair-plan.json",
+                        1,
+                        0,
+                        [
+                            ValidSchemaV4().Children[0]
+                        ],
+                        null!
+                    )
+        );
+    }
+
+    [Fact]
+    public void
+        CreateAggregateNamespaceCoverageAuthorized_EmptyNamespaceEvidence_IsInvalidInput()
+    {
+        DataRelativePathRepairBatchManifestCreation creation =
+            DataRelativePathRepairBatchManifest
+                .CreateAggregateNamespaceCoverageAuthorized(
+                    ValidSchemaV4().BatchId,
+                    ValidSchemaV4().CreatedUtc,
+                    "/tmp/Skyrim/Data",
+                    "repair-plan.json",
+                    1,
+                    0,
+                    [
+                        ValidSchemaV4().Children[0]
+                    ],
+                    Array.Empty<
+                        DataRelativePathRepairBatchAggregateNamespaceEvidenceReference>()
+                );
+
+        Assert.False(
+            creation.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestCreationState.InvalidInput,
+            creation.State
+        );
+    }
+
+    [Fact]
+    public void
+        CreateAggregateNamespaceCoverageAuthorized_InvalidInput_IsRejectedWithoutChangingCurrentSchemaVersion()
+    {
+        DataRelativePathRepairBatchManifestCreation creation =
+            DataRelativePathRepairBatchManifest
+                .CreateAggregateNamespaceCoverageAuthorized(
+                    Guid.Empty,
+                    ValidSchemaV4().CreatedUtc,
+                    "/tmp/Skyrim/Data",
+                    "repair-plan.json",
+                    1,
+                    0,
+                    [
+                        ValidSchemaV4().Children[0]
+                    ],
+                    [
+                        NamespaceEvidence()
+                    ]
+                );
+
+        Assert.False(
+            creation.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord.SchemaVersion2,
+            DataRelativePathRepairBatchManifestRecord
+                .CurrentSchemaVersion
+        );
+    }
+
+    private static
+        DataRelativePathRepairBatchAggregateNamespaceEvidenceReference
+        NamespaceEvidence()
+    {
+        return new(
+            ManifestSchemaVersion:
+                DataRelativePathAggregateNamespaceManifestRecord
+                    .SchemaVersion1,
+            RootWindowsLogicalPath:
+                "MESHES",
+            ManifestSha256:
+                new string(
+                    'A',
+                    64
+                )
+        );
+    }
+
 }
