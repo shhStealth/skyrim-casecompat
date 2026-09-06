@@ -6990,6 +6990,100 @@ public sealed class
 
     [Fact]
     public void
+        ExecuteAggregateNamespace_LaterUnstartedChild_UntouchedSource_ReachesApplied()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using AggregateNamespaceExecutionFixture fixture =
+            AggregateNamespaceExecutionFixture.Create(
+                fileCount:
+                    2
+            );
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathRepairPlanForwardExecution first =
+            fixture.ExecuteAggregate(
+                childIndex:
+                    0
+            );
+
+        Assert.True(
+            first.Success,
+            first.Error
+        );
+
+        Assert.True(
+            fixture.AnyOperationJournalExists(
+                childIndex:
+                    0
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.DestinationPath(
+                    childIndex:
+                        0
+                )
+            )
+        );
+
+        /*
+         * Child 1 is still exactly the persisted pre-apply source and has not
+         * started. Child 0's legitimate post-apply namespace state must not
+         * make this later fresh boundary fail.
+         */
+        fixture.AssertNoOperationJournals(
+            childIndex:
+                1
+        );
+
+        Assert.False(
+            File.Exists(
+                fixture.DestinationPath(
+                    childIndex:
+                        1
+                )
+            )
+        );
+
+        DataRelativePathRepairPlanForwardExecution second =
+            fixture.ExecuteAggregate(
+                childIndex:
+                    1
+            );
+
+        Assert.True(
+            second.Success,
+            second.Error
+        );
+
+        Assert.True(
+            fixture.AnyOperationJournalExists(
+                childIndex:
+                    1
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.DestinationPath(
+                    childIndex:
+                        1
+                )
+            )
+        );
+    }
+
+    [Fact]
+    public void
         ExecuteAggregateNamespace_LaterUnstartedChild_ReauthorizesCurrentSource()
     {
         if (!OperatingSystem.IsLinux())
@@ -7073,6 +7167,18 @@ public sealed class
             DataRelativePathRepairPlanForwardExecutionState
                 .BatchChildBindingFailed,
             second.State
+        );
+
+        Assert.Contains(
+            "candidate 1",
+            second.Error ??
+                string.Empty
+        );
+
+        Assert.Contains(
+            "SourceGenerationBindingFailed",
+            second.Error ??
+                string.Empty
         );
 
         fixture.AssertNoOperationJournals(

@@ -673,6 +673,193 @@ public sealed class
         );
     }
 
+    [Fact]
+    public void
+        AuthorizeCurrentChild_PostApplySiblingEquivalentRepresentation_SelectedSiblingAuthorizes()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            Fixture.Create(
+                fileCount:
+                    2
+            );
+
+        string appliedSiblingDirectory =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    fixture.DataRoot,
+                    "meshes",
+                    "Actors",
+                    "Character",
+                    "Character Assets",
+                    "FaceParts"
+                )
+            ).FullName;
+
+        File.WriteAllText(
+            Path.Combine(
+                appliedSiblingDirectory,
+                Path.GetFileName(
+                    fixture.SourcePaths[0]
+                )
+            ),
+            fixture.SourceContents[0]
+        );
+
+        /*
+         * Whole-batch initial-authority semantics deliberately remain strict:
+         * the post-apply sibling now has two equivalent representations.
+         */
+        DataRelativePathRepairBatchAggregateNamespaceApplyAuthorization
+            wholeBatch =
+                fixture.Authorize();
+
+        Assert.False(
+            wholeBatch.AllAuthorized
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchAggregateNamespaceApplyDecisionState
+                .EquivalentContentMultipleRepresentations,
+            wholeBatch.Decisions[0].State
+        );
+
+        /*
+         * The later unstarted child is still pristine. Its fresh boundary is
+         * candidate-scoped and must not reinterpret the already-applied
+         * sibling as pre-apply source authority.
+         */
+        DataRelativePathRepairBatchAggregateNamespaceApplyAuthorization
+            targeted =
+                DataRelativePathRepairBatchAggregateNamespaceApplyAuthorizer
+                    .AuthorizeCurrentChild(
+                        fixture.DataRootHandle,
+                        fixture.Batch,
+                        fixture.Children,
+                        fixture.NamespaceEvidence,
+                        candidateIndex:
+                            1
+                    );
+
+        Assert.True(
+            targeted.AllAuthorized,
+            targeted.Error
+        );
+
+        DataRelativePathRepairBatchAggregateNamespaceApplyDecision decision =
+            Assert.Single(
+                targeted.Decisions
+            );
+
+        Assert.Equal(
+            1,
+            decision.CandidateIndex
+        );
+
+        Assert.Equal(
+            fixture.Batch.Children[1].ChildName,
+            decision.ChildName
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchAggregateNamespaceApplyDecisionState
+                .Authorized,
+            decision.State
+        );
+    }
+
+    [Fact]
+    public void
+        AuthorizeCurrentChild_PostApplySibling_SelectedSourceReplacementRejectsRealCandidate()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            Fixture.Create(
+                fileCount:
+                    2
+            );
+
+        string appliedSiblingDirectory =
+            Directory.CreateDirectory(
+                Path.Combine(
+                    fixture.DataRoot,
+                    "meshes",
+                    "Actors",
+                    "Character",
+                    "Character Assets",
+                    "FaceParts"
+                )
+            ).FullName;
+
+        File.WriteAllText(
+            Path.Combine(
+                appliedSiblingDirectory,
+                Path.GetFileName(
+                    fixture.SourcePaths[0]
+                )
+            ),
+            fixture.SourceContents[0]
+        );
+
+        string backup =
+            fixture.SourcePaths[1] +
+            ".old";
+
+        File.Move(
+            fixture.SourcePaths[1],
+            backup
+        );
+
+        File.WriteAllText(
+            fixture.SourcePaths[1],
+            fixture.SourceContents[1]
+        );
+
+        DataRelativePathRepairBatchAggregateNamespaceApplyAuthorization result =
+            DataRelativePathRepairBatchAggregateNamespaceApplyAuthorizer
+                .AuthorizeCurrentChild(
+                    fixture.DataRootHandle,
+                    fixture.Batch,
+                    fixture.Children,
+                    fixture.NamespaceEvidence,
+                    candidateIndex:
+                        1
+                );
+
+        Assert.False(
+            result.AllAuthorized
+        );
+
+        DataRelativePathRepairBatchAggregateNamespaceApplyDecision decision =
+            Assert.Single(
+                result.Decisions
+            );
+
+        Assert.Equal(
+            1,
+            decision.CandidateIndex
+        );
+
+        Assert.Equal(
+            fixture.Batch.Children[1].ChildName,
+            decision.ChildName
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchAggregateNamespaceApplyDecisionState
+                .SourceGenerationBindingFailed,
+            decision.State
+        );
+    }
+
     private sealed class Fixture :
         IDisposable
     {

@@ -117,6 +117,593 @@ public static class
     }
 
     /*
+     * Fresh point-in-time authorization for exactly one not-yet-started
+     * schema-v4 / coverage-policy-v3 batch child.
+     *
+     * Immutable batch/evidence/child membership remains exact-batch scoped.
+     * Filesystem freshness is deliberately scoped to candidateIndex so
+     * already-started siblings are not required to resemble their pre-apply
+     * source namespace again.
+     *
+     * This performs no mutation and writes no durable authorization.
+     */
+    public static
+        DataRelativePathRepairBatchAggregateNamespaceApplyAuthorization
+        AuthorizeCurrentChild(
+            LinuxNoFollowPathHandle dataRoot,
+            DataRelativePathRepairBatchManifestRecord batchManifest,
+            IReadOnlyList<
+                DataRelativePathRepairPlanManifestRecord
+            > childManifests,
+            DataRelativePathAggregateNamespaceManifestReaderResult
+                namespaceEvidence,
+            int candidateIndex)
+    {
+        ArgumentNullException.ThrowIfNull(
+            dataRoot
+        );
+
+        ArgumentNullException.ThrowIfNull(
+            batchManifest
+        );
+
+        ArgumentNullException.ThrowIfNull(
+            childManifests
+        );
+
+        ArgumentNullException.ThrowIfNull(
+            namespaceEvidence
+        );
+
+        if (
+            batchManifest.SchemaVersion !=
+                DataRelativePathRepairBatchManifestRecord
+                    .SchemaVersion4 ||
+            batchManifest.CoveragePolicyVersion !=
+                DataRelativePathRepairBatchManifestRecord
+                    .CoveragePolicyVersion3 ||
+            batchManifest.SafeRejectionCount != 0 ||
+            batchManifest.Children is null ||
+            batchManifest.Children.Count <= 0 ||
+            batchManifest.InputPathCount !=
+                batchManifest.Children.Count ||
+            batchManifest.AggregateNamespaceEvidence is null ||
+            batchManifest.AggregateNamespaceEvidence.Count != 1 ||
+            !string.Equals(
+                batchManifest.DataRoot,
+                dataRoot.FullPath,
+                StringComparison.Ordinal))
+        {
+            return Result(
+                DataRelativePathRepairBatchAggregateNamespaceApplyAuthorizationState
+                    .InvalidBatchManifest,
+                [],
+                error:
+                    "The batch is not an exact schema-v4 / " +
+                    "coverage-policy-v3 all-input batch bound to the " +
+                    "trusted Data root."
+            );
+        }
+
+        string? batchValidation =
+            DataRelativePathRepairBatchManifest.Validate(
+                batchManifest
+            );
+
+        if (batchValidation is not null)
+        {
+            return Result(
+                DataRelativePathRepairBatchAggregateNamespaceApplyAuthorizationState
+                    .InvalidBatchManifest,
+                [],
+                error:
+                    batchValidation
+            );
+        }
+
+        DataRelativePathRepairBatchAggregateNamespaceEvidenceReference
+            namespaceReference =
+                batchManifest.AggregateNamespaceEvidence[0];
+
+        if (
+            !namespaceEvidence.Success ||
+            namespaceEvidence.Manifest is null ||
+            string.IsNullOrWhiteSpace(
+                namespaceEvidence.ManifestSha256))
+        {
+            return Result(
+                DataRelativePathRepairBatchAggregateNamespaceApplyAuthorizationState
+                    .InvalidNamespaceEvidence,
+                [],
+                error:
+                    namespaceEvidence.Error ??
+                    "The supplied aggregate namespace evidence was not " +
+                    "successfully descriptor-read."
+            );
+        }
+
+        DataRelativePathAggregateNamespaceManifestRecord sidecar =
+            namespaceEvidence.Manifest;
+
+        string? sidecarValidation =
+            DataRelativePathAggregateNamespaceManifest.Validate(
+                sidecar
+            );
+
+        if (
+            sidecarValidation is not null ||
+            namespaceReference.ManifestSchemaVersion !=
+                sidecar.SchemaVersion ||
+            !string.Equals(
+                namespaceReference.RootWindowsLogicalPath,
+                sidecar.RootWindowsLogicalPath,
+                StringComparison.Ordinal) ||
+            !string.Equals(
+                namespaceReference.ManifestSha256,
+                namespaceEvidence.ManifestSha256,
+                StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(
+                sidecar.DataRoot,
+                dataRoot.FullPath,
+                StringComparison.Ordinal))
+        {
+            return Result(
+                DataRelativePathRepairBatchAggregateNamespaceApplyAuthorizationState
+                    .InvalidNamespaceEvidence,
+                [],
+                error:
+                    sidecarValidation ??
+                    "The supplied aggregate namespace evidence does not " +
+                    "match the batch's exact schema/root/SHA/Data-root " +
+                    "reference."
+            );
+        }
+
+        if (
+            childManifests.Count !=
+                batchManifest.Children.Count)
+        {
+            return Result(
+                DataRelativePathRepairBatchAggregateNamespaceApplyAuthorizationState
+                    .InvalidChildManifestSet,
+                [],
+                error:
+                    "The supplied child manifest set does not exactly " +
+                    "match batch membership."
+            );
+        }
+
+        if (
+            candidateIndex < 0 ||
+            candidateIndex >= childManifests.Count)
+        {
+            return Result(
+                DataRelativePathRepairBatchAggregateNamespaceApplyAuthorizationState
+                    .InvalidInput,
+                [],
+                error:
+                    "The selected candidate index is outside the exact batch."
+            );
+        }
+
+        /*
+         * Every persisted child remains part of immutable batch authority.
+         * Validate the complete set structurally and canonically, but do not
+         * reacquire sibling SourceSnapshots here.
+         */
+        for (
+            int index = 0;
+            index < childManifests.Count;
+            index++)
+        {
+            DataRelativePathRepairPlanManifestRecord child =
+                childManifests[index];
+
+            DataRelativePathRepairBatchManifestChild batchChild =
+                batchManifest.Children[index];
+
+            if (
+                child.SchemaVersion !=
+                    DataRelativePathRepairPlanManifestRecord
+                        .SchemaVersion4)
+            {
+                return Reject(
+                    [
+                        Decision(
+                            index,
+                            batchChild.ChildName,
+                            DataRelativePathRepairBatchAggregateNamespaceApplyDecisionState
+                                .InvalidChildManifest,
+                            error:
+                                "Aggregate namespace execution requires " +
+                                "child plan schema version 4."
+                        )
+                    ],
+                    "One or more child manifests are not schema-v4."
+                );
+            }
+
+            string? childValidation =
+                DataRelativePathRepairPlanManifest.Validate(
+                    child
+                );
+
+            if (childValidation is not null)
+            {
+                return Reject(
+                    [
+                        Decision(
+                            index,
+                            batchChild.ChildName,
+                            DataRelativePathRepairBatchAggregateNamespaceApplyDecisionState
+                                .InvalidChildManifest,
+                            error:
+                                childValidation
+                        )
+                    ],
+                    "One or more child manifests are invalid."
+                );
+            }
+
+            if (
+                !string.Equals(
+                    child.DataRoot,
+                    batchManifest.DataRoot,
+                    StringComparison.Ordinal) ||
+                child.PlanId !=
+                    batchChild.PlanId)
+            {
+                return Reject(
+                    [
+                        Decision(
+                            index,
+                            batchChild.ChildName,
+                            DataRelativePathRepairBatchAggregateNamespaceApplyDecisionState
+                                .ChildManifestBindingMismatch,
+                            error:
+                                "The child Data root or PlanId does not match " +
+                                "the exact batch child descriptor."
+                        )
+                    ],
+                    "A child manifest does not bind to the batch."
+                );
+            }
+
+            byte[] childCanonical =
+                DataRelativePathRepairPlanManifestJson.Serialize(
+                    child
+                );
+
+            string childSha =
+                Convert.ToHexString(
+                    SHA256.HashData(
+                        childCanonical
+                    )
+                );
+
+            if (
+                !string.Equals(
+                    childSha,
+                    batchChild.ManifestSha256,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return Reject(
+                    [
+                        Decision(
+                            index,
+                            batchChild.ChildName,
+                            DataRelativePathRepairBatchAggregateNamespaceApplyDecisionState
+                                .ChildManifestBindingMismatch,
+                            error:
+                                "The canonical child manifest SHA-256 does not " +
+                                "match the batch child descriptor."
+                        )
+                    ],
+                    "A child manifest SHA-256 does not bind to the batch."
+                );
+            }
+        }
+
+        DataRelativePathRepairPlanManifestRecord selectedChild =
+            childManifests[candidateIndex];
+
+        DataRelativePathRepairBatchManifestChild selectedBatchChild =
+            batchManifest.Children[candidateIndex];
+
+        DataRelativePathRepairSourceGenerationBinding binding =
+            DataRelativePathRepairSourceGenerationBinder.Bind(
+                dataRoot,
+                selectedChild.SourceSnapshot
+            );
+
+        if (
+            !binding.Success ||
+            binding.SourceInodeGeneration is null)
+        {
+            return Reject(
+                [
+                    Decision(
+                        candidateIndex,
+                        selectedBatchChild.ChildName,
+                        DataRelativePathRepairBatchAggregateNamespaceApplyDecisionState
+                            .SourceGenerationBindingFailed,
+                        sourceGenerationBindingState:
+                            binding.State,
+                        error:
+                            binding.Error ??
+                            binding.State.ToString()
+                    )
+                ],
+                "Fresh source-generation binding failed."
+            );
+        }
+
+        DataRelativePathRepairBatchAggregateNamespaceCoverageAuthorization
+            rawHistorical =
+                DataRelativePathRepairBatchAggregateNamespaceCoverageAuthorizer
+                    .Authorize(
+                        batchManifest,
+                        [
+                            new(
+                                Manifest:
+                                    selectedChild,
+                                SourceInodeGeneration:
+                                    binding.SourceInodeGeneration.Value
+                            )
+                        ],
+                        [
+                            new(
+                                RootWindowsLogicalPath:
+                                    namespaceReference
+                                        .RootWindowsLogicalPath,
+                                ReadResult:
+                                    namespaceEvidence
+                            )
+                        ]
+                    );
+
+        DataRelativePathRepairBatchAggregateNamespaceCoverageDecision
+            rawHistoricalDecision =
+                rawHistorical.Decisions.Single();
+
+        DataRelativePathRepairBatchAggregateNamespaceCoverageDecision
+            historicalDecision =
+                rawHistoricalDecision with
+                {
+                    CandidateIndex =
+                        candidateIndex
+                };
+
+        DataRelativePathRepairBatchAggregateNamespaceCoverageAuthorization
+            historical =
+                new(
+                    [
+                        historicalDecision
+                    ]
+                );
+
+        if (!historical.AllAuthorized)
+        {
+            return Reject(
+                [
+                    Decision(
+                        candidateIndex,
+                        selectedBatchChild.ChildName,
+                        DataRelativePathRepairBatchAggregateNamespaceApplyDecisionState
+                            .HistoricalCoverageRejected,
+                        sourceGenerationBindingState:
+                            binding.State,
+                        historicalCoverageDecisionState:
+                            historicalDecision.State,
+                        error:
+                            historicalDecision.Error ??
+                            historicalDecision.State.ToString()
+                    )
+                ],
+                "Historical aggregate namespace coverage was rejected.",
+                historical
+            );
+        }
+
+        string[] expectedPhysicalRoots =
+            sidecar.DataRootChildNames
+                .Where(
+                    name =>
+                        IsEquivalentRootName(
+                            name,
+                            namespaceReference
+                                .RootWindowsLogicalPath
+                        )
+                )
+                .OrderBy(
+                    name =>
+                        name,
+                    StringComparer.Ordinal
+                )
+                .ToArray();
+
+        DataRelativePathRepairAggregateNamespaceCurrentLeafAnalysis current =
+            DataRelativePathRepairAggregateNamespaceCurrentLeafAnalyzer
+                .Analyze(
+                    dataRoot,
+                    namespaceReference
+                        .RootWindowsLogicalPath,
+                    selectedChild.RequestedPath
+                );
+
+        if (!current.Success)
+        {
+            return Reject(
+                [
+                    Decision(
+                        candidateIndex,
+                        selectedBatchChild.ChildName,
+                        DataRelativePathRepairBatchAggregateNamespaceApplyDecisionState
+                            .CurrentLeafAnalysisFailed,
+                        binding.State,
+                        historicalDecision.State,
+                        current,
+                        current.Error ??
+                            current.State.ToString()
+                    )
+                ],
+                "Current aggregate namespace leaf analysis failed.",
+                historical
+            );
+        }
+
+        if (
+            !expectedPhysicalRoots.SequenceEqual(
+                current.PhysicalRootNames,
+                StringComparer.Ordinal))
+        {
+            return Reject(
+                [
+                    Decision(
+                        candidateIndex,
+                        selectedBatchChild.ChildName,
+                        DataRelativePathRepairBatchAggregateNamespaceApplyDecisionState
+                            .CurrentRootSetMismatch,
+                        binding.State,
+                        historicalDecision.State,
+                        current,
+                        "The current Windows-equivalent namespace-root set " +
+                        "does not exactly match the sidecar root set."
+                    )
+                ],
+                "The current namespace root set changed.",
+                historical
+            );
+        }
+
+        if (current.Representations.Count == 0)
+        {
+            return Reject(
+                [
+                    Decision(
+                        candidateIndex,
+                        selectedBatchChild.ChildName,
+                        DataRelativePathRepairBatchAggregateNamespaceApplyDecisionState
+                            .MissingCurrentLogicalLeaf,
+                        binding.State,
+                        historicalDecision.State,
+                        current,
+                        "The authorized Windows-logical leaf is currently " +
+                        "missing."
+                    )
+                ],
+                "The current logical leaf is missing.",
+                historical
+            );
+        }
+
+        if (current.Representations.Count > 1)
+        {
+            bool equivalentContent =
+                current.Representations
+                    .Skip(
+                        1
+                    )
+                    .All(
+                        representation =>
+                            representation.Size ==
+                                current.Representations[0].Size &&
+                            string.Equals(
+                                representation.Sha256,
+                                current.Representations[0].Sha256,
+                                StringComparison.OrdinalIgnoreCase)
+                    );
+
+            DataRelativePathRepairBatchAggregateNamespaceApplyDecisionState
+                state =
+                    equivalentContent
+                        ? DataRelativePathRepairBatchAggregateNamespaceApplyDecisionState
+                            .EquivalentContentMultipleRepresentations
+                        : DataRelativePathRepairBatchAggregateNamespaceApplyDecisionState
+                            .ConflictingContentMultipleRepresentations;
+
+            return Reject(
+                [
+                    Decision(
+                        candidateIndex,
+                        selectedBatchChild.ChildName,
+                        state,
+                        binding.State,
+                        historicalDecision.State,
+                        current,
+                        "The current logical leaf has multiple physical " +
+                        "representations; C4A does not select a provider."
+                    )
+                ],
+                "The current logical leaf is not source-unambiguous.",
+                historical
+            );
+        }
+
+        DataRelativePathRepairAggregateNamespaceCurrentFileRepresentation
+            representation =
+                current.Representations[0];
+
+        DataRelativePathAggregateNamespaceManifestFileRepresentation?
+            historicalRepresentation =
+                FindHistoricalRepresentation(
+                    sidecar,
+                    selectedChild,
+                    dataRoot
+                );
+
+        if (
+            historicalRepresentation is null ||
+            !CurrentRepresentationMatches(
+                dataRoot,
+                selectedChild.SourceSnapshot,
+                representation,
+                historicalRepresentation
+            ))
+        {
+            return Reject(
+                [
+                    Decision(
+                        candidateIndex,
+                        selectedBatchChild.ChildName,
+                        DataRelativePathRepairBatchAggregateNamespaceApplyDecisionState
+                            .CurrentSourceMismatch,
+                        binding.State,
+                        historicalDecision.State,
+                        current,
+                        "The sole current physical representation does not " +
+                        "exactly match the authorized source identity, " +
+                        "generation, size, SHA-256, and physical path."
+                    )
+                ],
+                "Current source authority no longer matches planning evidence.",
+                historical
+            );
+        }
+
+        return Result(
+            DataRelativePathRepairBatchAggregateNamespaceApplyAuthorizationState
+                .Authorized,
+            [
+                Decision(
+                    candidateIndex,
+                    selectedBatchChild.ChildName,
+                    DataRelativePathRepairBatchAggregateNamespaceApplyDecisionState
+                        .Authorized,
+                    binding.State,
+                    historicalDecision.State,
+                    current,
+                    error:
+                        null
+                )
+            ],
+            historical,
+            error:
+                null
+        );
+    }
+
+    /*
      * Internal deterministic race seam used only by tests.
      * Production callers use Authorize().
      */

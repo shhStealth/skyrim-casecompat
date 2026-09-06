@@ -2842,7 +2842,8 @@ public static class DataRelativePathRepairPlanForwardExecutor
                         trustedDataRootHandle,
                         batchManifest,
                         trustedDataRoot,
-                        batchScope.AggregateNamespaceEvidence!
+                        batchScope.AggregateNamespaceEvidence!,
+                        suppliedContext.CurrentChildIndex
                     );
 
             if (freshCoverageError is not null)
@@ -3062,9 +3063,10 @@ public static class DataRelativePathRepairPlanForwardExecutor
      *
      * The durable batch authorization binds the immutable batch bytes.
      * Before this child creates its first operation journal, reread every
-     * child manifest descriptor-relatively and then rerun the C4A
-     * point-in-time aggregate namespace apply authorizer against the current
-     * trusted Data-root descriptor and invocation-only namespace evidence.
+     * child manifest descriptor-relatively to retain exact batch membership,
+     * then run target-scoped C4A current authorization only for the
+     * authenticated current child against the trusted Data-root descriptor
+     * and invocation-only namespace evidence.
      *
      * Once any operation journal exists for the current child, this method is
      * deliberately not called; normal journal recovery/idempotence owns the
@@ -3077,7 +3079,8 @@ public static class DataRelativePathRepairPlanForwardExecutor
             DataRelativePathRepairBatchManifestRecord batchManifest,
             string trustedDataRoot,
             DataRelativePathAggregateNamespaceManifestReaderResult
-                namespaceEvidence)
+                namespaceEvidence,
+            int candidateIndex)
     {
         var authenticatedManifests =
             new DataRelativePathRepairPlanManifestRecord[
@@ -3213,11 +3216,12 @@ public static class DataRelativePathRepairPlanForwardExecutor
         {
             authorization =
                 DataRelativePathRepairBatchAggregateNamespaceApplyAuthorizer
-                    .Authorize(
+                    .AuthorizeCurrentChild(
                         trustedDataRootHandle,
                         batchManifest,
                         authenticatedManifests,
-                        namespaceEvidence
+                        namespaceEvidence,
+                        candidateIndex
                     );
         }
         catch (Exception ex)
