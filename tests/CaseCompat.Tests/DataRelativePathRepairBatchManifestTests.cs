@@ -853,3 +853,482 @@ public sealed class
         );
     }
 }
+
+public sealed class DataRelativePathRepairBatchManifestSchemaV4Tests
+{
+    private const string ValidSha256 =
+        "0123456789ABCDEF0123456789ABCDEF" +
+        "0123456789ABCDEF0123456789ABCDEF";
+
+    private const string RealMeshesSidecarSha256 =
+        "F40C313DCBB1A81149AE7F6FA5F2486" +
+        "ADD7665040C541387B423BB17B46F4972";
+
+    [Fact]
+    public void
+        Validate_SchemaV4CoveragePolicyV3WithNamespaceEvidence_Succeeds()
+    {
+        Assert.Null(
+            DataRelativePathRepairBatchManifest.Validate(
+                ValidSchemaV4()
+            )
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaV4WithCoveragePolicyV2_Fails()
+    {
+        DataRelativePathRepairBatchManifestRecord manifest =
+            ValidSchemaV4() with
+            {
+                CoveragePolicyVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .CoveragePolicyVersion2
+            };
+
+        Assert.NotNull(
+            DataRelativePathRepairBatchManifest.Validate(
+                manifest
+            )
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaV4WithNullNamespaceEvidence_Fails()
+    {
+        DataRelativePathRepairBatchManifestRecord manifest =
+            ValidSchemaV4() with
+            {
+                AggregateNamespaceEvidence =
+                    null
+            };
+
+        Assert.NotNull(
+            DataRelativePathRepairBatchManifest.Validate(
+                manifest
+            )
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaV4WithEmptyNamespaceEvidence_Fails()
+    {
+        DataRelativePathRepairBatchManifestRecord manifest =
+            ValidSchemaV4() with
+            {
+                AggregateNamespaceEvidence =
+                    []
+            };
+
+        Assert.NotNull(
+            DataRelativePathRepairBatchManifest.Validate(
+                manifest
+            )
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaV1WithNamespaceEvidence_Fails()
+    {
+        DataRelativePathRepairBatchManifestRecord manifest =
+            ValidSchemaV4() with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .SchemaVersion1,
+                CoveragePolicyVersion =
+                    null
+            };
+
+        Assert.NotNull(
+            DataRelativePathRepairBatchManifest.Validate(
+                manifest
+            )
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaV2WithNamespaceEvidence_Fails()
+    {
+        DataRelativePathRepairBatchManifestRecord manifest =
+            ValidSchemaV4() with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .SchemaVersion2,
+                CoveragePolicyVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .CoveragePolicyVersion1
+            };
+
+        Assert.NotNull(
+            DataRelativePathRepairBatchManifest.Validate(
+                manifest
+            )
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaV3WithNamespaceEvidence_Fails()
+    {
+        DataRelativePathRepairBatchManifestRecord manifest =
+            ValidSchemaV4() with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .SchemaVersion3,
+                CoveragePolicyVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .CoveragePolicyVersion2
+            };
+
+        Assert.NotNull(
+            DataRelativePathRepairBatchManifest.Validate(
+                manifest
+            )
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaV4WithUnsupportedNamespaceSchema_Fails()
+    {
+        DataRelativePathRepairBatchManifestRecord manifest =
+            ValidSchemaV4() with
+            {
+                AggregateNamespaceEvidence =
+                    [
+                        Evidence(
+                            "MESHES",
+                            manifestSchemaVersion:
+                                DataRelativePathAggregateNamespaceManifestRecord
+                                    .SchemaVersion1 + 1
+                        )
+                    ]
+            };
+
+        Assert.NotNull(
+            DataRelativePathRepairBatchManifest.Validate(
+                manifest
+            )
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaV4WithMalformedNamespaceSha_Fails()
+    {
+        DataRelativePathRepairBatchManifestRecord manifest =
+            ValidSchemaV4() with
+            {
+                AggregateNamespaceEvidence =
+                    [
+                        Evidence(
+                            "MESHES",
+                            sha256:
+                                "not-a-sha"
+                        )
+                    ]
+            };
+
+        Assert.NotNull(
+            DataRelativePathRepairBatchManifest.Validate(
+                manifest
+            )
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaV4WithNoncanonicalLogicalRoot_Fails()
+    {
+        DataRelativePathRepairBatchManifestRecord manifest =
+            ValidSchemaV4() with
+            {
+                AggregateNamespaceEvidence =
+                    [
+                        Evidence(
+                            "meshes"
+                        )
+                    ]
+            };
+
+        Assert.NotNull(
+            DataRelativePathRepairBatchManifest.Validate(
+                manifest
+            )
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaV4WithPathSeparatorLogicalRoot_Fails()
+    {
+        DataRelativePathRepairBatchManifestRecord manifest =
+            ValidSchemaV4() with
+            {
+                AggregateNamespaceEvidence =
+                    [
+                        Evidence(
+                            "MESHES/ACTORS"
+                        )
+                    ]
+            };
+
+        Assert.NotNull(
+            DataRelativePathRepairBatchManifest.Validate(
+                manifest
+            )
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaV4WithDuplicateLogicalRoots_Fails()
+    {
+        DataRelativePathRepairBatchManifestRecord manifest =
+            ValidSchemaV4() with
+            {
+                AggregateNamespaceEvidence =
+                    [
+                        Evidence(
+                            "MESHES"
+                        ),
+                        Evidence(
+                            "MESHES"
+                        )
+                    ]
+            };
+
+        Assert.NotNull(
+            DataRelativePathRepairBatchManifest.Validate(
+                manifest
+            )
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaV4WithOutOfOrderLogicalRoots_Fails()
+    {
+        DataRelativePathRepairBatchManifestRecord manifest =
+            ValidSchemaV4() with
+            {
+                AggregateNamespaceEvidence =
+                    [
+                        Evidence(
+                            "TEXTURES"
+                        ),
+                        Evidence(
+                            "MESHES"
+                        )
+                    ]
+            };
+
+        Assert.NotNull(
+            DataRelativePathRepairBatchManifest.Validate(
+                manifest
+            )
+        );
+    }
+
+    [Fact]
+    public void Validate_SchemaV4WithNullEvidenceElement_Fails()
+    {
+        DataRelativePathRepairBatchManifestRecord manifest =
+            ValidSchemaV4() with
+            {
+                AggregateNamespaceEvidence =
+                    [
+                        null!
+                    ]
+            };
+
+        Assert.NotNull(
+            DataRelativePathRepairBatchManifest.Validate(
+                manifest
+            )
+        );
+    }
+
+    [Fact]
+    public void
+        JsonRoundTrip_SchemaV4PreservesCoveragePolicyAndNamespaceEvidence()
+    {
+        DataRelativePathRepairBatchManifestRecord manifest =
+            ValidSchemaV4();
+
+        byte[] json =
+            DataRelativePathRepairBatchManifestJson.Serialize(
+                manifest
+            );
+
+        DataRelativePathRepairBatchManifestRecord restored =
+            Assert.IsType<
+                DataRelativePathRepairBatchManifestRecord
+            >(
+                DataRelativePathRepairBatchManifestJson
+                    .Deserialize(
+                        json
+                    )
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord
+                .SchemaVersion4,
+            restored.SchemaVersion
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord
+                .CoveragePolicyVersion3,
+            restored.CoveragePolicyVersion
+        );
+
+        DataRelativePathRepairBatchAggregateNamespaceEvidenceReference
+            evidence =
+                Assert.Single(
+                    restored.AggregateNamespaceEvidence!
+                );
+
+        Assert.Equal(
+            DataRelativePathAggregateNamespaceManifestRecord
+                .SchemaVersion1,
+            evidence.ManifestSchemaVersion
+        );
+
+        Assert.Equal(
+            "MESHES",
+            evidence.RootWindowsLogicalPath
+        );
+
+        Assert.Equal(
+            RealMeshesSidecarSha256,
+            evidence.ManifestSha256
+        );
+
+        Assert.Null(
+            DataRelativePathRepairBatchManifest.Validate(
+                restored
+            )
+        );
+    }
+
+    [Fact]
+    public void Json_SchemaV1StillOmitsAggregateNamespaceEvidence()
+    {
+        DataRelativePathRepairBatchManifestRecord manifest =
+            ValidSchemaV4() with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .SchemaVersion1,
+                CoveragePolicyVersion =
+                    null,
+                AggregateNamespaceEvidence =
+                    null
+            };
+
+        Assert.Null(
+            DataRelativePathRepairBatchManifest.Validate(
+                manifest
+            )
+        );
+
+        string json =
+            System.Text.Encoding.UTF8.GetString(
+                DataRelativePathRepairBatchManifestJson.Serialize(
+                    manifest
+                )
+            );
+
+        Assert.DoesNotContain(
+            "\"AggregateNamespaceEvidence\"",
+            json
+        );
+    }
+
+    [Fact]
+    public void CurrentSchemaVersion_RemainsSchemaV2()
+    {
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord
+                .SchemaVersion2,
+            DataRelativePathRepairBatchManifestRecord
+                .CurrentSchemaVersion
+        );
+    }
+
+    private static
+        DataRelativePathRepairBatchManifestRecord
+        ValidSchemaV4()
+    {
+        return
+            new DataRelativePathRepairBatchManifestRecord(
+                SchemaVersion:
+                    DataRelativePathRepairBatchManifestRecord
+                        .SchemaVersion4,
+                BatchId:
+                    Guid.Parse(
+                        "11111111-2222-3333-4444-555555555555"
+                    ),
+                CreatedUtc:
+                    new DateTimeOffset(
+                        2026,
+                        9,
+                        5,
+                        0,
+                        0,
+                        0,
+                        TimeSpan.Zero
+                    ),
+                DataRoot:
+                    "/tmp/Skyrim/Data",
+                ChildManifestName:
+                    "repair-plan.json",
+                InputPathCount:
+                    1,
+                SafeRejectionCount:
+                    0,
+                Children:
+                    [
+                        new(
+                            ChildName:
+                                "plan-000001",
+                            PlanId:
+                                Guid.Parse(
+                                    "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+                                ),
+                            ManifestSha256:
+                                ValidSha256
+                        )
+                    ]
+            )
+            {
+                CoveragePolicyVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .CoveragePolicyVersion3,
+                AggregateNamespaceEvidence =
+                    [
+                        Evidence(
+                            "MESHES"
+                        )
+                    ]
+            };
+    }
+
+    private static
+        DataRelativePathRepairBatchAggregateNamespaceEvidenceReference
+        Evidence(
+            string root,
+            int manifestSchemaVersion =
+                DataRelativePathAggregateNamespaceManifestRecord
+                    .SchemaVersion1,
+            string? sha256 =
+                null)
+    {
+        return new(
+            ManifestSchemaVersion:
+                manifestSchemaVersion,
+            RootWindowsLogicalPath:
+                root,
+            ManifestSha256:
+                sha256 ??
+                RealMeshesSidecarSha256
+        );
+    }
+}

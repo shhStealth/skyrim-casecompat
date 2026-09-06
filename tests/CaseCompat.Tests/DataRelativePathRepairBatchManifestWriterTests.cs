@@ -341,6 +341,147 @@ public sealed class
         );
     }
 
+    [Fact]
+    public void
+        CreateInitial_SchemaV4NamespaceEvidence_PersistsAndReadsExactRecord()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsUnnamedFiles())
+        {
+            return;
+        }
+
+        const string namespaceSha256 =
+            "F40C313DCBB1A81149AE7F6FA5F2486" +
+            "ADD7665040C541387B423BB17B46F4972";
+
+        DataRelativePathRepairBatchManifestRecord manifest =
+            CreateManifest(
+                Guid.Parse(
+                    "11111111-2222-3333-4444-555555555555"
+                )
+            ) with
+            {
+                SchemaVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .SchemaVersion4,
+                CoveragePolicyVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .CoveragePolicyVersion3,
+                AggregateNamespaceEvidence =
+                    [
+                        new(
+                            ManifestSchemaVersion:
+                                DataRelativePathAggregateNamespaceManifestRecord
+                                    .SchemaVersion1,
+                            RootWindowsLogicalPath:
+                                "MESHES",
+                            ManifestSha256:
+                                namespaceSha256
+                        )
+                    ]
+            };
+
+        Assert.Null(
+            DataRelativePathRepairBatchManifest.Validate(
+                manifest
+            )
+        );
+
+        byte[] expectedBytes =
+            DataRelativePathRepairBatchManifestJson.Serialize(
+                manifest
+            );
+
+        string expectedSha256 =
+            Convert.ToHexString(
+                SHA256.HashData(
+                    expectedBytes
+                )
+            );
+
+        DataRelativePathRepairBatchManifestWriterResult write =
+            DataRelativePathRepairBatchManifestWriter.CreateInitial(
+                fixture.BatchDirectory,
+                BatchManifestName,
+                manifest
+            );
+
+        Assert.True(
+            write.Success,
+            write.Error
+        );
+
+        DataRelativePathRepairBatchManifestReaderResult read =
+            DataRelativePathRepairBatchManifestReader.Read(
+                fixture.BatchDirectory,
+                BatchManifestName
+            );
+
+        Assert.True(
+            read.Success,
+            read.Error
+        );
+
+        DataRelativePathRepairBatchManifestRecord persisted =
+            Assert.IsType<
+                DataRelativePathRepairBatchManifestRecord
+            >(
+                read.Manifest
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord
+                .SchemaVersion4,
+            persisted.SchemaVersion
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord
+                .CoveragePolicyVersion3,
+            persisted.CoveragePolicyVersion
+        );
+
+        DataRelativePathRepairBatchAggregateNamespaceEvidenceReference
+            evidence =
+                Assert.Single(
+                    persisted.AggregateNamespaceEvidence!
+                );
+
+        Assert.Equal(
+            DataRelativePathAggregateNamespaceManifestRecord
+                .SchemaVersion1,
+            evidence.ManifestSchemaVersion
+        );
+
+        Assert.Equal(
+            "MESHES",
+            evidence.RootWindowsLogicalPath
+        );
+
+        Assert.Equal(
+            namespaceSha256,
+            evidence.ManifestSha256
+        );
+
+        Assert.Equal(
+            expectedBytes.LongLength,
+            read.Length
+        );
+
+        Assert.Equal(
+            expectedSha256,
+            read.ManifestSha256
+        );
+    }
+
     private static
         DataRelativePathRepairBatchManifestRecord
         CreateManifest(

@@ -6,6 +6,13 @@ public sealed record DataRelativePathRepairBatchManifestChild(
     string ManifestSha256
 );
 
+public sealed record
+    DataRelativePathRepairBatchAggregateNamespaceEvidenceReference(
+        int ManifestSchemaVersion,
+        string RootWindowsLogicalPath,
+        string ManifestSha256
+    );
+
 public sealed record DataRelativePathRepairBatchManifestRecord(
     int SchemaVersion,
     Guid BatchId,
@@ -34,6 +41,18 @@ public sealed record DataRelativePathRepairBatchManifestRecord(
         init;
     }
 
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition =
+            System.Text.Json.Serialization.JsonIgnoreCondition
+                .WhenWritingNull)]
+    public IReadOnlyList<
+        DataRelativePathRepairBatchAggregateNamespaceEvidenceReference
+    >? AggregateNamespaceEvidence
+    {
+        get;
+        init;
+    }
+
     public const int SchemaVersion1 =
         1;
 
@@ -49,6 +68,16 @@ public sealed record DataRelativePathRepairBatchManifestRecord(
     public const int SchemaVersion3 =
         3;
 
+    /*
+     * Schema v4 binds future aggregate planning to exact durable
+     * Windows-equivalent namespace evidence.
+     *
+     * Representability does not grant planning or execution authority
+     * and does not make schema v4 the default batch schema.
+     */
+    public const int SchemaVersion4 =
+        4;
+
     public const int CoveragePolicyVersion1 =
         1;
 
@@ -59,6 +88,15 @@ public sealed record DataRelativePathRepairBatchManifestRecord(
      */
     public const int CoveragePolicyVersion2 =
         2;
+
+    /*
+     * Coverage policy v3 is reserved for future aggregate planning
+     * authorized against exact SHA-bound namespace evidence.
+     *
+     * Phase A persists and validates the marker only.
+     */
+    public const int CoveragePolicyVersion3 =
+        3;
 
     public const int CurrentSchemaVersion =
         SchemaVersion2;
@@ -405,11 +443,48 @@ public static class DataRelativePathRepairBatchManifest
                     $"{DataRelativePathRepairBatchManifestRecord.CoveragePolicyVersion2}.";
             }
         }
+        else if (
+            manifest.SchemaVersion ==
+            DataRelativePathRepairBatchManifestRecord
+                .SchemaVersion4)
+        {
+            if (
+                manifest.CoveragePolicyVersion !=
+                DataRelativePathRepairBatchManifestRecord
+                    .CoveragePolicyVersion3)
+            {
+                return
+                    "Schema-v4 batch manifests require aggregate " +
+                    "namespace-coverage policy version " +
+                    $"{DataRelativePathRepairBatchManifestRecord.CoveragePolicyVersion3}.";
+            }
+
+            string? namespaceEvidenceError =
+                ValidateAggregateNamespaceEvidence(
+                    manifest.AggregateNamespaceEvidence
+                );
+
+            if (namespaceEvidenceError is not null)
+            {
+                return namespaceEvidenceError;
+            }
+        }
         else
         {
             return
                 $"Unsupported batch-manifest schema version " +
                 $"{manifest.SchemaVersion}.";
+        }
+
+        if (
+            manifest.SchemaVersion !=
+            DataRelativePathRepairBatchManifestRecord
+                .SchemaVersion4 &&
+            manifest.AggregateNamespaceEvidence is not null)
+        {
+            return
+                $"Schema-v{manifest.SchemaVersion} batch manifests must " +
+                "not contain aggregate namespace evidence.";
         }
 
         if (manifest.BatchId == Guid.Empty)
@@ -528,6 +603,110 @@ public static class DataRelativePathRepairBatchManifest
                     $"Batch child {index} must contain a 64-character " +
                     "manifest SHA-256 value.";
             }
+        }
+
+        return null;
+    }
+
+    private static string? ValidateAggregateNamespaceEvidence(
+        IReadOnlyList<
+            DataRelativePathRepairBatchAggregateNamespaceEvidenceReference
+        >? evidence)
+    {
+        if (
+            evidence is null ||
+            evidence.Count == 0)
+        {
+            return
+                "Schema-v4 batch manifests require at least one aggregate " +
+                "namespace evidence reference.";
+        }
+
+        string? previousLogicalRoot =
+            null;
+
+        for (
+            int index = 0;
+            index < evidence.Count;
+            index++)
+        {
+            DataRelativePathRepairBatchAggregateNamespaceEvidenceReference?
+                reference =
+                    evidence[index];
+
+            if (reference is null)
+            {
+                return
+                    $"Aggregate namespace evidence reference {index} is null.";
+            }
+
+            if (
+                reference.ManifestSchemaVersion !=
+                DataRelativePathAggregateNamespaceManifestRecord
+                    .SchemaVersion1)
+            {
+                return
+                    $"Aggregate namespace evidence reference {index} " +
+                    "requires namespace-manifest schema version " +
+                    $"{DataRelativePathAggregateNamespaceManifestRecord.SchemaVersion1}.";
+            }
+
+            string root =
+                reference.RootWindowsLogicalPath;
+
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                return
+                    $"Aggregate namespace evidence reference {index} " +
+                    "requires a Windows-logical root.";
+            }
+
+            if (
+                root is "." or ".." ||
+                root.Contains('/') ||
+                root.Contains('\\') ||
+                root.Contains('\0'))
+            {
+                return
+                    $"Aggregate namespace evidence reference {index} " +
+                    "root must identify exactly one direct Data child.";
+            }
+
+            string canonicalRoot =
+                root.ToUpperInvariant();
+
+            if (
+                !string.Equals(
+                    root,
+                    canonicalRoot,
+                    StringComparison.Ordinal))
+            {
+                return
+                    $"Aggregate namespace evidence reference {index} " +
+                    "root is not in canonical Windows-logical form.";
+            }
+
+            if (!IsSha256(reference.ManifestSha256))
+            {
+                return
+                    $"Aggregate namespace evidence reference {index} " +
+                    "must contain a 64-character manifest SHA-256 value.";
+            }
+
+            if (
+                previousLogicalRoot is not null &&
+                string.CompareOrdinal(
+                    previousLogicalRoot,
+                    root) >= 0)
+            {
+                return
+                    "Aggregate namespace evidence references must be in " +
+                    "strict ordinal RootWindowsLogicalPath order with no " +
+                    "duplicates.";
+            }
+
+            previousLogicalRoot =
+                root;
         }
 
         return null;
