@@ -58,6 +58,9 @@ switch (command)
     case "repair-plan-aggregate-batch":
         return RepairPlanAggregateBatchCommand.Run(args);
 
+    case "repair-plan-aggregate-namespace-batch":
+        return RepairPlanAggregateNamespaceBatchCommand.Run(args);
+
     case "repair-status":
         return RepairStatusCommand.Run(args);
 
@@ -459,6 +462,12 @@ static void ShowUsage()
         "  casecompat repair-plan-aggregate-batch " +
         "<Skyrim Data directory> <path-list file> " +
         "<batch directory> [manifest file name]"
+    );
+    Console.WriteLine(
+        "  casecompat repair-plan-aggregate-namespace-batch " +
+        "<Skyrim Data directory> <path-list file> " +
+        "<aggregate namespace manifest file> <batch directory> " +
+        "[plan manifest file name]"
     );
     Console.WriteLine(
         "  casecompat repair-status <journal directory> " +
