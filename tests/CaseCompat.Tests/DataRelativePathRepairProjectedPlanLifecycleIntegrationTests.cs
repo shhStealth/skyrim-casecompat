@@ -1,3 +1,4 @@
+using CaseCompat.Core.Analysis;
 using CaseCompat.Core.Repair;
 using CaseCompat.Core.Resolution;
 using CaseCompat.Filesystem.Linux;
@@ -6696,6 +6697,1202 @@ public sealed class
                 )
             )
         );
+    }
+
+    [Fact]
+    public void
+        ExecuteAggregateNamespace_LegacyBatchEntryRejectsV4BeforeJournal()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using AggregateNamespaceExecutionFixture fixture =
+            AggregateNamespaceExecutionFixture.Create();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathRepairPlanForwardExecution execution =
+            fixture.ExecuteLegacy(
+                childIndex:
+                    0
+            );
+
+        Assert.False(
+            execution.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanForwardExecutionState
+                .BatchChildBindingFailed,
+            execution.State
+        );
+
+        Assert.Contains(
+            "schema-v4",
+            execution.Error ??
+                string.Empty
+        );
+
+        fixture.AssertNoOperationJournals(
+            childIndex:
+                0
+        );
+
+        Assert.False(
+            File.Exists(
+                fixture.DestinationPath(
+                    childIndex:
+                        0
+                )
+            )
+        );
+    }
+
+    [Fact]
+    public void
+        ExecuteAggregateNamespace_ExactFreshAuthority_ReachesApplied()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using AggregateNamespaceExecutionFixture fixture =
+            AggregateNamespaceExecutionFixture.Create();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathRepairPlanForwardExecution execution =
+            fixture.ExecuteAggregate(
+                childIndex:
+                    0
+            );
+
+        Assert.True(
+            execution.Success,
+            execution.Error
+        );
+
+        Assert.NotEmpty(
+            execution.OperationResults
+        );
+
+        Assert.True(
+            fixture.AnyOperationJournalExists(
+                childIndex:
+                    0
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.DestinationPath(
+                    childIndex:
+                        0
+                )
+            )
+        );
+    }
+
+    [Fact]
+    public void
+        ExecuteAggregateNamespace_SidecarShaMismatch_FailsBeforeJournal()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using AggregateNamespaceExecutionFixture fixture =
+            AggregateNamespaceExecutionFixture.Create();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathAggregateNamespaceManifestReaderResult
+            wrongEvidence =
+                fixture.NamespaceEvidence with
+                {
+                    ManifestSha256 =
+                        new string(
+                            'B',
+                            64
+                        )
+                };
+
+        DataRelativePathRepairPlanForwardExecution execution =
+            fixture.ExecuteAggregate(
+                childIndex:
+                    0,
+                evidence:
+                    wrongEvidence
+            );
+
+        Assert.False(
+            execution.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanForwardExecutionState
+                .BatchChildBindingFailed,
+            execution.State
+        );
+
+        fixture.AssertNoOperationJournals(
+            childIndex:
+                0
+        );
+
+        Assert.False(
+            File.Exists(
+                fixture.DestinationPath(
+                    childIndex:
+                        0
+                )
+            )
+        );
+    }
+
+    [Fact]
+    public void
+        ExecuteAggregateNamespace_SourceReplacementAfterDurableAuthorization_FailsBeforeJournal()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using AggregateNamespaceExecutionFixture fixture =
+            AggregateNamespaceExecutionFixture.Create();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        fixture.ReplaceSourceIdentity(
+            childIndex:
+                0
+        );
+
+        DataRelativePathRepairPlanForwardExecution execution =
+            fixture.ExecuteAggregate(
+                childIndex:
+                    0
+            );
+
+        Assert.False(
+            execution.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanForwardExecutionState
+                .BatchChildBindingFailed,
+            execution.State
+        );
+
+        fixture.AssertNoOperationJournals(
+            childIndex:
+                0
+        );
+
+        Assert.False(
+            File.Exists(
+                fixture.DestinationPath(
+                    childIndex:
+                        0
+                )
+            )
+        );
+    }
+
+    [Fact]
+    public void
+        ExecuteAggregateNamespace_StartedChild_InvalidEvidenceSkipsFreshC4A()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using AggregateNamespaceExecutionFixture fixture =
+            AggregateNamespaceExecutionFixture.Create();
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        DataRelativePathRepairPlanForwardExecution first =
+            fixture.ExecuteAggregate(
+                childIndex:
+                    0
+            );
+
+        Assert.True(
+            first.Success,
+            first.Error
+        );
+
+        Assert.True(
+            fixture.AnyOperationJournalExists(
+                childIndex:
+                    0
+            )
+        );
+
+        DataRelativePathAggregateNamespaceManifestReaderResult
+            invalidEvidence =
+                fixture.NamespaceEvidence with
+                {
+                    State =
+                        DataRelativePathAggregateNamespaceManifestReadState
+                            .ManifestUnavailable
+                };
+
+        /*
+         * The child is now started because durable operation journals exist.
+         * If C4A were rerun, this deliberately invalid evidence would reject.
+         * Recovery/idempotence must instead remain authoritative.
+         */
+        DataRelativePathRepairPlanForwardExecution second =
+            fixture.ExecuteAggregate(
+                childIndex:
+                    0,
+                evidence:
+                    invalidEvidence
+            );
+
+        Assert.True(
+            second.Success,
+            second.Error
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.DestinationPath(
+                    childIndex:
+                        0
+                )
+            )
+        );
+    }
+
+    [Fact]
+    public void
+        ExecuteAggregateNamespace_LaterUnstartedChild_ReauthorizesCurrentSource()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using AggregateNamespaceExecutionFixture fixture =
+            AggregateNamespaceExecutionFixture.Create(
+                fileCount:
+                    2
+            );
+
+        if (!fixture.SupportsExecutionPrerequisites())
+        {
+            return;
+        }
+
+        /*
+         * Child 0 crosses its own fresh boundary successfully and therefore
+         * proves that durable batch authorization already exists before we
+         * attempt child 1.
+         */
+        DataRelativePathRepairPlanForwardExecution first =
+            fixture.ExecuteAggregate(
+                childIndex:
+                    0
+            );
+
+        Assert.True(
+            first.Success,
+            first.Error
+        );
+
+        Assert.True(
+            fixture.AnyOperationJournalExists(
+                childIndex:
+                    0
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.DestinationPath(
+                    childIndex:
+                        0
+                )
+            )
+        );
+
+        /*
+         * Child 1 has not started. Change only its physical source identity
+         * after durable batch authorization and after child 0 has completed.
+         *
+         * If the executor incorrectly treated the batch-wide durable
+         * authorization as permanent filesystem authority, child 1 would
+         * execute. Correct behavior reruns C4A for this later unstarted child
+         * and rejects before its first operation journal.
+         */
+        fixture.AssertNoOperationJournals(
+            childIndex:
+                1
+        );
+
+        fixture.ReplaceSourceIdentity(
+            childIndex:
+                1
+        );
+
+        DataRelativePathRepairPlanForwardExecution second =
+            fixture.ExecuteAggregate(
+                childIndex:
+                    1
+            );
+
+        Assert.False(
+            second.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanForwardExecutionState
+                .BatchChildBindingFailed,
+            second.State
+        );
+
+        fixture.AssertNoOperationJournals(
+            childIndex:
+                1
+        );
+
+        Assert.False(
+            File.Exists(
+                fixture.DestinationPath(
+                    childIndex:
+                        1
+                )
+            )
+        );
+    }
+
+    /*
+     * Synthetic schema-v4/policy-v3 persisted-batch fixture for the
+     * forward-executor mutation boundary.
+     *
+     * It deliberately follows the already-proven C4A fixture:
+     *   physical Windows-equivalent roots
+     *   -> complete aggregate namespace sidecar
+     *   -> aggregate candidate
+     *   -> policy-v3 planner
+     *
+     * It then follows the existing durable batch execution fixture:
+     *   persist exact children
+     *   -> persist exact batch
+     *   -> initial point-in-time C4A authorization
+     *   -> bind durable authorization to exact batch bytes
+     *   -> create execution context from the persisted batch
+     *
+     * Nothing here touches a real Skyrim installation.
+     */
+    private sealed class AggregateNamespaceExecutionFixture
+        : IDisposable
+    {
+        private const string BatchManifestName =
+            "batch-manifest.json";
+
+        private const string ApplyAuthorizationName =
+            "batch-apply-authorization.json";
+
+        private const string ChildManifestName =
+            "repair-plan.json";
+
+        private const string RequestedPrefix =
+            "meshes/Actors/Character/Character Assets/FaceParts/";
+
+        private AggregateNamespaceExecutionFixture(
+            int fileCount)
+        {
+            RootPath =
+                Path.Combine(
+                    Path.GetTempPath(),
+                    "casecompat-aggregate-executor-lifecycle-tests",
+                    Guid.NewGuid().ToString("N")
+                );
+
+            DataRoot =
+                Directory.CreateDirectory(
+                    Path.Combine(
+                        RootPath,
+                        "Data"
+                    )
+                ).FullName;
+
+            MeshesPath =
+                Path.Combine(
+                    DataRoot,
+                    "meshes"
+                );
+
+            _ =
+                Directory.CreateDirectory(
+                    Path.Combine(
+                        DataRoot,
+                        "meshes",
+                        "Actors",
+                        "Character",
+                        "Character Assets"
+                    )
+                );
+
+            AlternateParent =
+                Directory.CreateDirectory(
+                    Path.Combine(
+                        DataRoot,
+                        "meshes",
+                        "actors",
+                        "character",
+                        "character assets",
+                        "faceparts"
+                    )
+                ).FullName;
+
+            SourcePaths =
+                new string[fileCount];
+
+            SourceContents =
+                new string[fileCount];
+
+            for (
+                int index = 0;
+                index < fileCount;
+                index++)
+            {
+                string fileName =
+                    index == 0
+                        ? "MaleHeadbrows.tri"
+                        : $"Fixture{index}.tri";
+
+                string content =
+                    $"c4b3-executor-fixture-{index}";
+
+                string source =
+                    Path.Combine(
+                        AlternateParent,
+                        fileName
+                    );
+
+                File.WriteAllText(
+                    source,
+                    content
+                );
+
+                SourcePaths[index] =
+                    source;
+
+                SourceContents[index] =
+                    content;
+            }
+
+            DataRelativePathRepairBatchAggregateNamespacePlanningCandidate[]
+                candidates =
+                    Enumerable.Range(
+                            0,
+                            fileCount
+                        )
+                        .Select(
+                            BuildCandidate
+                        )
+                        .ToArray();
+
+            DataRelativePathAggregateNamespaceManifestRecord sidecar =
+                BuildSidecar();
+
+            NamespaceEvidence =
+                new(
+                    State:
+                        DataRelativePathAggregateNamespaceManifestReadState
+                            .Read,
+                    ManifestChildName:
+                        "aggregate-namespace-manifest.json",
+                    Manifest:
+                        sidecar,
+                    ManifestIncarnation:
+                        null,
+                    Length:
+                        1,
+                    ManifestSha256:
+                        new string(
+                            'A',
+                            64
+                        ),
+                    Error:
+                        null
+                );
+
+            DataRootHandle =
+                OpenRoot(
+                    DataRoot
+                );
+
+            DataRelativePathRepairBatchAggregateNamespacePlanResult plan =
+                DataRelativePathRepairBatchAggregateNamespacePlanner.Plan(
+                    DataRootHandle,
+                    Guid.NewGuid(),
+                    T0,
+                    ChildManifestName,
+                    candidates,
+                    NamespaceEvidence
+                );
+
+            Assert.True(
+                plan.Success,
+                plan.Error
+            );
+
+            Batch =
+                Assert.IsType<
+                    DataRelativePathRepairBatchManifestRecord
+                >(
+                    plan.BatchManifest
+                );
+
+            Children =
+                plan.PlannedChildren
+                    .Select(
+                        child =>
+                            child.Manifest
+                    )
+                    .ToArray();
+
+            Assert.Equal(
+                fileCount,
+                Batch.Children.Count
+            );
+
+            Assert.Equal(
+                fileCount,
+                Children.Length
+            );
+
+            BatchRoot =
+                Directory.CreateDirectory(
+                    Path.Combine(
+                        RootPath,
+                        "Batch"
+                    )
+                ).FullName;
+
+            using LinuxNoFollowPathHandle batchDirectory =
+                OpenRoot(
+                    BatchRoot
+                );
+
+            for (
+                int index = 0;
+                index < Children.Length;
+                index++)
+            {
+                string childPath =
+                    Path.Combine(
+                        BatchRoot,
+                        Batch.Children[index].ChildName
+                    );
+
+                _ =
+                    Directory.CreateDirectory(
+                        childPath
+                    );
+
+                using LinuxNoFollowPathHandle childDirectory =
+                    OpenRoot(
+                        childPath
+                    );
+
+                var childWrite =
+                    DataRelativePathRepairPlanManifestWriter.CreateInitial(
+                        childDirectory,
+                        ChildManifestName,
+                        Children[index]
+                    );
+
+                Assert.True(
+                    childWrite.Success,
+                    childWrite.Error
+                );
+
+                DataRelativePathRepairPlanManifestReaderResult childRead =
+                    DataRelativePathRepairPlanManifestReader.Read(
+                        childDirectory,
+                        ChildManifestName
+                    );
+
+                Assert.True(
+                    childRead.Success,
+                    childRead.Error
+                );
+
+                Assert.Equal(
+                    Children[index].PlanId,
+                    childRead.Manifest!.PlanId
+                );
+
+                Assert.Equal(
+                    Batch.Children[index].ManifestSha256,
+                    childRead.ManifestSha256,
+                    ignoreCase:
+                        true
+                );
+            }
+
+            var batchWrite =
+                DataRelativePathRepairBatchManifestWriter.CreateInitial(
+                    batchDirectory,
+                    BatchManifestName,
+                    Batch
+                );
+
+            Assert.True(
+                batchWrite.Success,
+                batchWrite.Error
+            );
+
+            DataRelativePathRepairBatchManifestReaderResult batchRead =
+                DataRelativePathRepairBatchManifestReader.Read(
+                    batchDirectory,
+                    BatchManifestName
+                );
+
+            Assert.True(
+                batchRead.Success,
+                batchRead.Error
+            );
+
+            Assert.NotNull(
+                batchRead.ManifestSha256
+            );
+
+            /*
+             * Model the future command's initial point-in-time authorization
+             * before durable batch authority is published.
+             */
+            DataRelativePathRepairBatchAggregateNamespaceApplyAuthorization
+                initialAuthorization =
+                    DataRelativePathRepairBatchAggregateNamespaceApplyAuthorizer
+                        .Authorize(
+                            DataRootHandle,
+                            Batch,
+                            Children,
+                            NamespaceEvidence
+                        );
+
+            Assert.True(
+                initialAuthorization.AllAuthorized,
+                initialAuthorization.Error
+            );
+
+            DataRelativePathRepairBatchApplyAuthorizationCreation
+                authorizationCreation =
+                    DataRelativePathRepairBatchApplyAuthorization
+                        .CreateForCompletedBatch(
+                            Batch,
+                            batchRead.ManifestSha256!,
+                            T0
+                        );
+
+            Assert.True(
+                authorizationCreation.Success,
+                authorizationCreation.Error
+            );
+
+            var authorizationWrite =
+                DataRelativePathRepairBatchApplyAuthorizationWriter
+                    .CreateInitial(
+                        batchDirectory,
+                        ApplyAuthorizationName,
+                        authorizationCreation.Authorization!
+                    );
+
+            Assert.True(
+                authorizationWrite.Success,
+                authorizationWrite.Error
+            );
+        }
+
+        public string RootPath { get; }
+
+        public string DataRoot { get; }
+
+        public string MeshesPath { get; }
+
+        public string AlternateParent { get; }
+
+        public string BatchRoot { get; }
+
+        public string[] SourcePaths { get; }
+
+        public string[] SourceContents { get; }
+
+        public LinuxNoFollowPathHandle DataRootHandle { get; }
+
+        public DataRelativePathAggregateNamespaceManifestReaderResult
+            NamespaceEvidence
+        {
+            get;
+        }
+
+        public DataRelativePathRepairBatchManifestRecord Batch { get; }
+
+        public DataRelativePathRepairPlanManifestRecord[] Children { get; }
+
+        public static AggregateNamespaceExecutionFixture Create(
+            int fileCount = 1)
+        {
+            return new(
+                fileCount
+            );
+        }
+
+        public DataRelativePathRepairPlanForwardExecution ExecuteLegacy(
+            int childIndex)
+        {
+            using LinuxNoFollowPathHandle batchDirectory =
+                OpenRoot(
+                    BatchRoot
+                );
+
+            using LinuxNoFollowPathHandle childDirectory =
+                OpenRoot(
+                    ChildPath(
+                        childIndex
+                    )
+                );
+
+            DataRelativePathRepairBatchExecutionContext context =
+                CreateContext(
+                    childIndex
+                );
+
+            return
+                DataRelativePathRepairPlanForwardExecutor
+                    .ExecuteExpectedBatchManifest(
+                        batchDirectory,
+                        context,
+                        childDirectory,
+                        DataRoot,
+                        T0.AddSeconds(10)
+                    );
+        }
+
+        public DataRelativePathRepairPlanForwardExecution ExecuteAggregate(
+            int childIndex,
+            DataRelativePathAggregateNamespaceManifestReaderResult?
+                evidence = null)
+        {
+            using LinuxNoFollowPathHandle batchDirectory =
+                OpenRoot(
+                    BatchRoot
+                );
+
+            using LinuxNoFollowPathHandle childDirectory =
+                OpenRoot(
+                    ChildPath(
+                        childIndex
+                    )
+                );
+
+            DataRelativePathRepairBatchExecutionContext context =
+                CreateContext(
+                    childIndex
+                );
+
+            return
+                DataRelativePathRepairPlanForwardExecutor
+                    .ExecuteExpectedAggregateNamespaceBatchManifest(
+                        batchDirectory,
+                        context,
+                        childDirectory,
+                        DataRoot,
+                        evidence ??
+                            NamespaceEvidence,
+                        T0.AddSeconds(10)
+                    );
+        }
+
+        public void ReplaceSourceIdentity(
+            int childIndex)
+        {
+            string backup =
+                SourcePaths[childIndex] +
+                ".old";
+
+            File.Move(
+                SourcePaths[childIndex],
+                backup
+            );
+
+            File.WriteAllText(
+                SourcePaths[childIndex],
+                SourceContents[childIndex]
+            );
+        }
+
+        public string DestinationPath(
+            int childIndex)
+        {
+            return Path.Combine(
+                DataRoot,
+                "meshes",
+                "Actors",
+                "Character",
+                "Character Assets",
+                "FaceParts",
+                Path.GetFileName(
+                    SourcePaths[childIndex]
+                )
+            );
+        }
+
+        public bool AnyOperationJournalExists(
+            int childIndex)
+        {
+            DataRelativePathRepairPlanManifestRecord manifest =
+                Children[childIndex];
+
+            return manifest.Operations.Any(
+                entry =>
+                    File.Exists(
+                        Path.Combine(
+                            ChildPath(
+                                childIndex
+                            ),
+                            entry.JournalChildName
+                        )
+                    )
+            );
+        }
+
+        public void AssertNoOperationJournals(
+            int childIndex)
+        {
+            DataRelativePathRepairPlanManifestRecord manifest =
+                Children[childIndex];
+
+            foreach (
+                DataRelativePathRepairPlanManifestOperation entry
+                in manifest.Operations)
+            {
+                Assert.False(
+                    File.Exists(
+                        Path.Combine(
+                            ChildPath(
+                                childIndex
+                            ),
+                            entry.JournalChildName
+                        )
+                    )
+                );
+            }
+        }
+
+        public bool SupportsExecutionPrerequisites()
+        {
+            DirectoryCasefoldResult meshesFlags =
+                LinuxDirectoryFlags.Inspect(
+                    MeshesPath
+                );
+
+            if (
+                !meshesFlags.Exists ||
+                meshesFlags.Error is not null ||
+                meshesFlags.CasefoldEnabled != false)
+            {
+                return false;
+            }
+
+            using LinuxNoFollowPathHandle meshes =
+                OpenRoot(
+                    MeshesPath
+                );
+
+            LinuxOpenedDirectoryIncarnationResult directoryIncarnation =
+                LinuxOpenedDirectoryIncarnation.Capture(
+                    meshes,
+                    MeshesPath
+                );
+
+            if (!directoryIncarnation.Success)
+            {
+                return false;
+            }
+
+            using LinuxNoFollowPathHandle child =
+                OpenRoot(
+                    ChildPath(
+                        0
+                    )
+                );
+
+            if (!SupportsStrongUnnamedFile(child))
+            {
+                return false;
+            }
+
+            if (!SupportsStrongUnnamedFile(meshes))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private DataRelativePathRepairBatchExecutionContext CreateContext(
+            int childIndex)
+        {
+            DataRelativePathRepairBatchExecutionContextCreation creation =
+                DataRelativePathRepairBatchExecutionContext.Create(
+                    Batch,
+                    childIndex,
+                    Batch.Children[
+                        childIndex
+                    ]
+                );
+
+            Assert.True(
+                creation.Success,
+                creation.Error
+            );
+
+            return Assert.IsType<
+                DataRelativePathRepairBatchExecutionContext
+            >(
+                creation.Context
+            );
+        }
+
+        private string ChildPath(
+            int childIndex)
+        {
+            return Path.Combine(
+                BatchRoot,
+                Batch.Children[childIndex].ChildName
+            );
+        }
+
+        private DataRelativePathRepairBatchAggregateNamespacePlanningCandidate
+            BuildCandidate(
+                int index)
+        {
+            string fileName =
+                Path.GetFileName(
+                    SourcePaths[index]
+                );
+
+            DataRelativePathResolution resolution =
+                DataRelativePathResolver.ResolveFile(
+                    DataRoot,
+                    RequestedPrefix +
+                        fileName,
+                    InspectFixtureCasefold
+                );
+
+            Assert.Equal(
+                DataRelativePathCaseMismatchTopologyState
+                    .CandidateBranchesBeforeFailure,
+                DataRelativePathCaseMismatchTopologyClassifier.Classify(
+                    resolution
+                )
+            );
+
+            DataRelativePathRepairPlanProjection projection =
+                DataRelativePathRepairPlanProjector
+                    .ProjectAggregateAlternateBranchBatchCandidate(
+                        resolution
+                    );
+
+            Assert.True(
+                projection.HasPlan,
+                projection.Error
+            );
+
+            DataRelativePathRepairPlanManifestCreation creation =
+                DataRelativePathRepairPlanManifest
+                    .CreateAggregateAlternateBranchFromResolution(
+                        Guid.NewGuid(),
+                        T0,
+                        resolution,
+                        projection.SourceSnapshot!,
+                        projection.DestinationParentSnapshot!,
+                        projection.Operations
+                    );
+
+            Assert.True(
+                creation.Success,
+                creation.Error
+            );
+
+            return new(
+                ChildName:
+                    $"plan-{index + 1:000000}",
+                Manifest:
+                    creation.Manifest!
+            );
+        }
+
+        private DataRelativePathAggregateNamespaceManifestRecord BuildSidecar()
+        {
+            WindowsNamespaceAnalysis analysis =
+                WindowsNamespaceAnalyzer.Analyze(
+                    DataRoot,
+                    "meshes"
+                );
+
+            Assert.True(
+                analysis.Complete,
+                string.Join(
+                    Environment.NewLine,
+                    analysis.Errors
+                )
+            );
+
+            WindowsNamespaceRegularFileContentAnalysis content =
+                WindowsNamespaceRegularFileContentAnalyzer.Analyze(
+                    analysis
+                );
+
+            Assert.True(
+                content.Complete,
+                string.Join(
+                    Environment.NewLine,
+                    content.Errors
+                )
+            );
+
+            DataRelativePathAggregateNamespaceManifestRecord sidecar =
+                WindowsNamespaceAggregateManifestProjector.Project(
+                    analysis,
+                    content,
+                    T0
+                );
+
+            Assert.Null(
+                DataRelativePathAggregateNamespaceManifest.Validate(
+                    sidecar
+                )
+            );
+
+            return sidecar;
+        }
+
+        private DirectoryCasefoldResult InspectFixtureCasefold(
+            string path)
+        {
+            string fullPath =
+                Path.GetFullPath(
+                    path
+                );
+
+            bool isDataRoot =
+                string.Equals(
+                    fullPath,
+                    Path.GetFullPath(
+                        DataRoot
+                    ),
+                    StringComparison.Ordinal
+                );
+
+            return new(
+                FullPath:
+                    fullPath,
+                Exists:
+                    Directory.Exists(
+                        fullPath
+                    ),
+                CasefoldEnabled:
+                    isDataRoot,
+                RawFlags:
+                    isDataRoot
+                        ? LinuxDirectoryFlags.FsCasefoldFlag
+                        : 0L,
+                Error:
+                    null
+            );
+        }
+
+        private static bool SupportsStrongUnnamedFile(
+            LinuxNoFollowPathHandle parent)
+        {
+            LinuxCreateUnnamedFileAtResult create =
+                LinuxCreateUnnamedFileAt.Create(
+                    parent
+                );
+
+            if (!create.Success)
+            {
+                return false;
+            }
+
+            using LinuxUnnamedFileHandle unnamed =
+                create.OpenedFile!;
+
+            LinuxOpenedFileIncarnationResult incarnation =
+                LinuxOpenedFileIncarnation.Capture(
+                    unnamed
+                );
+
+            return incarnation.Success;
+        }
+
+        private static LinuxNoFollowPathHandle OpenRoot(
+            string path)
+        {
+            LinuxNoFollowPathOpenResult opened =
+                LinuxNoFollowPath.OpenRootReadOnly(
+                    path
+                );
+
+            Assert.True(
+                opened.Success,
+                opened.Error
+            );
+
+            return Assert.IsType<
+                LinuxNoFollowPathHandle
+            >(
+                opened.OpenedPath
+            );
+        }
+
+        public void Dispose()
+        {
+            DataRootHandle.Dispose();
+
+            if (
+                Directory.Exists(
+                    RootPath
+                ))
+            {
+                Directory.Delete(
+                    RootPath,
+                    recursive:
+                        true
+                );
+            }
+        }
     }
 
     private sealed record JournalCheckpoint(

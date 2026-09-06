@@ -604,6 +604,181 @@ public sealed class
 
     [Fact]
     public void
+        Inspect_AggregateNamespaceV4WithoutApplyAuthorization_ReturnsVerified()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            Fixture.Create();
+
+        fixture.CreatePlan(
+            "plan-000001"
+        );
+
+        DataRelativePathRepairBatchManifestRecord manifest =
+            fixture.BuildAggregateNamespaceBatchManifest(
+                inputPathCount:
+                    1,
+                safeRejectionCount:
+                    0,
+                childNames:
+                    [
+                        "plan-000001"
+                    ]
+            );
+
+        fixture.WriteBatchManifest(
+            manifest
+        );
+
+        DataRelativePathRepairBatchCompletionInspection inspection =
+            fixture.Inspect();
+
+        Assert.True(
+            inspection.Success,
+            inspection.Error
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchCompletionInspectionState
+                .Verified,
+            inspection.State
+        );
+
+        Assert.Null(
+            inspection.ApplyAuthorizationRead
+        );
+    }
+
+    [Fact]
+    public void
+        Inspect_AggregateNamespaceV4WithExactApplyAuthorization_ReturnsVerified()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            Fixture.Create();
+
+        fixture.CreatePlan(
+            "plan-000001"
+        );
+
+        DataRelativePathRepairBatchManifestRecord manifest =
+            fixture.BuildAggregateNamespaceBatchManifest(
+                inputPathCount:
+                    1,
+                safeRejectionCount:
+                    0,
+                childNames:
+                    [
+                        "plan-000001"
+                    ]
+            );
+
+        fixture.WriteBatchManifest(
+            manifest
+        );
+
+        fixture.CreateApplyAuthorizationForPersistedBatch();
+
+        DataRelativePathRepairBatchCompletionInspection inspection =
+            fixture.Inspect();
+
+        Assert.True(
+            inspection.Success,
+            inspection.Error
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchCompletionInspectionState
+                .Verified,
+            inspection.State
+        );
+
+        Assert.NotNull(
+            inspection.ApplyAuthorizationRead
+        );
+
+        Assert.True(
+            inspection.ApplyAuthorizationRead!.Success,
+            inspection.ApplyAuthorizationRead.Error
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord
+                .CoveragePolicyVersion3,
+            inspection.ApplyAuthorizationRead.Authorization!
+                .CoveragePolicyVersion
+        );
+    }
+
+    [Fact]
+    public void
+        Inspect_AggregateNamespaceV4WithWrongApplyAuthorizationBinding_FailsClosed()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            Fixture.Create();
+
+        fixture.CreatePlan(
+            "plan-000001"
+        );
+
+        DataRelativePathRepairBatchManifestRecord manifest =
+            fixture.BuildAggregateNamespaceBatchManifest(
+                inputPathCount:
+                    1,
+                safeRejectionCount:
+                    0,
+                childNames:
+                    [
+                        "plan-000001"
+                    ]
+            );
+
+        fixture.WriteBatchManifest(
+            manifest
+        );
+
+        const string wrongBatchSha256 =
+            "ABCDEF0123456789ABCDEF0123456789" +
+            "ABCDEF0123456789ABCDEF0123456789";
+
+        fixture.CreateApplyAuthorizationForPersistedBatch(
+            batchManifestSha256Override:
+                wrongBatchSha256
+        );
+
+        DataRelativePathRepairBatchCompletionInspection inspection =
+            fixture.Inspect();
+
+        Assert.False(
+            inspection.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchCompletionInspectionState
+                .ApplyAuthorizationBindingMismatch,
+            inspection.State
+        );
+
+        Assert.NotNull(
+            inspection.ApplyAuthorizationRead
+        );
+    }
+
+    [Fact]
+    public void
         Inspect_CoverageV2WithExactApplyAuthorization_ReturnsVerified()
     {
         if (!OperatingSystem.IsLinux())
@@ -1011,6 +1186,62 @@ public sealed class
                             legacy.SafeRejectionCount,
                         children:
                             legacy.Children
+                    );
+
+            Assert.True(
+                creation.Success,
+                creation.Error
+            );
+
+            return creation.Manifest!;
+        }
+
+        public DataRelativePathRepairBatchManifestRecord
+            BuildAggregateNamespaceBatchManifest(
+                int inputPathCount,
+                int safeRejectionCount,
+                IReadOnlyList<string> childNames)
+        {
+            DataRelativePathRepairBatchManifestRecord legacy =
+                BuildBatchManifest(
+                    inputPathCount,
+                    safeRejectionCount,
+                    childNames
+                );
+
+            const string namespaceSha256 =
+                "0123456789ABCDEF0123456789ABCDEF" +
+                "0123456789ABCDEF0123456789ABCDEF";
+
+            DataRelativePathRepairBatchManifestCreation creation =
+                DataRelativePathRepairBatchManifest
+                    .CreateAggregateNamespaceCoverageAuthorized(
+                        batchId:
+                            legacy.BatchId,
+                        createdUtc:
+                            legacy.CreatedUtc,
+                        dataRoot:
+                            legacy.DataRoot,
+                        childManifestName:
+                            legacy.ChildManifestName,
+                        inputPathCount:
+                            legacy.InputPathCount,
+                        safeRejectionCount:
+                            legacy.SafeRejectionCount,
+                        children:
+                            legacy.Children,
+                        aggregateNamespaceEvidence:
+                            [
+                                new(
+                                    ManifestSchemaVersion:
+                                        DataRelativePathAggregateNamespaceManifestRecord
+                                            .SchemaVersion1,
+                                    RootWindowsLogicalPath:
+                                        "MESHES",
+                                    ManifestSha256:
+                                        namespaceSha256
+                                )
+                            ]
                     );
 
             Assert.True(

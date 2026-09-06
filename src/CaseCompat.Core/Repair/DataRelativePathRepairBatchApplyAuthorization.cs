@@ -49,8 +49,13 @@ public sealed record
  * Its writer publishes it only after the mutating caller has established:
  *
  *   1. the exact completed batch has been descriptor-authenticated;
- *   2. the batch is schema v2 / coverage-policy version 1;
- *   3. fresh aggregate physical namespace coverage has succeeded.
+ *   2. the batch uses a supported durable aggregate-authorization policy;
+ *   3. that policy's fresh namespace authorization has succeeded.
+ *
+ * Supported completed-batch policy pairs are intentionally exact:
+ *
+ *   - schema v2 / coverage-policy version 1;
+ *   - schema v4 / coverage-policy version 3.
  *
  * Recovery can then bind this immutable record back to the exact durable
  * batch-manifest bytes instead of inferring batch authorization merely from
@@ -83,18 +88,12 @@ public static class
             );
         }
 
-        if (
-            batchManifest.SchemaVersion !=
-                DataRelativePathRepairBatchManifestRecord
-                    .SchemaVersion2 ||
-            batchManifest.CoveragePolicyVersion !=
-                DataRelativePathRepairBatchManifestRecord
-                    .CoveragePolicyVersion1)
+        if (!SupportsCompletedBatch(batchManifest))
         {
             return Invalid(
-                "Batch apply authorization requires a schema-v2 completed " +
-                "batch carrying aggregate namespace-coverage policy " +
-                $"{DataRelativePathRepairBatchManifestRecord.CoveragePolicyVersion1}."
+                "Batch apply authorization requires either a schema-v2 " +
+                "completed batch carrying coverage-policy version 1 or a " +
+                "schema-v4 completed batch carrying coverage-policy version 3."
             );
         }
 
@@ -112,7 +111,7 @@ public static class
                 BatchManifestSha256:
                     batchManifestSha256,
                 CoveragePolicyVersion:
-                    batchManifest.CoveragePolicyVersion.Value
+                    batchManifest.CoveragePolicyVersion.GetValueOrDefault()
             );
 
         string? validationError =
@@ -182,14 +181,12 @@ public static class
         }
 
         if (
-            authorization.CoveragePolicyVersion !=
-            DataRelativePathRepairBatchManifestRecord
-                .CoveragePolicyVersion1)
+            !IsSupportedCoveragePolicyVersion(
+                authorization.CoveragePolicyVersion))
         {
             return
-                "Batch apply authorization requires aggregate " +
-                "namespace-coverage policy version " +
-                $"{DataRelativePathRepairBatchManifestRecord.CoveragePolicyVersion1}.";
+                "Batch apply authorization requires a supported aggregate " +
+                "namespace-authorization coverage-policy version.";
         }
 
         return null;
@@ -241,13 +238,7 @@ public static class
                 batchError;
         }
 
-        if (
-            batchManifest.SchemaVersion !=
-                DataRelativePathRepairBatchManifestRecord
-                    .SchemaVersion2 ||
-            batchManifest.CoveragePolicyVersion !=
-                DataRelativePathRepairBatchManifestRecord
-                    .CoveragePolicyVersion1)
+        if (!SupportsCompletedBatch(batchManifest))
         {
             return
                 "The completed batch is not eligible for aggregate " +
@@ -296,6 +287,44 @@ public static class
         }
 
         return null;
+    }
+
+    internal static bool SupportsCompletedBatch(
+        DataRelativePathRepairBatchManifestRecord batchManifest)
+    {
+        ArgumentNullException.ThrowIfNull(
+            batchManifest
+        );
+
+        bool coverageV2 =
+            batchManifest.SchemaVersion ==
+                DataRelativePathRepairBatchManifestRecord.SchemaVersion2 &&
+            batchManifest.CoveragePolicyVersion ==
+                DataRelativePathRepairBatchManifestRecord
+                    .CoveragePolicyVersion1;
+
+        bool aggregateNamespaceV4 =
+            batchManifest.SchemaVersion ==
+                DataRelativePathRepairBatchManifestRecord.SchemaVersion4 &&
+            batchManifest.CoveragePolicyVersion ==
+                DataRelativePathRepairBatchManifestRecord
+                    .CoveragePolicyVersion3;
+
+        return
+            coverageV2 ||
+            aggregateNamespaceV4;
+    }
+
+    private static bool IsSupportedCoveragePolicyVersion(
+        int coveragePolicyVersion)
+    {
+        return
+            coveragePolicyVersion ==
+                DataRelativePathRepairBatchManifestRecord
+                    .CoveragePolicyVersion1 ||
+            coveragePolicyVersion ==
+                DataRelativePathRepairBatchManifestRecord
+                    .CoveragePolicyVersion3;
     }
 
     private static

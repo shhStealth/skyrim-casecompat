@@ -235,6 +235,205 @@ public sealed class
         );
     }
 
+    [Fact]
+    public void
+        CreateForCompletedBatch_AggregateNamespaceV4_Succeeds()
+    {
+        DataRelativePathRepairBatchManifestRecord batch =
+            AggregateNamespaceBatch();
+
+        DataRelativePathRepairBatchApplyAuthorizationCreation creation =
+            DataRelativePathRepairBatchApplyAuthorization
+                .CreateForCompletedBatch(
+                    batch,
+                    BatchSha,
+                    T0
+                );
+
+        Assert.True(
+            creation.Success,
+            creation.Error
+        );
+
+        DataRelativePathRepairBatchApplyAuthorizationRecord authorization =
+            Assert.IsType<
+                DataRelativePathRepairBatchApplyAuthorizationRecord
+            >(
+                creation.Authorization
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchApplyAuthorizationRecord
+                .SchemaVersion1,
+            authorization.SchemaVersion
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairBatchManifestRecord
+                .CoveragePolicyVersion3,
+            authorization.CoveragePolicyVersion
+        );
+
+        Assert.Equal(
+            BatchSha,
+            authorization.BatchManifestSha256
+        );
+    }
+
+    [Fact]
+    public void
+        ValidateCompletedBatchBinding_AggregateNamespaceV4ExactBinding_Succeeds()
+    {
+        DataRelativePathRepairBatchManifestRecord batch =
+            AggregateNamespaceBatch();
+
+        DataRelativePathRepairBatchApplyAuthorizationRecord authorization =
+            DataRelativePathRepairBatchApplyAuthorization
+                .CreateForCompletedBatch(
+                    batch,
+                    BatchSha,
+                    T0
+                )
+                .Authorization!;
+
+        Assert.Null(
+            DataRelativePathRepairBatchApplyAuthorization
+                .ValidateCompletedBatchBinding(
+                    authorization,
+                    batch,
+                    BatchSha
+                )
+        );
+    }
+
+    [Fact]
+    public void
+        CreateForCompletedBatch_AggregateAlternatePolicyV2_IsRejected()
+    {
+        DataRelativePathRepairBatchManifestCreation creation =
+            DataRelativePathRepairBatchManifest
+                .CreateAggregateAlternateBranchCoverageAuthorized(
+                    BatchId,
+                    T0,
+                    "/tmp/Skyrim/Data",
+                    "repair-plan.json",
+                    inputPathCount:
+                        0,
+                    safeRejectionCount:
+                        0,
+                    children:
+                        []
+                );
+
+        Assert.True(
+            creation.Success,
+            creation.Error
+        );
+
+        DataRelativePathRepairBatchApplyAuthorizationCreation authorization =
+            DataRelativePathRepairBatchApplyAuthorization
+                .CreateForCompletedBatch(
+                    creation.Manifest!,
+                    BatchSha,
+                    T0
+                );
+
+        Assert.False(
+            authorization.Success
+        );
+
+        Assert.Contains(
+            "schema-v4",
+            authorization.Error
+        );
+    }
+
+    [Fact]
+    public void
+        ValidateCompletedBatchBinding_AggregateNamespaceV4PolicyMismatch_Fails()
+    {
+        DataRelativePathRepairBatchManifestRecord batch =
+            AggregateNamespaceBatch();
+
+        DataRelativePathRepairBatchApplyAuthorizationRecord exact =
+            DataRelativePathRepairBatchApplyAuthorization
+                .CreateForCompletedBatch(
+                    batch,
+                    BatchSha,
+                    T0
+                )
+                .Authorization!;
+
+        DataRelativePathRepairBatchApplyAuthorizationRecord wrongPolicy =
+            exact with
+            {
+                CoveragePolicyVersion =
+                    DataRelativePathRepairBatchManifestRecord
+                        .CoveragePolicyVersion1
+            };
+
+        string? error =
+            DataRelativePathRepairBatchApplyAuthorization
+                .ValidateCompletedBatchBinding(
+                    wrongPolicy,
+                    batch,
+                    BatchSha
+                );
+
+        Assert.NotNull(
+            error
+        );
+
+        Assert.Contains(
+            "coverage-policy version",
+            error
+        );
+
+        Assert.Contains(
+            "does not match",
+            error
+        );
+    }
+
+    private static
+        DataRelativePathRepairBatchManifestRecord
+        AggregateNamespaceBatch()
+    {
+        DataRelativePathRepairBatchManifestCreation creation =
+            DataRelativePathRepairBatchManifest
+                .CreateAggregateNamespaceCoverageAuthorized(
+                    BatchId,
+                    T0,
+                    "/tmp/Skyrim/Data",
+                    "repair-plan.json",
+                    inputPathCount:
+                        0,
+                    safeRejectionCount:
+                        0,
+                    children:
+                        [],
+                    aggregateNamespaceEvidence:
+                        [
+                            new(
+                                ManifestSchemaVersion:
+                                    DataRelativePathAggregateNamespaceManifestRecord
+                                        .SchemaVersion1,
+                                RootWindowsLogicalPath:
+                                    "MESHES",
+                                ManifestSha256:
+                                    BatchSha
+                            )
+                        ]
+                );
+
+        Assert.True(
+            creation.Success,
+            creation.Error
+        );
+
+        return creation.Manifest!;
+    }
+
     private static
         DataRelativePathRepairBatchManifestRecord
         CoverageBatch()

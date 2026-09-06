@@ -59,8 +59,8 @@ public sealed record
      * ApplyAuthorizationRead guarantees that the authorization was validated
      * and rebound to the exact durable batch-manifest bytes.
      *
-     * Absence is valid: a schema-v2 completed batch has not necessarily
-     * crossed the batch-apply authorization boundary yet.
+     * Absence is valid: a supported coverage-authorized completed batch
+     * has not necessarily crossed the batch-apply authorization boundary yet.
      */
     public DataRelativePathRepairBatchApplyAuthorizationReaderResult?
         ApplyAuthorizationRead
@@ -660,12 +660,10 @@ public static class DataRelativePathRepairBatchCompletionInspector
         }
 
         bool authorizationEntryAllowed =
-            manifest.SchemaVersion ==
-                DataRelativePathRepairBatchManifestRecord
-                    .SchemaVersion2 &&
-            manifest.CoveragePolicyVersion ==
-                DataRelativePathRepairBatchManifestRecord
-                    .CoveragePolicyVersion1;
+            DataRelativePathRepairBatchApplyAuthorization
+                .SupportsCompletedBatch(
+                    manifest
+                );
 
         int expectedEntryCount =
             manifest.Children.Count +
@@ -699,8 +697,8 @@ public static class DataRelativePathRepairBatchCompletionInspector
         {
             return
                 "The reserved batch apply-authorization entry is valid " +
-                "only for schema-v2 batches carrying aggregate " +
-                "namespace-coverage policy version 1.";
+                "only for completed batches carrying a supported aggregate " +
+                "namespace-authorization policy.";
         }
 
         if (!names.Contains(batchManifestChildName))

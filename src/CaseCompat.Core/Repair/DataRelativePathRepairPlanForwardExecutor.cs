@@ -194,7 +194,151 @@ public static class DataRelativePathRepairPlanForwardExecutor
                 BatchDirectory:
                     batchDirectory,
                 Context:
-                    batchContext
+                    batchContext,
+                AggregateNamespaceEvidence:
+                    null
+            );
+
+        return ExecuteCore(
+            journalDirectory,
+            batchContext.ChildManifestName,
+            trustedDataRoot,
+            nowUtc,
+            batchContext.CurrentChild.PlanId,
+            batchContext.CurrentChild.ManifestSha256,
+            batchScope
+        );
+    }
+
+    /*
+     * Aggregate-namespace batch-only whole-plan entry point.
+     *
+     * Unlike ExecuteExpectedBatchManifest(...), this surface carries the
+     * invocation-only aggregate namespace evidence required by a schema-v4 /
+     * coverage-policy-v3 batch.
+     *
+     * The evidence is retained only in this in-memory execution scope. It is
+     * never copied into the batch execution context, durable apply
+     * authorization, operation journals, or recovery records.
+     */
+    public static DataRelativePathRepairPlanForwardExecution
+        ExecuteExpectedAggregateNamespaceBatchManifest(
+            LinuxNoFollowPathHandle batchDirectory,
+            DataRelativePathRepairBatchExecutionContext batchContext,
+            LinuxNoFollowPathHandle journalDirectory,
+            string trustedDataRoot,
+            DataRelativePathAggregateNamespaceManifestReaderResult
+                namespaceEvidence,
+            DateTimeOffset nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(
+            batchDirectory
+        );
+
+        ArgumentNullException.ThrowIfNull(
+            batchContext
+        );
+
+        ArgumentNullException.ThrowIfNull(
+            journalDirectory
+        );
+
+        ArgumentNullException.ThrowIfNull(
+            namespaceEvidence
+        );
+
+        LinuxOpenedDirectoryIdentityResult suppliedIdentity =
+            LinuxOpenedDirectoryIdentity.Capture(
+                journalDirectory
+            );
+
+        if (!suppliedIdentity.Success)
+        {
+            return PlanResult(
+                DataRelativePathRepairPlanForwardExecutionState
+                    .BatchChildBindingFailed,
+                manifestRead:
+                    null,
+                [],
+                "The supplied batch child journal directory identity " +
+                    "could not be captured: " +
+                    (suppliedIdentity.Error ??
+                        suppliedIdentity.State.ToString())
+            );
+        }
+
+        LinuxOpenChildDirectoryReadOnlyAtResult expectedChildOpen =
+            LinuxOpenChildDirectoryReadOnlyAt.Open(
+                batchDirectory,
+                batchContext.CurrentChild.ChildName
+            );
+
+        if (
+            !expectedChildOpen.Success ||
+            expectedChildOpen.OpenedDirectory is null)
+        {
+            return PlanResult(
+                DataRelativePathRepairPlanForwardExecutionState
+                    .BatchChildBindingFailed,
+                manifestRead:
+                    null,
+                [],
+                "The exact current batch child directory could not be " +
+                    "opened descriptor-relative from the retained batch " +
+                    "directory: " +
+                    (expectedChildOpen.Error ??
+                        expectedChildOpen.State.ToString())
+            );
+        }
+
+        using LinuxNoFollowPathHandle expectedChildDirectory =
+            expectedChildOpen.OpenedDirectory;
+
+        LinuxOpenedDirectoryIdentityResult expectedIdentity =
+            LinuxOpenedDirectoryIdentity.Capture(
+                expectedChildDirectory
+            );
+
+        if (!expectedIdentity.Success)
+        {
+            return PlanResult(
+                DataRelativePathRepairPlanForwardExecutionState
+                    .BatchChildBindingFailed,
+                manifestRead:
+                    null,
+                [],
+                "The exact current batch child directory identity " +
+                    "could not be captured: " +
+                    (expectedIdentity.Error ??
+                        expectedIdentity.State.ToString())
+            );
+        }
+
+        if (
+            !suppliedIdentity.SameObjectAs(
+                expectedIdentity
+            ))
+        {
+            return PlanResult(
+                DataRelativePathRepairPlanForwardExecutionState
+                    .BatchChildBindingFailed,
+                manifestRead:
+                    null,
+                [],
+                "The supplied batch child journal directory is not the " +
+                    "same mounted filesystem object as the exact current " +
+                    $"batch child '{batchContext.CurrentChild.ChildName}'."
+            );
+        }
+
+        var batchScope =
+            new BatchExecutionScope(
+                BatchDirectory:
+                    batchDirectory,
+                Context:
+                    batchContext,
+                AggregateNamespaceEvidence:
+                    namespaceEvidence
             );
 
         return ExecuteCore(
@@ -490,6 +634,7 @@ public static class DataRelativePathRepairPlanForwardExecutor
             BatchApplyAuthorityAuthentication authority =
                 AuthenticateBatchApplyAuthority(
                     batchScope,
+                    trustedDataRootHandle,
                     trustedDataRoot,
                     requireFreshCoverage:
                         !preflight.HasExistingJournal
@@ -2480,6 +2625,7 @@ public static class DataRelativePathRepairPlanForwardExecutor
     private static BatchApplyAuthorityAuthentication
         AuthenticateBatchApplyAuthority(
             BatchExecutionScope batchScope,
+            LinuxNoFollowPathHandle trustedDataRootHandle,
             string trustedDataRoot,
             bool requireFreshCoverage)
     {
@@ -2598,16 +2744,38 @@ public static class DataRelativePathRepairPlanForwardExecutor
             );
         }
 
-        if (
-            batchManifest.SchemaVersion !=
-                DataRelativePathRepairBatchManifestRecord.SchemaVersion2 ||
-            batchManifest.CoveragePolicyVersion !=
+        bool coverageV2 =
+            batchManifest.SchemaVersion ==
+                DataRelativePathRepairBatchManifestRecord.SchemaVersion2 &&
+            batchManifest.CoveragePolicyVersion ==
                 DataRelativePathRepairBatchManifestRecord
-                    .CoveragePolicyVersion1)
+                    .CoveragePolicyVersion1;
+
+        bool aggregateNamespaceV4 =
+            batchManifest.SchemaVersion ==
+                DataRelativePathRepairBatchManifestRecord.SchemaVersion4 &&
+            batchManifest.CoveragePolicyVersion ==
+                DataRelativePathRepairBatchManifestRecord
+                    .CoveragePolicyVersion3;
+
+        if (
+            !coverageV2 &&
+            !aggregateNamespaceV4)
         {
             return BatchApplyAuthorityAuthentication.Failed(
                 "The retained batch manifest has no supported aggregate " +
                 "namespace apply-authorization policy."
+            );
+        }
+
+        if (
+            aggregateNamespaceV4 &&
+            batchScope.AggregateNamespaceEvidence is null)
+        {
+            return BatchApplyAuthorityAuthentication.Failed(
+                "A schema-v4 / coverage-policy-v3 batch requires " +
+                "invocation-only aggregate namespace evidence through the " +
+                "aggregate-namespace batch execution entry point."
             );
         }
 
@@ -2635,9 +2803,9 @@ public static class DataRelativePathRepairPlanForwardExecutor
             authorizationRead.Authorization is null)
         {
             return BatchApplyAuthorityAuthentication.Failed(
-                "A coverage-authorized schema-v2 batch requires an exact " +
-                "durable batch-wide apply authorization before child " +
-                "mutation: " +
+                "A coverage-authorized schema-v2/policy-v1 or " +
+                "schema-v4/policy-v3 batch requires an exact durable " +
+                "batch-wide apply authorization before child mutation: " +
                 (
                     authorizationRead.Error ??
                     authorizationRead.State.ToString()
@@ -2663,11 +2831,19 @@ public static class DataRelativePathRepairPlanForwardExecutor
         if (requireFreshCoverage)
         {
             string? freshCoverageError =
-                ValidateFreshAggregateBatchCoverage(
-                    batchScope.BatchDirectory,
-                    batchManifest,
-                    trustedDataRoot
-                );
+                coverageV2
+                    ? ValidateFreshAggregateBatchCoverage(
+                        batchScope.BatchDirectory,
+                        batchManifest,
+                        trustedDataRoot
+                    )
+                    : ValidateFreshAggregateNamespaceBatchCoverage(
+                        batchScope.BatchDirectory,
+                        trustedDataRootHandle,
+                        batchManifest,
+                        trustedDataRoot,
+                        batchScope.AggregateNamespaceEvidence!
+                    );
 
             if (freshCoverageError is not null)
             {
@@ -2880,6 +3056,215 @@ public static class DataRelativePathRepairPlanForwardExecutor
             );
     }
 
+    /*
+     * Fresh schema-v4 / coverage-policy-v3 authorization for one
+     * not-yet-started child.
+     *
+     * The durable batch authorization binds the immutable batch bytes.
+     * Before this child creates its first operation journal, reread every
+     * child manifest descriptor-relatively and then rerun the C4A
+     * point-in-time aggregate namespace apply authorizer against the current
+     * trusted Data-root descriptor and invocation-only namespace evidence.
+     *
+     * Once any operation journal exists for the current child, this method is
+     * deliberately not called; normal journal recovery/idempotence owns the
+     * started operation history.
+     */
+    private static string?
+        ValidateFreshAggregateNamespaceBatchCoverage(
+            LinuxNoFollowPathHandle batchDirectory,
+            LinuxNoFollowPathHandle trustedDataRootHandle,
+            DataRelativePathRepairBatchManifestRecord batchManifest,
+            string trustedDataRoot,
+            DataRelativePathAggregateNamespaceManifestReaderResult
+                namespaceEvidence)
+    {
+        var authenticatedManifests =
+            new DataRelativePathRepairPlanManifestRecord[
+                batchManifest.Children.Count
+            ];
+
+        for (
+            int index = 0;
+            index < batchManifest.Children.Count;
+            index++)
+        {
+            DataRelativePathRepairBatchManifestChild expectedChild =
+                batchManifest.Children[index];
+
+            LinuxOpenChildDirectoryReadOnlyAtResult childOpen;
+
+            try
+            {
+                childOpen =
+                    LinuxOpenChildDirectoryReadOnlyAt.Open(
+                        batchDirectory,
+                        expectedChild.ChildName
+                    );
+            }
+            catch (Exception ex)
+            {
+                return
+                    "Fresh aggregate namespace apply authorization could " +
+                    $"not open recorded child {index} " +
+                    $"\"{expectedChild.ChildName}\" descriptor-relatively: " +
+                    ex.Message;
+            }
+
+            if (
+                !childOpen.Success ||
+                childOpen.OpenedDirectory is null)
+            {
+                return
+                    "Fresh aggregate namespace apply authorization could " +
+                    $"not open recorded child {index} " +
+                    $"\"{expectedChild.ChildName}\" descriptor-relatively " +
+                    $"({childOpen.State}): " +
+                    (
+                        childOpen.Error ??
+                        "no additional error"
+                    );
+            }
+
+            using LinuxNoFollowPathHandle childDirectory =
+                childOpen.OpenedDirectory;
+
+            DataRelativePathRepairPlanManifestReaderResult childManifestRead;
+
+            try
+            {
+                childManifestRead =
+                    DataRelativePathRepairPlanManifestReader.Read(
+                        childDirectory,
+                        batchManifest.ChildManifestName
+                    );
+            }
+            catch (Exception ex)
+            {
+                return
+                    "Fresh aggregate namespace apply authorization could " +
+                    $"not read the recorded manifest for child {index} " +
+                    $"\"{expectedChild.ChildName}\": " +
+                    ex.Message;
+            }
+
+            if (
+                !childManifestRead.Success ||
+                childManifestRead.Manifest is null ||
+                string.IsNullOrWhiteSpace(
+                    childManifestRead.ManifestSha256))
+            {
+                return
+                    "Fresh aggregate namespace apply authorization could " +
+                    $"not authenticate recorded child {index} " +
+                    $"\"{expectedChild.ChildName}\": " +
+                    (
+                        childManifestRead.Error ??
+                        childManifestRead.State.ToString()
+                    );
+            }
+
+            if (
+                childManifestRead.Manifest.PlanId !=
+                    expectedChild.PlanId)
+            {
+                return
+                    "Fresh aggregate namespace apply authorization observed " +
+                    $"a PlanId mismatch for recorded child {index} " +
+                    $"\"{expectedChild.ChildName}\".";
+            }
+
+            if (
+                !string.Equals(
+                    childManifestRead.ManifestSha256,
+                    expectedChild.ManifestSha256,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return
+                    "Fresh aggregate namespace apply authorization observed " +
+                    $"a manifest SHA-256 mismatch for recorded child {index} " +
+                    $"\"{expectedChild.ChildName}\".";
+            }
+
+            if (
+                !DataRelativePathRepairDataRootAuthority.Matches(
+                    trustedDataRoot,
+                    childManifestRead.Manifest.DataRoot,
+                    out string? childRootBindingError))
+            {
+                return
+                    "Fresh aggregate namespace apply authorization observed " +
+                    $"a child Data-root mismatch for recorded child {index} " +
+                    $"\"{expectedChild.ChildName}\": " +
+                    (
+                        childRootBindingError ??
+                        "the child manifest is not bound to the trusted Data root"
+                    );
+            }
+
+            authenticatedManifests[index] =
+                childManifestRead.Manifest;
+        }
+
+        DataRelativePathRepairBatchAggregateNamespaceApplyAuthorization
+            authorization;
+
+        try
+        {
+            authorization =
+                DataRelativePathRepairBatchAggregateNamespaceApplyAuthorizer
+                    .Authorize(
+                        trustedDataRootHandle,
+                        batchManifest,
+                        authenticatedManifests,
+                        namespaceEvidence
+                    );
+        }
+        catch (Exception ex)
+        {
+            return
+                "Fresh aggregate namespace apply authorization inspection " +
+                "failed: " +
+                ex.Message;
+        }
+
+        if (authorization.AllAuthorized)
+        {
+            return null;
+        }
+
+        DataRelativePathRepairBatchAggregateNamespaceApplyDecision?
+            firstFailure =
+                authorization.Decisions
+                    .FirstOrDefault(
+                        decision =>
+                            decision is not null &&
+                            !decision.Authorized
+                    );
+
+        if (firstFailure is not null)
+        {
+            return
+                "Fresh aggregate namespace apply authorization rejected the " +
+                $"unstarted batch child boundary at candidate " +
+                $"{firstFailure.CandidateIndex} " +
+                $"({firstFailure.State}): " +
+                (
+                    firstFailure.Error ??
+                    authorization.Error ??
+                    "no additional error"
+                );
+        }
+
+        return
+            "Fresh aggregate namespace apply authorization was not " +
+            "authorized: " +
+            (
+                authorization.Error ??
+                authorization.State.ToString()
+            );
+    }
+
     private static bool BatchExecutionContextsMatch(
         DataRelativePathRepairBatchExecutionContext supplied,
         DataRelativePathRepairBatchExecutionContext recreated,
@@ -3007,7 +3392,9 @@ public static class DataRelativePathRepairPlanForwardExecutor
      */
     private sealed record BatchExecutionScope(
         LinuxNoFollowPathHandle BatchDirectory,
-        DataRelativePathRepairBatchExecutionContext Context
+        DataRelativePathRepairBatchExecutionContext Context,
+        DataRelativePathAggregateNamespaceManifestReaderResult?
+            AggregateNamespaceEvidence
     );
 
     private sealed record BatchApplyAuthorityAuthentication(
