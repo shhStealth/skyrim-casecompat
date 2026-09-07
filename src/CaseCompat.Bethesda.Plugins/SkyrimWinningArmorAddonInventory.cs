@@ -168,6 +168,8 @@ public static class SkyrimWinningArmorAddonInventory
 
             IArmorAddonGetter[] winningRecords =
                 mods
+                    .AsEnumerable()
+                    .Reverse()
                     .WinningOverrides<IArmorAddonGetter>(
                         false
                     )
