@@ -186,6 +186,7 @@ resolve-data-path
 plugin-probe
 record-inventory
 armor-addon-models
+resolve-armor-addon-models
 armor-records
 load-order-probe
 armor-addon-winner
@@ -196,6 +197,7 @@ archive-candidate-index
 runtime-plugin-set
 runtime-archive-evidence
 effective-armor-addon-archive-candidates
+armor-addon-snapshot-diagnostics
 ```
 
 Run:
