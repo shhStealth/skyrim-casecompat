@@ -210,14 +210,6 @@ public static class TargetedConsumerBatchApplyCommand
             "RequestedPath,SourcePath,DestinationPath,Outcome,Detail"
         );
 
-        int appliedCount =
-            0;
-
-        var rejectionCounts =
-            new Dictionary<string, int>(
-                StringComparer.Ordinal
-            );
-
         Console.WriteLine(
             "CaseCompat Targeted Consumer-Case Repair Batch Apply"
         );
@@ -241,49 +233,47 @@ public static class TargetedConsumerBatchApplyCommand
         int processed =
             0;
 
-        foreach (
-            DataRelativePathTargetedConsumerCaseRepairCandidate candidate
-            in candidates)
-        {
-            processed++;
+        int appliedSoFar =
+            0;
 
-            (string outcome, string detail, string? destinationPath) =
-                ApplyOne(
-                    dataRoot,
-                    planDirectory,
-                    journalDirectory,
-                    candidate
-                );
+        TargetedConsumerBatchApplyRunResult result =
+            TargetedConsumerBatchApply.Run(
+                dataRoot,
+                planDirectory,
+                journalDirectory,
+                candidates,
+                item =>
+                {
+                    processed++;
 
-            report.AppendLine(
-                $"{Escape(candidate.AuthoritativeRequestedPath)}," +
-                $"{Escape(candidate.SourceSnapshot.PhysicalPath)}," +
-                $"{Escape(destinationPath ?? string.Empty)}," +
-                $"{Escape(outcome)}," +
-                $"{Escape(detail)}"
+                    if (item.Outcome == "AppliedDurably")
+                    {
+                        appliedSoFar++;
+                    }
+
+                    report.AppendLine(
+                        $"{TargetedConsumerBatchApply.EscapeCsvField(
+                            item.Candidate.AuthoritativeRequestedPath)}," +
+                        $"{TargetedConsumerBatchApply.EscapeCsvField(
+                            item.Candidate.SourceSnapshot.PhysicalPath)}," +
+                        $"{TargetedConsumerBatchApply.EscapeCsvField(
+                            item.DestinationPath ?? string.Empty)}," +
+                        $"{TargetedConsumerBatchApply.EscapeCsvField(
+                            item.Outcome)}," +
+                        $"{TargetedConsumerBatchApply.EscapeCsvField(
+                            item.Detail)}"
+                    );
+
+                    if (processed % 250 == 0)
+                    {
+                        Console.WriteLine(
+                            $"Progress: {processed:N0}/" +
+                            $"{candidates.Count:N0} processed, " +
+                            $"{appliedSoFar:N0} applied"
+                        );
+                    }
+                }
             );
-
-            if (outcome == "AppliedDurably")
-            {
-                appliedCount++;
-            }
-            else
-            {
-                rejectionCounts[outcome] =
-                    rejectionCounts.GetValueOrDefault(
-                        outcome
-                    ) +
-                    1;
-            }
-
-            if (processed % 250 == 0)
-            {
-                Console.WriteLine(
-                    $"Progress: {processed:N0}/{candidates.Count:N0} " +
-                    $"processed, {appliedCount:N0} applied"
-                );
-            }
-        }
 
         File.WriteAllText(
             args[7],
@@ -297,14 +287,14 @@ public static class TargetedConsumerBatchApplyCommand
         );
 
         Console.WriteLine(
-            $"Applied:    {appliedCount:N0}"
+            $"Applied:    {result.AppliedCount:N0}"
         );
 
         Console.WriteLine(
-            $"Not applied: {processed - appliedCount:N0}"
+            $"Not applied: {processed - result.AppliedCount:N0}"
         );
 
-        if (rejectionCounts.Count > 0)
+        if (result.RejectionCounts.Count > 0)
         {
             Console.WriteLine();
             Console.WriteLine(
@@ -313,7 +303,7 @@ public static class TargetedConsumerBatchApplyCommand
 
             foreach (
                 (string outcome, int count)
-                in rejectionCounts
+                in result.RejectionCounts
                     .OrderByDescending(
                         pair =>
                             pair.Value
@@ -332,186 +322,5 @@ public static class TargetedConsumerBatchApplyCommand
         );
 
         return 0;
-    }
-
-    private static
-        (string Outcome, string Detail, string? DestinationPath)
-        ApplyOne(
-            LinuxNoFollowPathHandle dataRoot,
-            LinuxNoFollowPathHandle planDirectory,
-            LinuxNoFollowPathHandle journalDirectory,
-            DataRelativePathTargetedConsumerCaseRepairCandidate candidate)
-    {
-        DataRelativePathTargetedConsumerCaseRepairPlanProjection projection;
-
-        try
-        {
-            projection =
-                DataRelativePathTargetedConsumerCaseRepairPlanProjector
-                    .Project(
-                        dataRoot,
-                        candidate
-                    );
-        }
-        catch (Exception ex)
-        {
-            return (
-                "PlanProjectionError",
-                ex.Message,
-                null
-            );
-        }
-
-        if (!projection.HasPlan)
-        {
-            return (
-                $"PlanRejected:{projection.State}",
-                projection.Error ??
-                projection.State.ToString(),
-                null
-            );
-        }
-
-        Guid planId =
-            Guid.NewGuid();
-
-        DataRelativePathTargetedConsumerCaseRepairDurablePlanCreation
-            creation;
-
-        try
-        {
-            creation =
-                DataRelativePathTargetedConsumerCaseRepairDurablePlan.Create(
-                    dataRoot,
-                    planId,
-                    DateTimeOffset.UtcNow,
-                    projection
-                );
-        }
-        catch (Exception ex)
-        {
-            return (
-                "DurablePlanCreationError",
-                ex.Message,
-                null
-            );
-        }
-
-        if (!creation.Success)
-        {
-            return (
-                $"DurablePlanRejected:{creation.State}",
-                creation.Error ??
-                creation.State.ToString(),
-                null
-            );
-        }
-
-        DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord plan =
-            creation.Record!;
-
-        string destinationPath =
-            plan.Operations[^1].DestinationPath;
-
-        string planChildName =
-            $"{planId:N}.plan.json";
-
-        DataRelativePathTargetedConsumerCaseRepairDurablePlanWriterResult
-            write =
-                DataRelativePathTargetedConsumerCaseRepairDurablePlanWriter
-                    .CreateInitial(
-                        planDirectory,
-                        planChildName,
-                        plan
-                    );
-
-        if (!write.Success)
-        {
-            return (
-                $"PlanWriteFailed:{write.State}",
-                write.Error ??
-                write.State.ToString(),
-                destinationPath
-            );
-        }
-
-        DataRelativePathTargetedConsumerCaseRepairDurablePlanReaderResult
-            verify =
-                DataRelativePathTargetedConsumerCaseRepairDurablePlanReader
-                    .Read(
-                        planDirectory,
-                        planChildName
-                    );
-
-        if (
-            !verify.Success ||
-            verify.Plan is null ||
-            verify.Plan.PlanId != plan.PlanId)
-        {
-            return (
-                $"PlanVerifyFailed:{verify.State}",
-                verify.Error ??
-                verify.State.ToString(),
-                destinationPath
-            );
-        }
-
-        DataRelativePathTargetedConsumerCaseRepairApplyExecution execution;
-
-        try
-        {
-            execution =
-                DataRelativePathTargetedConsumerCaseRepairApplyExecutor
-                    .Execute(
-                        dataRoot,
-                        journalDirectory,
-                        verify.Plan,
-                        DateTimeOffset.UtcNow
-                    );
-        }
-        catch (Exception ex)
-        {
-            return (
-                "ApplyExecutionError",
-                ex.Message,
-                destinationPath
-            );
-        }
-
-        if (!execution.Success)
-        {
-            return (
-                execution.State.ToString(),
-                execution.Error ??
-                execution.State.ToString(),
-                destinationPath
-            );
-        }
-
-        return (
-            "AppliedDurably",
-            string.Empty,
-            destinationPath
-        );
-    }
-
-    private static string Escape(
-        string value)
-    {
-        if (
-            value.Contains(',') ||
-            value.Contains('"') ||
-            value.Contains('\n'))
-        {
-            return
-                "\"" +
-                value.Replace(
-                    "\"",
-                    "\"\""
-                ) +
-                "\"";
-        }
-
-        return value;
     }
 }

@@ -118,13 +118,6 @@ find "$STAGE" \
 cp "$SOURCE/LICENSE" "$STAGE/LICENSE"
 cp "$SOURCE/README.md" "$STAGE/README.md"
 
-if [ -f "$SOURCE/docs/repair-exit-codes.md" ]; then
-    mkdir -p "$STAGE/docs"
-    cp \
-        "$SOURCE/docs/repair-exit-codes.md" \
-        "$STAGE/docs/repair-exit-codes.md"
-fi
-
 test -x "$STAGE/CaseCompat.Cli"
 
 if find "$STAGE" -type f -name '*.pdb' -print -quit |
@@ -143,7 +136,7 @@ echo "== Staged smoke test =="
 "$STAGE/CaseCompat.Cli" --help > "$WORK_ROOT/staged-help.txt"
 
 grep -Fq 'CaseCompat' "$WORK_ROOT/staged-help.txt"
-grep -Fq 'repair-plan' "$WORK_ROOT/staged-help.txt"
+grep -Fq 'targeted-consumer-batch-apply' "$WORK_ROOT/staged-help.txt"
 
 echo
 echo "== Create deterministic archive =="
@@ -201,7 +194,7 @@ test -x "$EXTRACT/casecompat/CaseCompat.Cli"
     > "$WORK_ROOT/extracted-help.txt"
 
 grep -Fq 'CaseCompat' "$WORK_ROOT/extracted-help.txt"
-grep -Fq 'repair-plan' "$WORK_ROOT/extracted-help.txt"
+grep -Fq 'targeted-consumer-batch-apply' "$WORK_ROOT/extracted-help.txt"
 
 echo
 echo "== Publish artifact =="

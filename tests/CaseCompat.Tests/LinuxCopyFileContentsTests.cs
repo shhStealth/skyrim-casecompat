@@ -29,7 +29,7 @@ public sealed class LinuxCopyFileContentsTests
                 content
             );
 
-        using LinuxNoFollowPathHandle destination =
+        using LinuxUnnamedFileHandle destination =
             CreateDestination(
                 temp
             );
@@ -68,7 +68,8 @@ public sealed class LinuxCopyFileContentsTests
 
         LinuxOpenedFileSnapshotResult destinationSnapshot =
             LinuxOpenedFileSnapshot.Capture(
-                destination
+                destination,
+                "destination.bin"
             );
 
         Assert.True(
@@ -106,7 +107,7 @@ public sealed class LinuxCopyFileContentsTests
                 content
             );
 
-        using LinuxNoFollowPathHandle destination =
+        using LinuxUnnamedFileHandle destination =
             CreateDestination(
                 temp
             );
@@ -161,7 +162,7 @@ public sealed class LinuxCopyFileContentsTests
                 content
             );
 
-        using LinuxNoFollowPathHandle destination =
+        using LinuxUnnamedFileHandle destination =
             CreateDestination(
                 temp
             );
@@ -174,7 +175,8 @@ public sealed class LinuxCopyFileContentsTests
 
         LinuxOpenedFileSnapshotResult before =
             LinuxOpenedFileSnapshot.Capture(
-                destination
+                destination,
+                "destination.bin"
             );
 
         LinuxCopyFileContentsResult result =
@@ -198,7 +200,8 @@ public sealed class LinuxCopyFileContentsTests
 
         LinuxOpenedFileSnapshotResult after =
             LinuxOpenedFileSnapshot.Capture(
-                destination
+                destination,
+                "destination.bin"
             );
 
         Assert.Equal(
@@ -240,7 +243,7 @@ public sealed class LinuxCopyFileContentsTests
                 "source.bin"
             );
 
-        using LinuxNoFollowPathHandle destination =
+        using LinuxUnnamedFileHandle destination =
             CreateDestination(
                 temp
             );
@@ -310,7 +313,7 @@ public sealed class LinuxCopyFileContentsTests
                 "source.bin"
             );
 
-        using LinuxNoFollowPathHandle destination =
+        using LinuxUnnamedFileHandle destination =
             CreateDestination(
                 temp
             );
@@ -353,7 +356,8 @@ public sealed class LinuxCopyFileContentsTests
 
         LinuxOpenedFileSnapshotResult destinationSnapshot =
             LinuxOpenedFileSnapshot.Capture(
-                destination
+                destination,
+                "destination.bin"
             );
 
         Assert.Equal(
@@ -408,7 +412,7 @@ public sealed class LinuxCopyFileContentsTests
             "replacement"
         );
 
-        using LinuxNoFollowPathHandle destination =
+        using LinuxUnnamedFileHandle destination =
             CreateDestination(
                 temp
             );
@@ -433,7 +437,8 @@ public sealed class LinuxCopyFileContentsTests
         Assert.Equal(
             expectedHash,
             LinuxOpenedFileSnapshot.Capture(
-                destination
+                destination,
+                "destination.bin"
             ).Sha256
         );
     }
@@ -460,10 +465,23 @@ public sealed class LinuxCopyFileContentsTests
                 content
             );
 
-        using LinuxNoFollowPathHandle destination =
+        using LinuxUnnamedFileHandle destination =
             CreateDestination(
                 temp
             );
+
+        using LinuxNoFollowPathHandle publishRoot =
+            OpenRootForPublish(
+                temp
+            );
+
+        Assert.True(
+            LinuxPublishUnnamedFileAt.Publish(
+                destination,
+                publishRoot,
+                "destination.bin"
+            ).Success
+        );
 
         string originalDestination =
             Path.Combine(
@@ -547,7 +565,7 @@ public sealed class LinuxCopyFileContentsTests
                 content
             );
 
-        using LinuxNoFollowPathHandle destination =
+        using LinuxUnnamedFileHandle destination =
             CreateDestination(
                 temp
             );
@@ -611,7 +629,7 @@ public sealed class LinuxCopyFileContentsTests
         return path;
     }
 
-    private static LinuxNoFollowPathHandle
+    private static LinuxUnnamedFileHandle
         CreateDestination(
             TemporaryDirectory temp)
     {
@@ -629,10 +647,9 @@ public sealed class LinuxCopyFileContentsTests
 
         try
         {
-            LinuxCreateFileAtExclusiveResult create =
-                LinuxCreateFileAtExclusive.Create(
-                    root,
-                    "destination.bin"
+            LinuxCreateUnnamedFileAtResult create =
+                LinuxCreateUnnamedFileAt.Create(
+                    root
                 );
 
             Assert.True(
@@ -640,15 +657,30 @@ public sealed class LinuxCopyFileContentsTests
             );
 
             return Assert.IsType<
-                LinuxNoFollowPathHandle
+                LinuxUnnamedFileHandle
             >(
-                create.OpenedPath
+                create.OpenedFile
             );
         }
         finally
         {
             root.Dispose();
         }
+    }
+
+    private static LinuxNoFollowPathHandle OpenRootForPublish(
+        TemporaryDirectory temp)
+    {
+        LinuxNoFollowPathOpenResult rootOpen =
+            LinuxNoFollowPath.OpenRootReadOnly(
+                temp.RootPath
+            );
+
+        return Assert.IsType<
+            LinuxNoFollowPathHandle
+        >(
+            rootOpen.OpenedPath
+        );
     }
 
     private static LinuxNoFollowPathHandle OpenUnderRoot(

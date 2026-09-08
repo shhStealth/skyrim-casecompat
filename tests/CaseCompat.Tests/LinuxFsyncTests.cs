@@ -23,17 +23,16 @@ public sealed class LinuxFsyncTests
                 temp.RootPath
             );
 
-        LinuxCreateFileAtExclusiveResult create =
-            LinuxCreateFileAtExclusive.Create(
-                root,
-                "fixture.bin"
+        LinuxCreateUnnamedFileAtResult create =
+            LinuxCreateUnnamedFileAt.Create(
+                root
             );
 
-        using LinuxNoFollowPathHandle created =
+        using LinuxUnnamedFileHandle created =
             Assert.IsType<
-                LinuxNoFollowPathHandle
+                LinuxUnnamedFileHandle
             >(
-                create.OpenedPath
+                create.OpenedFile
             );
 
         LinuxFsyncResult result =
@@ -100,17 +99,16 @@ public sealed class LinuxFsyncTests
                 temp.RootPath
             );
 
-        LinuxCreateFileAtExclusiveResult create =
-            LinuxCreateFileAtExclusive.Create(
-                root,
-                "destination.bin"
+        LinuxCreateUnnamedFileAtResult create =
+            LinuxCreateUnnamedFileAt.Create(
+                root
             );
 
-        using LinuxNoFollowPathHandle destination =
+        using LinuxUnnamedFileHandle destination =
             Assert.IsType<
-                LinuxNoFollowPathHandle
+                LinuxUnnamedFileHandle
             >(
-                create.OpenedPath
+                create.OpenedFile
             );
 
         string expectedHash =
@@ -143,7 +141,8 @@ public sealed class LinuxFsyncTests
 
         LinuxOpenedFileSnapshotResult snapshot =
             LinuxOpenedFileSnapshot.Capture(
-                destination
+                destination,
+                "destination.bin"
             );
 
         Assert.True(
@@ -172,17 +171,16 @@ public sealed class LinuxFsyncTests
                 temp.RootPath
             );
 
-        LinuxCreateFileAtExclusiveResult create =
-            LinuxCreateFileAtExclusive.Create(
-                root,
-                "fixture.bin"
+        LinuxCreateUnnamedFileAtResult create =
+            LinuxCreateUnnamedFileAt.Create(
+                root
             );
 
-        LinuxNoFollowPathHandle created =
+        LinuxUnnamedFileHandle created =
             Assert.IsType<
-                LinuxNoFollowPathHandle
+                LinuxUnnamedFileHandle
             >(
-                create.OpenedPath
+                create.OpenedFile
             );
 
         created.Dispose();
@@ -218,23 +216,33 @@ public sealed class LinuxFsyncTests
                 temp.RootPath
             );
 
-        LinuxCreateFileAtExclusiveResult create =
-            LinuxCreateFileAtExclusive.Create(
-                root,
-                "fixture.bin"
+        LinuxCreateUnnamedFileAtResult create =
+            LinuxCreateUnnamedFileAt.Create(
+                root
             );
 
-        using LinuxNoFollowPathHandle created =
+        using LinuxUnnamedFileHandle created =
             Assert.IsType<
-                LinuxNoFollowPathHandle
+                LinuxUnnamedFileHandle
             >(
-                create.OpenedPath
+                create.OpenedFile
             );
 
         RandomAccess.Write(
             created.Handle,
             "original"u8,
             0
+        );
+
+        LinuxPublishUnnamedFileAtResult publish =
+            LinuxPublishUnnamedFileAt.Publish(
+                created,
+                root,
+                "fixture.bin"
+            );
+
+        Assert.True(
+            publish.Success
         );
 
         string originalPath =
@@ -270,7 +278,8 @@ public sealed class LinuxFsyncTests
 
         LinuxOpenedFileSnapshotResult descriptorSnapshot =
             LinuxOpenedFileSnapshot.Capture(
-                created
+                created,
+                originalPath
             );
 
         LinuxFileIdentityResult movedIdentity =

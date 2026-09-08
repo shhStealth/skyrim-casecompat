@@ -7,11 +7,11 @@ namespace CaseCompat.Tests;
 public sealed class CliHelpOutputRegressionTests
 {
     private const string ExpectedHelpSha256 =
-        "0ecb4640df0522960a04236f14bc3b51e8cfd293ecfeac733e5b47ab08341e57";
+        "a5d0aba0f54555cf7be3b2eb7c32239888202e0803212427fb81b927df4110e0";
 
-    private const int ExpectedHelpUtf8ByteCount = 5590;
+    private const int ExpectedHelpUtf8ByteCount = 2449;
 
-    private const int ExpectedHelpNewlineCount = 76;
+    private const int ExpectedHelpNewlineCount = 38;
 
     [Fact]
     public async Task
@@ -66,46 +66,27 @@ public sealed class CliHelpOutputRegressionTests
         );
 
         Assert.Contains(
-            "Repair workflow",
+            "Guided setup",
             result.StandardOutput
         );
 
         Assert.Contains(
-            "Default repair plan manifest file name: repair-plan.json",
+            "casecompat run    it, scans for case-mismatch fixes, and " +
+            "applies them.",
             result.StandardOutput
         );
 
         Assert.Contains(
-            "Default aggregate namespace manifest file name: " +
-            "aggregate-namespace-manifest.json",
+            "casecompat targeted-consumer-batch-apply " +
+            "<Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> " +
+            "<plan directory> <journal directory> <report file path> " +
+            "<max candidates>",
             result.StandardOutput
         );
 
         Assert.Contains(
-            "casecompat aggregate-namespace-manifest " +
-            "<Skyrim Data directory> <direct Data child namespace> " +
-            "<output directory> [manifest file name]",
-            result.StandardOutput
-        );
-
-        Assert.Contains(
-            "casecompat repair-plan-aggregate-namespace-batch " +
-            "<Skyrim Data directory> <path-list file> " +
-            "<aggregate namespace manifest file> <batch directory> " +
-            "[plan manifest file name]",
-            result.StandardOutput
-        );
-
-        Assert.Contains(
-            "casecompat repair-apply-aggregate-namespace-batch " +
-            "<batch directory> <aggregate namespace manifest file> " +
-            "<plan manifest file name> <Skyrim Data directory>",
-            result.StandardOutput
-        );
-
-        Assert.Contains(
-            "casecompat repair-rollback-batch <batch directory> " +
-            "<manifest file name> <Skyrim Data directory>",
+            "casecompat targeted-consumer-rollback " +
+            "<journal directory> <plan ID>",
             result.StandardOutput
         );
     }

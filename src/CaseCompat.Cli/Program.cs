@@ -2,8 +2,7 @@ using CaseCompat.Filesystem.Linux;
 
 if (args.Length == 0)
 {
-    ShowUsage();
-    return 1;
+    return CaseCompatWizardCommand.Run(args);
 }
 
 string command = args[0].ToLowerInvariant();
@@ -15,6 +14,9 @@ switch (command)
     case "-h":
         ShowUsage();
         return 0;
+
+    case "run":
+        return CaseCompatWizardCommand.Run(args);
 
     case "doctor":
         return RunDoctor(args);
@@ -34,9 +36,6 @@ switch (command)
     case "content-summary":
         return ContentSummaryCommand.Run(args);
 
-    case "aggregate-namespace-manifest":
-        return AggregateNamespaceManifestCommand.Run(args);
-
     case "plugin-probe":
         return PluginProbeCommand.Run(args);
 
@@ -48,39 +47,6 @@ switch (command)
 
     case "resolve-data-path":
         return ResolveDataPathCommand.Run(args);
-
-    case "repair-plan":
-        return RepairPlanCommand.Run(args);
-
-    case "repair-plan-batch":
-        return RepairPlanBatchCommand.Run(args);
-
-    case "repair-plan-aggregate-batch":
-        return RepairPlanAggregateBatchCommand.Run(args);
-
-    case "repair-plan-aggregate-namespace-batch":
-        return RepairPlanAggregateNamespaceBatchCommand.Run(args);
-
-    case "repair-status":
-        return RepairStatusCommand.Run(args);
-
-    case "repair-status-batch":
-        return RepairStatusBatchCommand.Run(args);
-
-    case "repair-apply-aggregate-namespace-batch":
-        return RepairApplyAggregateNamespaceBatchCommand.Run(args);
-
-    case "repair-apply-batch":
-        return RepairApplyBatchCommand.Run(args);
-
-    case "repair-apply":
-        return RepairApplyCommand.Run(args);
-
-    case "repair-rollback-batch":
-        return RepairRollbackBatchCommand.Run(args);
-
-    case "repair-rollback":
-        return RepairRollbackCommand.Run(args);
 
     case "resolve-armor-addon-models":
         return ResolveArmorAddonModelsCommand.Run(args);
@@ -412,154 +378,18 @@ static void ShowUsage()
     );
 
     Console.WriteLine();
-    Console.WriteLine("Repair workflow");
-    Console.WriteLine("---------------");
+    Console.WriteLine("Guided setup");
+    Console.WriteLine("------------");
     Console.WriteLine(
-        "  repair-plan      Create and persist a repair plan; " +
-        "does not modify Skyrim Data."
+        "  casecompat        Detects your Skyrim install, walks " +
+        "through confirming"
     );
     Console.WriteLine(
-        "  repair-plan-batch  Preflight multiple paths and persist " +
-        "independent safe repair plans; does not modify Skyrim Data."
-    );
-    Console.WriteLine(
-        "  repair-plan-aggregate-batch  Persist one explicit, complete " +
-        "alternate-branch aggregate batch; planning only."
-    );
-    Console.WriteLine(
-        "  repair-status    Inspect persisted repair state; read-only."
-    );
-    Console.WriteLine(
-        "  repair-status-batch  Inspect observed batch child plans; " +
-        "read-only."
-    );
-    Console.WriteLine(
-        "  repair-apply-batch   Apply a verified completed repair batch."
-    );
-    Console.WriteLine(
-        "  repair-apply-aggregate-namespace-batch  Apply a verified " +
-        "schema-v4 / policy-v3 aggregate namespace batch."
-    );
-    Console.WriteLine(
-        "  repair-apply     Apply a persisted repair plan."
-    );
-    Console.WriteLine(
-        "  repair-rollback-batch  Roll back a verified completed batch."
-    );
-    Console.WriteLine(
-        "  repair-rollback  Roll back CaseCompat-owned repair changes."
-    );
-    Console.WriteLine();
-    Console.WriteLine(
-        "  Recommended: repair-plan -> repair-status -> " +
-        "repair-apply -> repair-status"
-    );
-    Console.WriteLine(
-        "  Batch:       repair-plan-batch -> repair-status-batch -> " +
-        "repair-apply-batch -> repair-status-batch"
-    );
-    Console.WriteLine(
-        "  Aggregate:   repair-plan-aggregate-batch -> " +
-        "repair-status-batch  (planning/status only)"
-    );
-    Console.WriteLine(
-        "  Batch undo:  repair-rollback-batch -> repair-status-batch"
-    );
-    Console.WriteLine(
-        "  Recovery:    repair-rollback -> repair-status"
+        "  casecompat run    it, scans for case-mismatch fixes, and " +
+        "applies them."
     );
 
     Console.WriteLine();
-    Console.WriteLine("Repair command usage:");
-    Console.WriteLine(
-        "  casecompat repair-plan <Skyrim Data directory> " +
-        "<Data-relative file path> <journal directory> " +
-        "[manifest file name]"
-    );
-    Console.WriteLine(
-        "  casecompat repair-plan-batch <Skyrim Data directory> " +
-        "<path-list file> <batch directory> [manifest file name]"
-    );
-    Console.WriteLine(
-        "  casecompat repair-plan-aggregate-batch " +
-        "<Skyrim Data directory> <path-list file> " +
-        "<batch directory> [manifest file name]"
-    );
-    Console.WriteLine(
-        "  casecompat repair-plan-aggregate-namespace-batch " +
-        "<Skyrim Data directory> <path-list file> " +
-        "<aggregate namespace manifest file> <batch directory> " +
-        "[plan manifest file name]"
-    );
-    Console.WriteLine(
-        "  casecompat repair-status <journal directory> " +
-        "<Skyrim Data directory>"
-    );
-    Console.WriteLine(
-        "  casecompat repair-status <journal directory> " +
-        "<manifest file name> <Skyrim Data directory>"
-    );
-    Console.WriteLine(
-        "  casecompat repair-status-batch <batch directory> " +
-        "<Skyrim Data directory>"
-    );
-    Console.WriteLine(
-        "  casecompat repair-status-batch <batch directory> " +
-        "<manifest file name> <Skyrim Data directory>"
-    );
-    Console.WriteLine(
-        "  casecompat repair-apply-aggregate-namespace-batch " +
-        "<batch directory> <aggregate namespace manifest file> " +
-        "<Skyrim Data directory>"
-    );
-    Console.WriteLine(
-        "  casecompat repair-apply-aggregate-namespace-batch " +
-        "<batch directory> <aggregate namespace manifest file> " +
-        "<plan manifest file name> <Skyrim Data directory>"
-    );
-    Console.WriteLine(
-        "  casecompat repair-apply-batch <batch directory> " +
-        "<Skyrim Data directory>"
-    );
-    Console.WriteLine(
-        "  casecompat repair-apply-batch <batch directory> " +
-        "<manifest file name> <Skyrim Data directory>"
-    );
-    Console.WriteLine(
-        "  casecompat repair-apply <journal directory> " +
-        "<Skyrim Data directory>"
-    );
-    Console.WriteLine(
-        "  casecompat repair-apply <journal directory> " +
-        "<manifest file name> <Skyrim Data directory>"
-    );
-    Console.WriteLine(
-        "  casecompat repair-rollback-batch <batch directory> " +
-        "<Skyrim Data directory>"
-    );
-    Console.WriteLine(
-        "  casecompat repair-rollback-batch <batch directory> " +
-        "<manifest file name> <Skyrim Data directory>"
-    );
-    Console.WriteLine(
-        "  casecompat repair-rollback <journal directory> " +
-        "<Skyrim Data directory>"
-    );
-    Console.WriteLine(
-        "  casecompat repair-rollback <journal directory> " +
-        "<manifest file name> <Skyrim Data directory>"
-    );
-
-    Console.WriteLine();
-    Console.WriteLine(
-        "  Default repair plan manifest file name: repair-plan.json"
-    );
-    Console.WriteLine(
-        "  Default aggregate namespace manifest file name: " +
-        "aggregate-namespace-manifest.json"
-    );
-    Console.WriteLine();
-
     Console.WriteLine("Other commands:");
     Console.WriteLine(
         "  casecompat doctor <Skyrim Data directory>"
@@ -575,11 +405,6 @@ static void ShowUsage()
     );
     Console.WriteLine(
         "  casecompat namespace-summary <directory>"
-    );
-    Console.WriteLine(
-        "  casecompat aggregate-namespace-manifest " +
-        "<Skyrim Data directory> <direct Data child namespace> " +
-        "<output directory> [manifest file name]"
     );
     Console.WriteLine(
         "  casecompat content-summary <directory>"
