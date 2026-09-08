@@ -30,6 +30,7 @@ public sealed record LinuxInspectChildAtResult(
     ulong? Inode,
     uint? LinkCount,
     ulong? MountId,
+    long? Size,
     int? Errno,
     string? Error
 )

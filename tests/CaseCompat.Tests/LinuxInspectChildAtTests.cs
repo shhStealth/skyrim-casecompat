@@ -278,4 +278,55 @@ public sealed class LinuxInspectChildAtTests
             );
         }
     }
+
+    [Fact]
+    public void Inspect_RegularFile_ReportsExactSize()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        string root =
+            CreateTemporaryRoot();
+
+        try
+        {
+            byte[] content =
+                System.Text.Encoding.UTF8.GetBytes(
+                    "sixteen-byte-ct"
+                );
+
+            File.WriteAllBytes(
+                Path.Combine(
+                    root,
+                    "Sized.nif"
+                ),
+                content
+            );
+
+            using LinuxNoFollowPathHandle parent =
+                OpenRoot(root);
+
+            LinuxInspectChildAtResult file =
+                LinuxInspectChildAt.Inspect(
+                    parent,
+                    "Sized.nif"
+                );
+
+            Assert.True(
+                file.Success,
+                file.Error
+            );
+
+            Assert.Equal(
+                content.LongLength,
+                file.Size
+            );
+        }
+        finally
+        {
+            DeleteTemporaryRoot(root);
+        }
+    }
 }

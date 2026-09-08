@@ -62,6 +62,9 @@ public static class LinuxInspectChildAt
         [FieldOffset(32)]
         public ulong Inode;
 
+        [FieldOffset(40)]
+        public ulong Size;
+
         [FieldOffset(136)]
         public uint DeviceMajor;
 
@@ -226,6 +229,12 @@ public static class LinuxInspectChildAt
                         LinuxChildObjectKind.Other
                 };
 
+            long? size =
+                metadata.Size >
+                (ulong)long.MaxValue
+                    ? null
+                    : (long)metadata.Size;
+
             return new LinuxInspectChildAtResult(
                 State:
                     LinuxInspectChildAtState
@@ -244,6 +253,8 @@ public static class LinuxInspectChildAt
                     metadata.LinkCount,
                 MountId:
                     metadata.MountId,
+                Size:
+                    size,
                 Errno:
                     null,
                 Error:
@@ -350,6 +361,8 @@ public static class LinuxInspectChildAt
             LinkCount:
                 null,
             MountId:
+                null,
+            Size:
                 null,
             Errno:
                 errno,
