@@ -448,6 +448,122 @@ public sealed class
     }
 
     [Fact]
+    public void Execute_MultiOperationPlan_CreatesDirectoryThenFile()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsUnnamedFiles())
+        {
+            return;
+        }
+
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord plan =
+            fixture.CreateMultiOperationPlan();
+
+        DataRelativePathTargetedConsumerCaseRepairApplyExecution execution =
+            DataRelativePathTargetedConsumerCaseRepairApplyExecutor.Execute(
+                fixture.DataRoot,
+                fixture.JournalDirectory,
+                plan,
+                T0
+            );
+
+        Assert.True(
+            execution.Success,
+            execution.Error
+        );
+
+        Assert.Single(
+            execution.CreatedDirectoryPaths
+        );
+
+        Assert.True(
+            Directory.Exists(
+                fixture.NestedDestinationParentPath
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                fixture.NestedDestinationPath
+            )
+        );
+
+        Assert.Equal(
+            File.ReadAllBytes(
+                fixture.NestedSourcePath
+            ),
+            File.ReadAllBytes(
+                fixture.NestedDestinationPath
+            )
+        );
+
+        Assert.NotNull(
+            execution.AppliedJournalChildName
+        );
+    }
+
+    [Fact]
+    public void Execute_RequiredDirectoryAlreadyExists_RefusesWithoutCreatingFile()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsUnnamedFiles())
+        {
+            return;
+        }
+
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord plan =
+            fixture.CreateMultiOperationPlan();
+
+        Directory.CreateDirectory(
+            fixture.NestedDestinationParentPath
+        );
+
+        DataRelativePathTargetedConsumerCaseRepairApplyExecution execution =
+            DataRelativePathTargetedConsumerCaseRepairApplyExecutor.Execute(
+                fixture.DataRoot,
+                fixture.JournalDirectory,
+                plan,
+                T0
+            );
+
+        Assert.False(
+            execution.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                .DirectoryAlreadyExists,
+            execution.State
+        );
+
+        Assert.False(
+            File.Exists(
+                fixture.NestedDestinationPath
+            )
+        );
+
+        Assert.Empty(
+            Directory.GetFiles(
+                fixture.JournalDirectoryPath
+            )
+        );
+    }
+
+    [Fact]
     public void Execute_DestinationAlreadyExists_RefusesWithoutWritingIntentJournal()
     {
         if (!OperatingSystem.IsLinux())
@@ -989,6 +1105,41 @@ public sealed class
                 )
             );
 
+            NestedSourceParentPath =
+                Path.Combine(
+                    SubDirectoryPath,
+                    "inner"
+                );
+
+            Directory.CreateDirectory(
+                NestedSourceParentPath
+            );
+
+            NestedSourcePath =
+                Path.Combine(
+                    NestedSourceParentPath,
+                    "target2.dat"
+                );
+
+            NestedDestinationParentPath =
+                Path.Combine(
+                    SubDirectoryPath,
+                    "Inner"
+                );
+
+            NestedDestinationPath =
+                Path.Combine(
+                    NestedDestinationParentPath,
+                    "Target2.DAT"
+                );
+
+            File.WriteAllBytes(
+                NestedSourcePath,
+                Encoding.ASCII.GetBytes(
+                    "nested!"
+                )
+            );
+
             DataRoot =
                 OpenRoot(
                     DataRootPath
@@ -1011,6 +1162,14 @@ public sealed class
         public string SourcePath { get; }
 
         public string DestinationPath { get; }
+
+        public string NestedSourceParentPath { get; }
+
+        public string NestedSourcePath { get; }
+
+        public string NestedDestinationParentPath { get; }
+
+        public string NestedDestinationPath { get; }
 
         public LinuxNoFollowPathHandle DataRoot { get; }
 
@@ -1131,6 +1290,128 @@ public sealed class
                         DataRootPath,
                     RequestedPath:
                         "sub/Target.DAT",
+                    SourceSnapshot:
+                        sourceSnapshot,
+                    SourceInodeGeneration:
+                        sourceInodeGeneration,
+                    InitialDestinationParentSnapshot:
+                        parentSnapshot,
+                    Operations:
+                        operations
+                );
+
+            string? validationError =
+                DataRelativePathTargetedConsumerCaseRepairDurablePlan
+                    .Validate(
+                        record
+                    );
+
+            Assert.Null(
+                validationError
+            );
+
+            return record;
+        }
+
+        public DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord
+            CreateMultiOperationPlan()
+        {
+            byte[] sourceBytes =
+                File.ReadAllBytes(
+                    NestedSourcePath
+                );
+
+            string sourceSha256 =
+                Convert.ToHexString(
+                    SHA256.HashData(
+                        sourceBytes
+                    )
+                );
+
+            LinuxFileIdentityResult sourceIdentity =
+                LinuxFileIdentity.Inspect(
+                    NestedSourcePath
+                );
+
+            Assert.True(
+                sourceIdentity.Success,
+                sourceIdentity.Error
+            );
+
+            LinuxFileIdentityResult subDirectoryIdentity =
+                LinuxFileIdentity.Inspect(
+                    SubDirectoryPath
+                );
+
+            Assert.True(
+                subDirectoryIdentity.Success,
+                subDirectoryIdentity.Error
+            );
+
+            uint sourceInodeGeneration =
+                CaptureInodeGeneration(
+                    NestedSourceParentPath,
+                    "target2.dat"
+                );
+
+            var sourceSnapshot =
+                new DataRelativePathRepairSourceSnapshot(
+                    PhysicalPath:
+                        NestedSourcePath,
+                    Size:
+                        sourceBytes.Length,
+                    Sha256:
+                        sourceSha256,
+                    Identity:
+                        sourceIdentity
+                );
+
+            var parentSnapshot =
+                new DataRelativePathRepairDestinationParentSnapshot(
+                    PhysicalPath:
+                        SubDirectoryPath,
+                    Identity:
+                        subDirectoryIdentity,
+                    CasefoldEnabled:
+                        false,
+                    RawFlags:
+                        0
+                );
+
+            DataRelativePathRepairPlanOperation[] operations =
+            [
+                new(
+                    Kind:
+                        DataRelativePathRepairPlanOperationKind
+                            .CreateDirectory,
+                    DestinationPath:
+                        NestedDestinationParentPath,
+                    SourcePath:
+                        null
+                ),
+                new(
+                    Kind:
+                        DataRelativePathRepairPlanOperationKind.CreateFile,
+                    DestinationPath:
+                        NestedDestinationPath,
+                    SourcePath:
+                        NestedSourcePath
+                )
+            ];
+
+            var record =
+                new DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord(
+                    SchemaVersion:
+                        DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord
+                            .SchemaVersion1,
+                    PlanId:
+                        Guid.NewGuid(),
+                    CreatedUtc:
+                        T0,
+                    DataRoot:
+                        DataRootPath,
+                    RequestedPath:
+                        "sub/Inner/Target2.DAT",
                     SourceSnapshot:
                         sourceSnapshot,
                     SourceInodeGeneration:

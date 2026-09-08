@@ -215,6 +215,19 @@ public static class TargetedConsumerApplyCommand
         );
 
         Console.WriteLine(
+            $"Directories created: {execution.CreatedDirectoryPaths.Count}"
+        );
+
+        foreach (
+            string createdDirectory
+            in execution.CreatedDirectoryPaths)
+        {
+            Console.WriteLine(
+                $"  {createdDirectory}"
+            );
+        }
+
+        Console.WriteLine(
             $"Intent journal:   " +
             $"{execution.IntentJournalChildName ?? "(not written)"}"
         );
