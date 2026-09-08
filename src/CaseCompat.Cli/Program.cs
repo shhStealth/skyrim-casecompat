@@ -121,6 +121,9 @@ switch (command)
     case "targeted-consumer-candidates":
         return TargetedConsumerCandidatesCommand.Run(args);
 
+    case "targeted-consumer-plan":
+        return TargetedConsumerPlanCommand.Run(args);
+
     default:
         Console.Error.WriteLine($"Unknown command: {args[0]}");
         Console.Error.WriteLine();
@@ -638,5 +641,10 @@ static void ShowUsage()
         "  casecompat targeted-consumer-candidates " +
         "<Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> " +
         "[path search]"
+    );
+    Console.WriteLine(
+        "  casecompat targeted-consumer-plan " +
+        "<Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> " +
+        "<exact requested path> <plan directory> [plan file name]"
     );
 }
