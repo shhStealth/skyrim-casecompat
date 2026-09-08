@@ -5,7 +5,7 @@ public static class TargetedConsumerApplyCommand
 {
     public static int Run(string[] args)
     {
-        if (args.Length != 4)
+        if (args.Length != 5)
         {
             Console.Error.WriteLine(
                 "Error: targeted-consumer-apply requires a Data root, " +

@@ -11,7 +11,8 @@ public sealed class TargetedConsumerApplyCommandTests
                 {
                     "targeted-consumer-apply",
                     "/unused/Data",
-                    "/unused/plan-dir"
+                    "/unused/plan-dir",
+                    "plan.json"
                 }
             );
 
