@@ -124,6 +124,12 @@ switch (command)
     case "targeted-consumer-plan":
         return TargetedConsumerPlanCommand.Run(args);
 
+    case "targeted-consumer-apply":
+        return TargetedConsumerApplyCommand.Run(args);
+
+    case "targeted-consumer-rollback":
+        return TargetedConsumerRollbackCommand.Run(args);
+
     default:
         Console.Error.WriteLine($"Unknown command: {args[0]}");
         Console.Error.WriteLine();
@@ -646,5 +652,14 @@ static void ShowUsage()
         "  casecompat targeted-consumer-plan " +
         "<Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> " +
         "<exact requested path> <plan directory> [plan file name]"
+    );
+    Console.WriteLine(
+        "  casecompat targeted-consumer-apply " +
+        "<Data root> <plan directory> <plan file name> " +
+        "<journal directory>"
+    );
+    Console.WriteLine(
+        "  casecompat targeted-consumer-rollback " +
+        "<journal directory> <plan ID>"
     );
 }
