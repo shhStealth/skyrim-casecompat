@@ -1,6 +1,4 @@
 using CaseCompat.Bethesda.Plugins;
-using CaseCompat.Core.Analysis;
-using CaseCompat.Core.LoadOrder;
 using CaseCompat.Core.Repair;
 using CaseCompat.Filesystem.Linux;
 
@@ -40,83 +38,25 @@ public static class TargetedConsumerPlanCommand
 
         try
         {
-            SkyrimRuntimeLoadOrder loadOrder =
-                SkyrimRuntimeLoadOrderReader.Read(
+            discovery =
+                TargetedConsumerDiscovery.Discover(
+                    dataRoot:
+                        args[1],
                     pluginsPath:
                         args[2],
                     loadOrderPath:
-                        args[3]
+                        args[3],
+                    cccPath:
+                        args[4]
                 );
+        }
+        catch (InvalidOperationException ex)
+        {
+            Console.Error.WriteLine(
+                $"Error: {ex.Message}"
+            );
 
-            SkyrimRuntimePluginSet runtimePluginSet =
-                SkyrimRuntimePluginSetReader.Read(
-                    loadOrder,
-                    args[4]
-                );
-
-            if (!runtimePluginSet.IsConsistent)
-            {
-                Console.Error.WriteLine(
-                    "Error: runtime plugin set is inconsistent."
-                );
-
-                return 4;
-            }
-
-            SkyrimWinningArmorAddonInventoryResult armorAddonInventory =
-                SkyrimWinningArmorAddonInventory.Inspect(
-                    dataRoot:
-                        args[1],
-                    runtimePluginSet:
-                        runtimePluginSet
-                );
-
-            IReadOnlyList<WindowsNamespaceAnalysis> analyses =
-                SkyrimWinningArmorAddonSnapshotNamespaceAnalysisProducer
-                    .Produce(
-                        armorAddonInventory
-                    );
-
-            SkyrimWinningArmorAddonSnapshotEvidenceScanResult scan =
-                SkyrimWinningArmorAddonSnapshotEvidenceScanner.Inspect(
-                    armorAddonInventory,
-                    analyses
-                );
-
-            SkyrimWinningArmorAddonAggregateConsumerSpellingEvidenceProjectionResult
-                armorAddonProjection =
-                    SkyrimWinningArmorAddonAggregateConsumerSpellingEvidenceProjector
-                        .Project(
-                            scan
-                        );
-
-            SkyrimWinningHeadPartInventoryResult headPartInventory =
-                SkyrimWinningHeadPartInventory.Inspect(
-                    dataRoot:
-                        args[1],
-                    runtimePluginSet:
-                        runtimePluginSet
-                );
-
-            SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjectionResult
-                headPartProjection =
-                    SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjector
-                        .Project(
-                            headPartInventory
-                        );
-
-            SkyrimWinningConsumerSpellingEvidenceCompositionResult
-                composition =
-                    SkyrimWinningConsumerSpellingEvidenceComposer.Compose(
-                        armorAddonProjection,
-                        headPartProjection
-                    );
-
-            discovery =
-                SkyrimWinningTargetedConsumerCaseRepairCandidateProjector
-                    .Project(
-                        composition
-                    );
+            return 4;
         }
         catch (Exception ex)
         {

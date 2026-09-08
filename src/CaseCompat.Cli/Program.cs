@@ -130,6 +130,9 @@ switch (command)
     case "targeted-consumer-rollback":
         return TargetedConsumerRollbackCommand.Run(args);
 
+    case "targeted-consumer-batch-apply":
+        return TargetedConsumerBatchApplyCommand.Run(args);
+
     default:
         Console.Error.WriteLine($"Unknown command: {args[0]}");
         Console.Error.WriteLine();
@@ -661,5 +664,11 @@ static void ShowUsage()
     Console.WriteLine(
         "  casecompat targeted-consumer-rollback " +
         "<journal directory> <plan ID>"
+    );
+    Console.WriteLine(
+        "  casecompat targeted-consumer-batch-apply " +
+        "<Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> " +
+        "<plan directory> <journal directory> <report file path> " +
+        "<max candidates>"
     );
 }
