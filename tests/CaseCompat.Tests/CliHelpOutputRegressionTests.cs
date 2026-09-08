@@ -7,11 +7,11 @@ namespace CaseCompat.Tests;
 public sealed class CliHelpOutputRegressionTests
 {
     private const string ExpectedHelpSha256 =
-        "8c56a4d004d44209837db4747afb5a46421bdbbc36378b2394bad7ad13db1045";
+        "a3a679c1739a0260d71ff82ec3b0e333dfc85174e2157451164cc2d4e0565402";
 
-    private const int ExpectedHelpUtf8ByteCount = 4987;
+    private const int ExpectedHelpUtf8ByteCount = 5098;
 
-    private const int ExpectedHelpNewlineCount = 71;
+    private const int ExpectedHelpNewlineCount = 72;
 
     [Fact]
     public async Task

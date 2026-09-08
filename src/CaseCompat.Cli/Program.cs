@@ -118,6 +118,9 @@ switch (command)
     case "armor-addon-snapshot-diagnostics":
         return ArmorAddonSnapshotDiagnosticsCommand.Run(args);
 
+    case "targeted-consumer-candidates":
+        return TargetedConsumerCandidatesCommand.Run(args);
+
     default:
         Console.Error.WriteLine($"Unknown command: {args[0]}");
         Console.Error.WriteLine();
@@ -630,5 +633,10 @@ static void ShowUsage()
         "  casecompat armor-addon-snapshot-diagnostics " +
         "<Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> " +
         "<INI directory> [path search]"
+    );
+    Console.WriteLine(
+        "  casecompat targeted-consumer-candidates " +
+        "<Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> " +
+        "[path search]"
     );
 }
