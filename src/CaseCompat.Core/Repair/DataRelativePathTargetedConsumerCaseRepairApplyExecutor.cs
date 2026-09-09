@@ -12,24 +12,58 @@ namespace CaseCompat.Core.Repair;
 // pipeline (admission, durable-plan creation) re-derives fresh proof
 // rather than trusting an earlier snapshot.
 //
-// A durable Intent -> Prepared -> Applied journal covers only the final
-// CreateFile operation, matching every plan this session's pipeline
-// produces (zero or more CreateDirectory operations followed by exactly
-// one CreateFile). Directory creation has no comparable torn-write risk
-// - mkdir either succeeds or it doesn't, atomically, with no partial
-// "content copied but not yet visible" state the way file publication
-// has - so CreateDirectory steps use the existing no-overwrite
-// LinuxCreateDirectoryAt primitive directly rather than a parallel
-// per-directory journal apparatus. Every directory actually created is
-// still reported in the execution result for diagnostics.
+// The final CreateFile step is published by RENAMING the source's
+// existing inode to the correctly-cased destination name, not by copying
+// its bytes into a new inode. This is a deliberate correctness property,
+// not just an optimization: after a successful apply there is exactly
+// one directory entry for this asset - the correctly-cased one - the
+// same end state the original Windows/NTFS install had. A copy-based
+// publish leaves both the original mismatched-case name and the new
+// correctly-cased name resolvable side by side, a directory shape that
+// cannot exist on the source platform and that at least one in-game
+// subsystem (Skyrim's FaceGen morph-asset resolution, used by SKEE64/
+// RaceMenu) has been observed to handle incorrectly when it occurs.
+// Because this only renames a single directory entry, the candidate
+// projector's guarantee that every candidate carries exactly one
+// agreed-upon winning consumer spelling (see
+// SkyrimWinningTargetedConsumerCaseRepairCandidateProjector) is what
+// makes this safe: nothing else in the load order is still looking for
+// the old name.
 //
-// There is no automated crash-forward-recovery layer here. The durable
-// apply journal still proves exactly which phase the final CreateFile
-// reached if the process is interrupted, but resuming from a partial
-// apply is a manual concern, not an automated reconciler, by deliberate
-// scope decision. Rollback undoes only the published file; any
-// directories created along the way are intentionally left in place -
-// an empty, correctly-cased directory is harmless.
+// A durable Intent -> Prepared -> Applied journal still covers the
+// final rename, matching every plan this session's pipeline produces
+// (zero or more CreateDirectory operations followed by exactly one
+// CreateFile). Because a rename is a single atomic metadata operation
+// with no separate "materialized but not yet visible" state, Prepared
+// and Applied necessarily carry the same physical incarnation identity
+// here - the source's own inode, never a new one. Prepared is recorded
+// immediately before the rename syscall anyway, so an interrupted apply
+// still leaves a durable record of exactly which identity was about to
+// move and where.
+//
+// Intermediate CreateDirectory operations come in two flavors. When no
+// case-insensitive match exists for a path segment, a brand-new,
+// correctly-cased directory is created (SourcePath is null). When a
+// case-insensitive match already exists, the plan instead renames that
+// existing directory - and everything still inside it, including sibling
+// assets this repair run never touched - in place to the correctly-cased
+// name (SourcePath is the matched physical path; see
+// RenameExistingDirectoryIntoPlace). This is the same "rename, don't
+// duplicate" correctness property as the file case above, and for the
+// same reason: splitting one populated mod directory into an old,
+// still-populated tree and a new, sparsely-populated correctly-cased
+// tree is exactly the shape that was observed to break FaceGen
+// resolution in-game, since a directory-enumerating consumer only sees
+// whichever tree it happens to resolve into.
+//
+// There is no automated crash-forward-recovery layer here. Resuming
+// from a partial apply is a manual concern, not an automated reconciler,
+// by deliberate scope decision. Rollback undoes only the renamed file
+// (by renaming it back); directory-level operations are never rolled
+// back - a brand-new empty directory is harmless to leave behind, and a
+// renamed-in-place existing directory cannot be safely reversed without
+// re-deriving the same ambiguity the forward rename resolved, so
+// directories are left exactly where the apply put them.
 public enum DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
 {
     AppliedDurably,
@@ -49,22 +83,30 @@ public enum DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
     DirectoryCreateFailed,
     DirectoryReopenFailed,
 
+    DirectoryRenameSourceMissing,
+    DirectorySourceOpenFailed,
+    DirectorySourceIdentityUnavailable,
+    DirectorySourceIdentityMismatch,
+    DirectorySourceGenerationMismatch,
+    DirectoryRenameFailed,
+    DirectoryDestinationParentSyncFailed,
+
     DestinationInspectionFailed,
     DestinationExists,
 
     InitialJournalInvalid,
     InitialJournalWriteFailed,
 
-    TemporaryFileCreateFailed,
-    CopyFailed,
-    TemporaryFileSyncFailed,
-    PreparedIdentityFailed,
     PreparedJournalInvalid,
     PreparedJournalWriteFailed,
 
-    PublicationFailed,
+    RenameFailed,
+    CrossDeviceRenameNotSupported,
+
+    SourceParentSyncFailed,
     DestinationParentSyncFailed,
     AppliedIdentityFailed,
+    AppliedIdentityMismatch,
     AppliedJournalInvalid,
     AppliedJournalWriteFailed
 }
@@ -410,30 +452,61 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
                     );
                 }
 
-                LinuxCreateDirectoryAtResult directoryCreate =
-                    LinuxCreateDirectoryAt.Create(
-                        currentParent,
-                        directoryChildName
-                    );
-
-                if (!directoryCreate.Success)
+                if (directoryOperation.SourcePath is null)
                 {
-                    return Result(
-                        directoryCreate.State ==
-                        LinuxCreateDirectoryAtState.DestinationExists
-                            ? DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
-                                .DirectoryAlreadyExists
-                            : DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
-                                .DirectoryCreateFailed,
-                        plan.PlanId,
-                        destinationPath:
-                            fileOperation.DestinationPath,
-                        createdDirectoryPaths:
-                            createdDirectoryPaths,
-                        error:
-                            directoryCreate.Error ??
-                            directoryCreate.State.ToString()
-                    );
+                    LinuxCreateDirectoryAtResult directoryCreate =
+                        LinuxCreateDirectoryAt.Create(
+                            currentParent,
+                            directoryChildName
+                        );
+
+                    if (!directoryCreate.Success)
+                    {
+                        return Result(
+                            directoryCreate.State ==
+                            LinuxCreateDirectoryAtState.DestinationExists
+                                ? DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                                    .DirectoryAlreadyExists
+                                : DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                                    .DirectoryCreateFailed,
+                            plan.PlanId,
+                            destinationPath:
+                                fileOperation.DestinationPath,
+                            createdDirectoryPaths:
+                                createdDirectoryPaths,
+                            error:
+                                directoryCreate.Error ??
+                                directoryCreate.State.ToString()
+                        );
+                    }
+                }
+                else
+                {
+                    DataRelativePathTargetedConsumerCaseRepairApplyExecutionState?
+                        renameFailureState =
+                            RenameExistingDirectoryIntoPlace(
+                                plan,
+                                directoryOperation,
+                                currentParent,
+                                directoryChildName,
+                                out string? renameFailureError
+                            );
+
+                    if (renameFailureState is
+                        DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                            failureState)
+                    {
+                        return Result(
+                            failureState,
+                            plan.PlanId,
+                            destinationPath:
+                                fileOperation.DestinationPath,
+                            createdDirectoryPaths:
+                                createdDirectoryPaths,
+                            error:
+                                renameFailureError
+                        );
+                    }
                 }
 
                 createdDirectoryPaths.Add(
@@ -601,110 +674,18 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
                 );
             }
 
-            LinuxCreateUnnamedFileAtResult temporaryCreate =
-                LinuxCreateUnnamedFileAt.Create(
-                    destinationParent
-                );
-
-            if (!temporaryCreate.Success)
-            {
-                return Result(
-                    DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
-                        .TemporaryFileCreateFailed,
-                    plan.PlanId,
-                    destinationPath:
-                        fileOperation.DestinationPath,
-                    createdDirectoryPaths:
-                        createdDirectoryPaths,
-                    intentJournalChildName:
-                        intentChildName,
-                    error:
-                        temporaryCreate.Error ??
-                        temporaryCreate.State.ToString()
-                );
-            }
-
-            using LinuxUnnamedFileHandle temporary =
-                temporaryCreate.OpenedFile!;
-
-            LinuxCopyFileContentsResult copy =
-                LinuxCopyFileContents.CopyAndVerify(
-                    source,
-                    temporary,
-                    plan.SourceSnapshot.Size,
-                    plan.SourceSnapshot.Sha256
-                );
-
-            if (!copy.Success)
-            {
-                return Result(
-                    DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
-                        .CopyFailed,
-                    plan.PlanId,
-                    destinationPath:
-                        fileOperation.DestinationPath,
-                    createdDirectoryPaths:
-                        createdDirectoryPaths,
-                    intentJournalChildName:
-                        intentChildName,
-                    error:
-                        copy.Error ??
-                        copy.State.ToString()
-                );
-            }
-
-            LinuxFsyncResult temporarySync =
-                LinuxFsync.Sync(
-                    temporary
-                );
-
-            if (!temporarySync.Success)
-            {
-                return Result(
-                    DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
-                        .TemporaryFileSyncFailed,
-                    plan.PlanId,
-                    destinationPath:
-                        fileOperation.DestinationPath,
-                    createdDirectoryPaths:
-                        createdDirectoryPaths,
-                    intentJournalChildName:
-                        intentChildName,
-                    error:
-                        temporarySync.Error ??
-                        temporarySync.State.ToString()
-                );
-            }
-
-            LinuxOpenedFileIncarnationResult preparedIncarnation =
-                LinuxOpenedFileIncarnation.Capture(
-                    temporary
-                );
-
-            if (!preparedIncarnation.Success)
-            {
-                return Result(
-                    DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
-                        .PreparedIdentityFailed,
-                    plan.PlanId,
-                    destinationPath:
-                        fileOperation.DestinationPath,
-                    createdDirectoryPaths:
-                        createdDirectoryPaths,
-                    intentJournalChildName:
-                        intentChildName,
-                    error:
-                        preparedIncarnation.Error ??
-                        preparedIncarnation.State.ToString()
-                );
-            }
-
+            // Rename-based apply has no separate materialize-then-reveal
+            // step, so Prepared and Applied necessarily carry the same
+            // physical incarnation: the source's own inode. Prepared is
+            // still recorded, immediately before the rename syscall, so
+            // an interrupted apply leaves a durable record of exactly
+            // which identity was about to move and where.
             DataRelativePathTargetedConsumerCaseRepairApplyJournalTransitionResult
                 preparedTransition =
                     DataRelativePathTargetedConsumerCaseRepairApplyJournal
                         .MarkPrepared(
                             intentTransition.Record!,
-                            preparedIncarnation.Identity!,
+                            sourceIdentity,
                             nowUtc
                         );
 
@@ -759,18 +740,27 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
                 );
             }
 
-            LinuxPublishUnnamedFileAtResult publication =
-                LinuxPublishUnnamedFileAt.Publish(
-                    temporary,
+            LinuxRenameChildAtResult rename =
+                LinuxRenameChildAt.Rename(
+                    sourceParent,
+                    sourceChildName,
                     destinationParent,
                     destinationChildName
                 );
 
-            if (!publication.Success)
+            if (!rename.Success)
             {
                 return Result(
-                    DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
-                        .PublicationFailed,
+                    rename.State ==
+                    LinuxRenameChildAtState.CrossDeviceRenameNotSupported
+                        ? DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                            .CrossDeviceRenameNotSupported
+                        : rename.State ==
+                          LinuxRenameChildAtState.DestinationExists
+                            ? DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                                .DestinationExists
+                            : DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                                .RenameFailed,
                     plan.PlanId,
                     destinationPath:
                         fileOperation.DestinationPath,
@@ -781,9 +771,44 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
                     preparedJournalChildName:
                         preparedChildName,
                     error:
-                        publication.Error ??
-                        publication.State.ToString()
+                        rename.Error ??
+                        rename.State.ToString()
                 );
+            }
+
+            bool sourceAndDestinationParentDiffer =
+                !string.Equals(
+                    sourceParent.FullPath,
+                    destinationParent.FullPath,
+                    StringComparison.Ordinal
+                );
+
+            if (sourceAndDestinationParentDiffer)
+            {
+                LinuxFsyncResult sourceParentSync =
+                    LinuxFsync.Sync(
+                        sourceParent
+                    );
+
+                if (!sourceParentSync.Success)
+                {
+                    return Result(
+                        DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                            .SourceParentSyncFailed,
+                        plan.PlanId,
+                        destinationPath:
+                            fileOperation.DestinationPath,
+                        createdDirectoryPaths:
+                            createdDirectoryPaths,
+                        intentJournalChildName:
+                            intentChildName,
+                        preparedJournalChildName:
+                            preparedChildName,
+                        error:
+                            sourceParentSync.Error ??
+                            sourceParentSync.State.ToString()
+                    );
+                }
             }
 
             LinuxFsyncResult destinationParentSync =
@@ -811,13 +836,13 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
                 );
             }
 
-            LinuxOpenChildRegularFileReadOnlyAtResult publishedOpen =
+            LinuxOpenChildRegularFileReadOnlyAtResult renamedOpen =
                 LinuxOpenChildRegularFileReadOnlyAt.Open(
                     destinationParent,
                     destinationChildName
                 );
 
-            if (!publishedOpen.Success)
+            if (!renamedOpen.Success)
             {
                 return Result(
                     DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
@@ -832,17 +857,17 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
                     preparedJournalChildName:
                         preparedChildName,
                     error:
-                        publishedOpen.Error ??
-                        publishedOpen.State.ToString()
+                        renamedOpen.Error ??
+                        renamedOpen.State.ToString()
                 );
             }
 
-            using LinuxOpenedChildHandle published =
-                publishedOpen.OpenedFile!;
+            using LinuxOpenedChildHandle renamed =
+                renamedOpen.OpenedFile!;
 
             LinuxOpenedFileIncarnationResult appliedIncarnation =
                 LinuxOpenedFileIncarnation.Capture(
-                    published
+                    renamed
                 );
 
             if (!appliedIncarnation.Success)
@@ -862,6 +887,33 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
                     error:
                         appliedIncarnation.Error ??
                         appliedIncarnation.State.ToString()
+                );
+            }
+
+            // A rename cannot change the underlying inode. This is a
+            // sanity assertion, not a meaningful new risk: it confirms
+            // the object now visible at the destination name is exactly
+            // the same physical object captured before the rename.
+            if (
+                !sourceIdentity.SameIncarnationAs(
+                    appliedIncarnation.Identity!
+                ))
+            {
+                return Result(
+                    DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                        .AppliedIdentityMismatch,
+                    plan.PlanId,
+                    destinationPath:
+                        fileOperation.DestinationPath,
+                    createdDirectoryPaths:
+                        createdDirectoryPaths,
+                    intentJournalChildName:
+                        intentChildName,
+                    preparedJournalChildName:
+                        preparedChildName,
+                    error:
+                        "The renamed destination's physical identity did " +
+                        "not equal the pre-rename source identity."
                 );
             }
 
@@ -914,10 +966,10 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
             if (!appliedWrite.Success)
             {
                 /*
-                 * The destination is already published and its parent
-                 * directory already synced. Prepared remains a durable,
-                 * inspectable checkpoint if this final journal write
-                 * fails.
+                 * The rename has already happened and its parent
+                 * directory (or directories) have already been synced.
+                 * Prepared remains a durable, inspectable checkpoint if
+                 * this final journal write fails.
                  */
                 return Result(
                     DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
@@ -998,5 +1050,189 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
             Error:
                 error
         );
+    }
+
+    // Renames an existing, possibly-populated physical directory into
+    // place instead of creating a new empty one - see
+    // DataRelativePathRepairDirectoryRenameSource. Re-derives fresh proof
+    // of the source directory's identity and generation immediately
+    // before renaming, exactly as the final file rename re-derives fresh
+    // proof of its own source, rather than trusting the snapshot the
+    // plan was built from.
+    //
+    // Returns null on success. On failure, returns the execution state
+    // to report and sets errorMessage.
+    private static
+        DataRelativePathTargetedConsumerCaseRepairApplyExecutionState?
+        RenameExistingDirectoryIntoPlace(
+            DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord plan,
+            DataRelativePathRepairPlanOperation directoryOperation,
+            LinuxNoFollowPathHandle destinationParent,
+            string destinationChildName,
+            out string? errorMessage)
+    {
+        errorMessage =
+            null;
+
+        DataRelativePathRepairDirectoryRenameSource? expected =
+            plan.DirectoryRenameSources
+                .FirstOrDefault(
+                    source =>
+                        string.Equals(
+                            source.DestinationPath,
+                            directoryOperation.DestinationPath,
+                            StringComparison.Ordinal
+                        )
+                );
+
+        if (expected is null)
+        {
+            errorMessage =
+                "No directory-rename source evidence was durably " +
+                "recorded for this operation.";
+
+            return
+                DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                    .DirectoryRenameSourceMissing;
+        }
+
+        // The source and destination of a rename-flavored CreateDirectory
+        // operation always share the same immediate parent: the plan
+        // projector only ever finds an existing rename source by
+        // scanning within the exact same parent it is about to create
+        // the destination beneath. This holds for every step of a
+        // chained rename, too - once an ancestor has been renamed, the
+        // still-unrenamed child moved right along with it (renaming a
+        // directory is a metadata-only operation; it does not disturb
+        // anything beneath it), so it is now reachable as a child of
+        // this same destinationParent under its original leaf name,
+        // even though the operation's recorded SourcePath (an absolute
+        // string captured at planning time, before any ancestor had
+        // moved) no longer resolves on its own.
+        string existingChildName =
+            Path.GetFileName(
+                directoryOperation.SourcePath!
+            );
+
+        LinuxOpenChildReadOnlyAtResult existingOpen =
+            LinuxOpenChildReadOnlyAt.Open(
+                destinationParent,
+                existingChildName
+            );
+
+        if (
+            !existingOpen.Success ||
+            existingOpen.OpenedChild is null)
+        {
+            errorMessage =
+                existingOpen.Error ??
+                existingOpen.State.ToString();
+
+            return
+                DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                    .DirectorySourceOpenFailed;
+        }
+
+        using LinuxOpenedChildHandle existing =
+            existingOpen.OpenedChild;
+
+        LinuxOpenedDirectorySnapshotResult existingSnapshot =
+            LinuxOpenedDirectorySnapshot.Capture(
+                existing,
+                directoryOperation.SourcePath!
+            );
+
+        LinuxOpenedInodeGenerationResult existingGeneration =
+            LinuxOpenedInodeGeneration.Capture(
+                existing
+            );
+
+        if (
+            !existingSnapshot.Success ||
+            existingSnapshot.Identity is not
+                LinuxFileIdentityResult existingIdentity ||
+            !existingGeneration.Success ||
+            existingGeneration.Generation is not
+                uint existingGenerationValue)
+        {
+            errorMessage =
+                existingSnapshot.Error ??
+                existingGeneration.Error ??
+                "The directory-rename source's identity could not be " +
+                "freshly captured.";
+
+            return
+                DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                    .DirectorySourceIdentityUnavailable;
+        }
+
+        if (
+            existingIdentity.DeviceMajor !=
+                expected.Identity.DeviceMajor ||
+            existingIdentity.DeviceMinor !=
+                expected.Identity.DeviceMinor ||
+            existingIdentity.Inode !=
+                expected.Identity.Inode ||
+            existingIdentity.MountId !=
+                expected.Identity.MountId)
+        {
+            errorMessage =
+                "The freshly reacquired directory-rename source's " +
+                "physical identity does not equal the durable plan's " +
+                "recorded identity.";
+
+            return
+                DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                    .DirectorySourceIdentityMismatch;
+        }
+
+        if (existingGenerationValue != expected.InodeGeneration)
+        {
+            errorMessage =
+                "The freshly reacquired directory-rename source's inode " +
+                "generation does not equal the durable plan's recorded " +
+                "generation.";
+
+            return
+                DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                    .DirectorySourceGenerationMismatch;
+        }
+
+        LinuxRenameChildAtResult rename =
+            LinuxRenameChildAt.Rename(
+                destinationParent,
+                existingChildName,
+                destinationParent,
+                destinationChildName
+            );
+
+        if (!rename.Success)
+        {
+            errorMessage =
+                rename.Error ??
+                rename.State.ToString();
+
+            return
+                DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                    .DirectoryRenameFailed;
+        }
+
+        LinuxFsyncResult destinationParentSync =
+            LinuxFsync.Sync(
+                destinationParent
+            );
+
+        if (!destinationParentSync.Success)
+        {
+            errorMessage =
+                destinationParentSync.Error ??
+                destinationParentSync.State.ToString();
+
+            return
+                DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                    .DirectoryDestinationParentSyncFailed;
+        }
+
+        return null;
     }
 }

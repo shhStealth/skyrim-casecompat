@@ -206,7 +206,10 @@ public static class
                 current.DestinationParentSnapshot) ||
             !EquivalentOperations(
                 supplied.Operations,
-                current.Operations))
+                current.Operations) ||
+            !EquivalentDirectoryRenameSources(
+                supplied.DirectoryRenameSources,
+                current.DirectoryRenameSources))
         {
             error =
                 "The supplied targeted plan no longer exactly matches its " +
@@ -332,6 +335,54 @@ public static class
                     leftOperation.SourcePath,
                     rightOperation.SourcePath,
                     StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool EquivalentDirectoryRenameSources(
+        IReadOnlyList<DataRelativePathRepairDirectoryRenameSource> left,
+        IReadOnlyList<DataRelativePathRepairDirectoryRenameSource> right)
+    {
+        if (left.Count !=
+            right.Count)
+        {
+            return false;
+        }
+
+        for (
+            int index = 0;
+            index < left.Count;
+            index++)
+        {
+            DataRelativePathRepairDirectoryRenameSource leftSource =
+                left[index];
+
+            DataRelativePathRepairDirectoryRenameSource rightSource =
+                right[index];
+
+            if (
+                !string.Equals(
+                    leftSource.DestinationPath,
+                    rightSource.DestinationPath,
+                    StringComparison.Ordinal) ||
+                !string.Equals(
+                    leftSource.PhysicalPath,
+                    rightSource.PhysicalPath,
+                    StringComparison.Ordinal) ||
+                leftSource.InodeGeneration !=
+                    rightSource.InodeGeneration ||
+                leftSource.Identity.DeviceMajor !=
+                    rightSource.Identity.DeviceMajor ||
+                leftSource.Identity.DeviceMinor !=
+                    rightSource.Identity.DeviceMinor ||
+                leftSource.Identity.Inode !=
+                    rightSource.Identity.Inode ||
+                leftSource.Identity.MountId !=
+                    rightSource.Identity.MountId)
             {
                 return false;
             }

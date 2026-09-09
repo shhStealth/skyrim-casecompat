@@ -20,7 +20,9 @@ public enum DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
     DestinationInspectionFailed,
     DestinationConflict,
     DestinationParentSnapshotFailed,
-    DestinationParentCasefoldNotStrict
+    DestinationParentCasefoldNotStrict,
+    DestinationParentAmbiguous,
+    DirectoryRenameSourceIdentityUnavailable
 }
 
 // Manifest-independent destination plan shape.
@@ -42,6 +44,8 @@ public sealed record
         DataRelativePathRepairDestinationParentSnapshot?
             DestinationParentSnapshot,
         IReadOnlyList<DataRelativePathRepairPlanOperation> Operations,
+        IReadOnlyList<DataRelativePathRepairDirectoryRenameSource>
+            DirectoryRenameSources,
         string? Error
     )
 {
@@ -388,16 +392,36 @@ public static class
         }
 
         IReadOnlyList<DataRelativePathRepairPlanOperation> operations;
+        IReadOnlyList<DataRelativePathRepairDirectoryRenameSource>
+            directoryRenameSources;
 
         try
         {
-            operations =
-                BuildOperations(
+            if (!TryBuildOperations(
+                    destinationParent,
                     destinationParentPath,
                     requestedComponents,
                     firstMissingIndex,
-                    sourcePath
+                    sourcePath,
+                    out operations,
+                    out directoryRenameSources,
+                    out DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
+                        buildFailureState,
+                    out string? buildError))
+            {
+                return Result(
+                    candidate,
+                    buildFailureState,
+                    firstMissingComponentIndex:
+                        firstMissingIndex,
+                    openedDestinationParentSnapshot:
+                        openedSnapshot,
+                    destinationParentSnapshot:
+                        destinationSnapshot,
+                    error:
+                        buildError
                 );
+            }
         }
         catch (
             Exception ex)
@@ -436,63 +460,344 @@ public static class
                 destinationSnapshot,
             Operations:
                 operations,
+            DirectoryRenameSources:
+                directoryRenameSources,
             Error:
                 null
         );
     }
 
-    private static IReadOnlyList<DataRelativePathRepairPlanOperation>
-        BuildOperations(
-            string destinationParentPath,
-            IReadOnlyList<string> requestedComponents,
-            int firstMissingIndex,
-            string sourcePath)
+    // Builds the missing suffix as zero or more CreateDirectory steps
+    // followed by exactly one CreateFile step.
+    //
+    // Each intermediate CreateDirectory step is classified against the
+    // real, current filesystem state rather than assumed to need a fresh
+    // empty directory:
+    //
+    //   - No physical child case-insensitively matches the requested
+    //     segment: a genuinely new, empty directory (SourcePath null),
+    //     exactly as before. Nothing beneath a genuinely new directory
+    //     can already exist either, so every deeper segment is also
+    //     necessarily new.
+    //   - Exactly one physical directory case-insensitively matches:
+    //     that existing, possibly-populated directory becomes this
+    //     operation's SourcePath, to be renamed wholesale rather than
+    //     shadowed by an empty new one - see
+    //     DataRelativePathRepairDirectoryRenameSource.
+    //   - Anything else (multiple matches, or a match that is not a
+    //     directory) is refused rather than guessed at.
+    private static bool TryBuildOperations(
+        ILinuxOpenedHandle destinationParent,
+        string destinationParentPath,
+        IReadOnlyList<string> requestedComponents,
+        int firstMissingIndex,
+        string sourcePath,
+        out IReadOnlyList<DataRelativePathRepairPlanOperation> operations,
+        out IReadOnlyList<DataRelativePathRepairDirectoryRenameSource>
+            directoryRenameSources,
+        out DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
+            failureState,
+        out string? error)
     {
-        var operations =
+        var operationList =
             new List<DataRelativePathRepairPlanOperation>(
                 requestedComponents.Count -
                 firstMissingIndex
             );
 
-        string current =
+        var renameSourceList =
+            new List<DataRelativePathRepairDirectoryRenameSource>();
+
+        operations =
+            operationList;
+
+        directoryRenameSources =
+            renameSourceList;
+
+        failureState =
+            DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
+                .Projected;
+
+        error =
+            null;
+
+        string currentDestinationPath =
             destinationParentPath;
 
-        for (
-            int index = firstMissingIndex;
-            index < requestedComponents.Count;
-            index++)
+        // The physically-existing parent to keep scanning for an
+        // already-populated match, or null once a segment has proven
+        // genuinely new (nothing beneath a nonexistent directory can
+        // exist either).
+        ILinuxOpenedHandle? existingScanParent =
+            destinationParent;
+
+        string existingScanParentPath =
+            destinationParentPath;
+
+        LinuxOpenedChildHandle? ownedScanParent =
+            null;
+
+        try
         {
-            current =
-                Path.GetFullPath(
-                    Path.Combine(
-                        current,
-                        requestedComponents[index]
+            for (
+                int index = firstMissingIndex;
+                index < requestedComponents.Count;
+                index++)
+            {
+                string component =
+                    requestedComponents[index];
+
+                currentDestinationPath =
+                    Path.GetFullPath(
+                        Path.Combine(
+                            currentDestinationPath,
+                            component
+                        )
+                    );
+
+                bool isFinal =
+                    index ==
+                    requestedComponents.Count - 1;
+
+                if (isFinal)
+                {
+                    operationList.Add(
+                        new DataRelativePathRepairPlanOperation(
+                            Kind:
+                                DataRelativePathRepairPlanOperationKind
+                                    .CreateFile,
+                            DestinationPath:
+                                currentDestinationPath,
+                            SourcePath:
+                                sourcePath
+                        )
+                    );
+
+                    break;
+                }
+
+                if (existingScanParent is null)
+                {
+                    operationList.Add(
+                        new DataRelativePathRepairPlanOperation(
+                            Kind:
+                                DataRelativePathRepairPlanOperationKind
+                                    .CreateDirectory,
+                            DestinationPath:
+                                currentDestinationPath,
+                            SourcePath:
+                                null
+                        )
+                    );
+
+                    continue;
+                }
+
+                LinuxEnumerateDirectoryAtResult enumerated =
+                    LinuxEnumerateDirectoryAt.Enumerate(
+                        existingScanParent
+                    );
+
+                if (!enumerated.Success)
+                {
+                    failureState =
+                        DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
+                            .DestinationInspectionFailed;
+
+                    error =
+                        enumerated.Error ??
+                        enumerated.State.ToString();
+
+                    return false;
+                }
+
+                string normalizedComponent =
+                    component.ToUpperInvariant();
+
+                string[] matches =
+                    enumerated.ChildNames
+                        .Where(
+                            name =>
+                                name.ToUpperInvariant() ==
+                                normalizedComponent
+                        )
+                        .ToArray();
+
+                if (matches.Length == 0)
+                {
+                    operationList.Add(
+                        new DataRelativePathRepairPlanOperation(
+                            Kind:
+                                DataRelativePathRepairPlanOperationKind
+                                    .CreateDirectory,
+                            DestinationPath:
+                                currentDestinationPath,
+                            SourcePath:
+                                null
+                        )
+                    );
+
+                    ownedScanParent?.Dispose();
+
+                    ownedScanParent =
+                        null;
+
+                    existingScanParent =
+                        null;
+
+                    continue;
+                }
+
+                if (matches.Length > 1)
+                {
+                    failureState =
+                        DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
+                            .DestinationParentAmbiguous;
+
+                    error =
+                        $"Multiple physical directory entries beneath " +
+                        $"'{existingScanParentPath}' case-insensitively " +
+                        $"match the requested segment '{component}'.";
+
+                    return false;
+                }
+
+                string matchedName =
+                    matches[0];
+
+                LinuxInspectChildAtResult inspected =
+                    LinuxInspectChildAt.Inspect(
+                        existingScanParent,
+                        matchedName
+                    );
+
+                if (
+                    !inspected.Success ||
+                    inspected.Kind !=
+                        LinuxChildObjectKind.Directory)
+                {
+                    failureState =
+                        DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
+                            .DestinationConflict;
+
+                    error =
+                        $"'{matchedName}' beneath " +
+                        $"'{existingScanParentPath}' case-insensitively " +
+                        $"matches the requested segment '{component}' " +
+                        "but is not a directory.";
+
+                    return false;
+                }
+
+                LinuxOpenChildReadOnlyAtResult matchedOpen =
+                    LinuxOpenChildReadOnlyAt.Open(
+                        existingScanParent,
+                        matchedName
+                    );
+
+                if (
+                    !matchedOpen.Success ||
+                    matchedOpen.OpenedChild is null)
+                {
+                    failureState =
+                        DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
+                            .DestinationInspectionFailed;
+
+                    error =
+                        matchedOpen.Error ??
+                        matchedOpen.State.ToString();
+
+                    return false;
+                }
+
+                LinuxOpenedChildHandle matchedHandle =
+                    matchedOpen.OpenedChild;
+
+                string matchedPhysicalPath =
+                    Path.GetFullPath(
+                        Path.Combine(
+                            existingScanParentPath,
+                            matchedName
+                        )
+                    );
+
+                LinuxOpenedDirectorySnapshotResult matchedSnapshot =
+                    LinuxOpenedDirectorySnapshot.Capture(
+                        matchedHandle,
+                        matchedPhysicalPath
+                    );
+
+                LinuxOpenedInodeGenerationResult matchedGeneration =
+                    LinuxOpenedInodeGeneration.Capture(
+                        matchedHandle
+                    );
+
+                if (
+                    !matchedSnapshot.Success ||
+                    matchedSnapshot.Identity is not
+                        LinuxFileIdentityResult matchedIdentity ||
+                    !matchedGeneration.Success ||
+                    matchedGeneration.Generation is not
+                        uint matchedGenerationValue)
+                {
+                    matchedHandle.Dispose();
+
+                    failureState =
+                        DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
+                            .DirectoryRenameSourceIdentityUnavailable;
+
+                    error =
+                        matchedSnapshot.Error ??
+                        matchedGeneration.Error ??
+                        "The existing physical directory's identity " +
+                        "could not be captured.";
+
+                    return false;
+                }
+
+                operationList.Add(
+                    new DataRelativePathRepairPlanOperation(
+                        Kind:
+                            DataRelativePathRepairPlanOperationKind
+                                .CreateDirectory,
+                        DestinationPath:
+                            currentDestinationPath,
+                        SourcePath:
+                            matchedPhysicalPath
                     )
                 );
 
-            bool final =
-                index ==
-                requestedComponents.Count - 1;
+                renameSourceList.Add(
+                    new DataRelativePathRepairDirectoryRenameSource(
+                        DestinationPath:
+                            currentDestinationPath,
+                        PhysicalPath:
+                            matchedPhysicalPath,
+                        Identity:
+                            matchedIdentity,
+                        InodeGeneration:
+                            matchedGenerationValue
+                    )
+                );
 
-            operations.Add(
-                new DataRelativePathRepairPlanOperation(
-                    Kind:
-                        final
-                            ? DataRelativePathRepairPlanOperationKind
-                                .CreateFile
-                            : DataRelativePathRepairPlanOperationKind
-                                .CreateDirectory,
-                    DestinationPath:
-                        current,
-                    SourcePath:
-                        final
-                            ? sourcePath
-                            : null
-                )
-            );
+                ownedScanParent?.Dispose();
+
+                ownedScanParent =
+                    matchedHandle;
+
+                existingScanParent =
+                    matchedHandle;
+
+                existingScanParentPath =
+                    matchedPhysicalPath;
+            }
+
+            return true;
         }
-
-        return operations.ToArray();
+        finally
+        {
+            ownedScanParent?.Dispose();
+        }
     }
 
     private static bool TryValidateCandidate(
@@ -759,6 +1064,8 @@ public static class
             DataRelativePathRepairDestinationParentSnapshot?
                 destinationParentSnapshot = null,
             IReadOnlyList<DataRelativePathRepairPlanOperation>? operations = null,
+            IReadOnlyList<DataRelativePathRepairDirectoryRenameSource>?
+                directoryRenameSources = null,
             string? error = null)
     {
         return new(
@@ -776,6 +1083,11 @@ public static class
                 operations ??
                 Array.Empty<
                     DataRelativePathRepairPlanOperation
+                >(),
+            DirectoryRenameSources:
+                directoryRenameSources ??
+                Array.Empty<
+                    DataRelativePathRepairDirectoryRenameSource
                 >(),
             Error:
                 error

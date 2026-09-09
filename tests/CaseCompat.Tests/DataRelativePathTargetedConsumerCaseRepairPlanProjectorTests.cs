@@ -158,6 +158,57 @@ public sealed class
             dataRoot,
             result.DestinationParentSnapshot!.PhysicalPath
         );
+
+        // "meshes" and "actors" physically exist (lowercase, holding the
+        // source file) - both CreateDirectory steps must rename those
+        // existing directories into place rather than create new empty
+        // ones alongside them.
+        Assert.Equal(
+            Path.Combine(
+                dataRoot,
+                "meshes"
+            ),
+            result.Operations[0].SourcePath
+        );
+
+        Assert.Equal(
+            Path.Combine(
+                dataRoot,
+                "meshes",
+                "actors"
+            ),
+            result.Operations[1].SourcePath
+        );
+
+        Assert.Equal(
+            2,
+            result.DirectoryRenameSources.Count
+        );
+
+        Assert.Contains(
+            result.DirectoryRenameSources,
+            source =>
+                source.PhysicalPath ==
+                    Path.Combine(
+                        dataRoot,
+                        "meshes"
+                    ) &&
+                source.DestinationPath ==
+                    result.Operations[0].DestinationPath
+        );
+
+        Assert.Contains(
+            result.DirectoryRenameSources,
+            source =>
+                source.PhysicalPath ==
+                    Path.Combine(
+                        dataRoot,
+                        "meshes",
+                        "actors"
+                    ) &&
+                source.DestinationPath ==
+                    result.Operations[1].DestinationPath
+        );
     }
 
     [Fact]

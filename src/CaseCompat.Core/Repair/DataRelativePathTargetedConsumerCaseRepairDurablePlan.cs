@@ -24,7 +24,9 @@ public sealed record
         uint SourceInodeGeneration,
         DataRelativePathRepairDestinationParentSnapshot
             InitialDestinationParentSnapshot,
-        IReadOnlyList<DataRelativePathRepairPlanOperation> Operations
+        IReadOnlyList<DataRelativePathRepairPlanOperation> Operations,
+        IReadOnlyList<DataRelativePathRepairDirectoryRenameSource>
+            DirectoryRenameSources
     )
 {
     public const int SchemaVersion1 =
@@ -176,7 +178,9 @@ public static class
                 InitialDestinationParentSnapshot:
                     canonical.DestinationParentSnapshot,
                 Operations:
-                    canonical.Operations.ToArray()
+                    canonical.Operations.ToArray(),
+                DirectoryRenameSources:
+                    canonical.DirectoryRenameSources.ToArray()
             );
 
         string? validationError =
@@ -460,18 +464,114 @@ public static class
                         "to the exact durable source snapshot path.";
                 }
             }
-            else
+            else if (operation.SourcePath is not null)
             {
-                if (operation.SourcePath is not null)
+                string? renameSourceError =
+                    ValidateDirectoryRenameSource(
+                        dataRoot,
+                        operationDestination,
+                        operation.SourcePath,
+                        record.DirectoryRenameSources
+                    );
+
+                if (renameSourceError is not null)
                 {
-                    return
-                        "Targeted CreateDirectory operations must not carry " +
-                        "a source path.";
+                    return renameSourceError;
                 }
             }
 
             expectedParent =
                 operationDestination;
+        }
+
+        int expectedRenameSourceCount =
+            record.Operations
+                .Take(
+                    record.Operations.Count - 1
+                )
+                .Count(
+                    op =>
+                        op.SourcePath is not null
+                );
+
+        if (
+            record.DirectoryRenameSources is null ||
+            record.DirectoryRenameSources.Count !=
+                expectedRenameSourceCount)
+        {
+            return
+                "The targeted durable plan's directory-rename sources do " +
+                "not exactly match its rename-flavored CreateDirectory " +
+                "operations.";
+        }
+
+        return null;
+    }
+
+    private static string? ValidateDirectoryRenameSource(
+        string dataRoot,
+        string operationDestination,
+        string operationSourcePath,
+        IReadOnlyList<DataRelativePathRepairDirectoryRenameSource>?
+            directoryRenameSources)
+    {
+        DataRelativePathRepairDirectoryRenameSource? match =
+            directoryRenameSources?
+                .FirstOrDefault(
+                    candidate =>
+                        string.Equals(
+                            candidate.DestinationPath,
+                            operationDestination,
+                            StringComparison.Ordinal
+                        )
+                );
+
+        if (match is null)
+        {
+            return
+                "A rename-flavored targeted CreateDirectory operation has " +
+                "no matching directory-rename source evidence.";
+        }
+
+        if (
+            !TryCanonicalAbsolutePath(
+                match.PhysicalPath,
+                out string physicalPath) ||
+            !string.Equals(
+                physicalPath,
+                operationSourcePath,
+                StringComparison.Ordinal) ||
+            !TryRelativeUnderRoot(
+                dataRoot,
+                physicalPath,
+                allowRoot:
+                    false,
+                out _))
+        {
+            return
+                "A targeted directory-rename source's physical path does " +
+                "not exactly match its operation's source path beneath " +
+                "the Data root.";
+        }
+
+        LinuxFileIdentityResult? identity =
+            match.Identity;
+
+        if (
+            identity is null ||
+            !identity.Success ||
+            identity.DeviceMajor is null ||
+            identity.DeviceMinor is null ||
+            identity.Inode is null ||
+            identity.MountId is null ||
+            !string.Equals(
+                identity.FullPath,
+                physicalPath,
+                StringComparison.Ordinal))
+        {
+            return
+                "A targeted directory-rename source requires complete " +
+                "physical identity bound to its exact physical path.";
         }
 
         return null;

@@ -128,14 +128,14 @@ public static class TargetedConsumerRollbackCommand
         if (rollback.Success)
         {
             Console.WriteLine(
-                "Destination removed: YES"
+                "Renamed back to original name: YES"
             );
 
             return 0;
         }
 
         Console.WriteLine(
-            "Destination removed: NO"
+            "Renamed back to original name: NO"
         );
 
         if (
@@ -146,7 +146,18 @@ public static class TargetedConsumerRollbackCommand
             Console.WriteLine(
                 "The current destination does not have the exact file " +
                 "incarnation this apply published. Rollback refuses to " +
-                "remove a file it cannot prove it created."
+                "rename back a file it cannot prove it created."
+            );
+        }
+
+        if (
+            rollback.State ==
+            DataRelativePathTargetedConsumerCaseRepairApplyRollbackState
+                .OriginalLocationOccupied)
+        {
+            Console.WriteLine(
+                "Something now occupies the original name. Rollback " +
+                "refuses to overwrite it."
             );
         }
 

@@ -563,7 +563,11 @@ public sealed class
                 InitialDestinationParentSnapshot:
                     parentSnapshot,
                 Operations:
-                    operations
+                    operations,
+                DirectoryRenameSources:
+                    Array.Empty<
+                        DataRelativePathRepairDirectoryRenameSource
+                    >()
             );
 
         Assert.Null(

@@ -10,8 +10,8 @@ On case-sensitive Linux paths, differences such as `meshes` versus
 
 CaseCompat finds the exact set of files your installed plugins actually
 request, checks each one against what physically exists on disk, and
-publishes a correctly-cased copy next to the original wherever the two
-disagree — without touching or removing anything that already works.
+renames the file to the correctly-requested case wherever the two
+disagree — leaving everything else in the install untouched.
 
 ## Quickstart: guided setup
 
@@ -46,12 +46,14 @@ dotnet run --project src/CaseCompat.Cli --
 ## Safety model
 
 - Nothing is modified until you confirm the apply step.
-- CaseCompat only ever *adds* a correctly-cased copy of a file; it never
-  deletes or overwrites the original. The two coexist afterward.
+- A fix is a rename, not a copy: the existing file's own data is
+  renamed to the correct case, so there is only ever one file on disk
+  for that asset — exactly like the original Windows install. No new
+  data is written and no other file is deleted or overwritten.
 - Every fix goes through a durable, fresh-verified plan before any
   filesystem mutation, and every applied fix is journaled with the exact
-  file identity it published — rollback re-verifies that identity before
-  removing anything, and refuses if the file has since changed.
+  file identity it renamed — rollback re-verifies that identity before
+  renaming anything back, and refuses if the file has since changed.
 - A mismatch that can't be safely resolved (an ambiguous or conflicting
   case) is skipped and reported, not guessed at.
 - There is no batch-wide atomic transaction: a batch run applies fixes
@@ -166,7 +168,8 @@ dotnet run --project src/CaseCompat.Cli -- \
 ```
 
 Rollback re-verifies the destination file's exact identity against what
-that apply published, and refuses to remove it if it no longer matches.
+that apply published, and refuses to rename it back if it no longer
+matches or if something now occupies the original name.
 
 ## Read-only diagnostics
 
@@ -222,5 +225,7 @@ case-equivalent names without modifying the scanned files.
   cases are rejected rather than guessed.
 - Auto-detection of the Skyrim install is best-effort (via Steam/Proton
   library data) and always falls back to asking you for a path.
-- Applying a fix always leaves both the original and the newly-published
-  correctly-cased file on disk; CaseCompat never deletes the original.
+- A fix requires the source and destination to be on the same
+  filesystem (true for a normal, single-drive Skyrim `Data` folder).
+  A `Data` directory spanning multiple mounted filesystems is not
+  supported.
