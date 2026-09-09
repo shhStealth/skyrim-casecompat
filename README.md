@@ -43,6 +43,20 @@ Running from source instead of a package:
 dotnet run --project src/CaseCompat.Cli --
 ```
 
+## Guided rollback
+
+If you want to undo a previous run, `rollback` walks through it the same
+way `run` does — no journal path or plan IDs to look up by hand:
+
+```bash
+./CaseCompat.Cli rollback
+```
+
+It re-detects the same Skyrim install, finds that install's journal
+automatically, tells you how many applied fixes it found, and — once you
+confirm — renames every one of them back to its original name, showing
+progress and a final summary the same way `run` does.
+
 ## Safety model
 
 - Nothing is modified until you confirm the apply step.
@@ -160,7 +174,9 @@ dotnet run --project src/CaseCompat.Cli -- \
 ```
 
 **Roll back one applied fix**, given its plan ID (the journal directory
-contains `<plan-id>.apply-*.json` files that name it):
+contains `<plan-id>.apply-*.json` files that name it). For rolling back
+an entire run at once without looking up plan IDs by hand, use the
+guided `casecompat rollback` command instead (see above).
 
 ```bash
 dotnet run --project src/CaseCompat.Cli -- \

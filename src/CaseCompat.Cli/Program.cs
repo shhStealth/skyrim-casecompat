@@ -18,6 +18,9 @@ switch (command)
     case "run":
         return CaseCompatWizardCommand.Run(args);
 
+    case "rollback":
+        return CaseCompatRollbackWizardCommand.Run(args);
+
     case "doctor":
         return RunDoctor(args);
 
@@ -381,12 +384,20 @@ static void ShowUsage()
     Console.WriteLine("Guided setup");
     Console.WriteLine("------------");
     Console.WriteLine(
-        "  casecompat        Detects your Skyrim install, walks " +
+        "  casecompat           Detects your Skyrim install, walks " +
         "through confirming"
     );
     Console.WriteLine(
-        "  casecompat run    it, scans for case-mismatch fixes, and " +
+        "  casecompat run       it, scans for case-mismatch fixes, and " +
         "applies them."
+    );
+    Console.WriteLine(
+        "  casecompat rollback  Detects your Skyrim install, finds its " +
+        "journal, and rolls"
+    );
+    Console.WriteLine(
+        "                       every applied fix back to its original " +
+        "name."
     );
 
     Console.WriteLine();

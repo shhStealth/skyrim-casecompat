@@ -7,11 +7,11 @@ namespace CaseCompat.Tests;
 public sealed class CliHelpOutputRegressionTests
 {
     private const string ExpectedHelpSha256 =
-        "a5d0aba0f54555cf7be3b2eb7c32239888202e0803212427fb81b927df4110e0";
+        "359b4049c4656fa232dfc0e4a867d6675bd6a01c1491a3cba4f72fcb2f463dd5";
 
-    private const int ExpectedHelpUtf8ByteCount = 2449;
+    private const int ExpectedHelpUtf8ByteCount = 2604;
 
-    private const int ExpectedHelpNewlineCount = 38;
+    private const int ExpectedHelpNewlineCount = 40;
 
     [Fact]
     public async Task
@@ -71,8 +71,14 @@ public sealed class CliHelpOutputRegressionTests
         );
 
         Assert.Contains(
-            "casecompat run    it, scans for case-mismatch fixes, and " +
-            "applies them.",
+            "casecompat run       it, scans for case-mismatch fixes, " +
+            "and applies them.",
+            result.StandardOutput
+        );
+
+        Assert.Contains(
+            "casecompat rollback  Detects your Skyrim install, finds " +
+            "its journal, and rolls",
             result.StandardOutput
         );
 

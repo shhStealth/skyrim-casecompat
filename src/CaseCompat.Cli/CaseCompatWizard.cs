@@ -1,7 +1,6 @@
 using CaseCompat.Bethesda.Plugins;
 using CaseCompat.Core.Repair;
 using CaseCompat.Filesystem.Linux;
-using System.Security.Cryptography;
 using System.Text;
 
 // Guided, interactive entry point for end users: detect the Skyrim
@@ -59,7 +58,7 @@ internal static class CaseCompatWizard
         }
 
         string? dataRoot =
-            ResolvePath(
+            CaseCompatWizardPrompts.ResolvePath(
                 input,
                 output,
                 label:
@@ -78,7 +77,7 @@ internal static class CaseCompatWizard
         }
 
         string? pluginsPath =
-            ResolvePath(
+            CaseCompatWizardPrompts.ResolvePath(
                 input,
                 output,
                 label:
@@ -97,7 +96,7 @@ internal static class CaseCompatWizard
         }
 
         string? loadOrderPath =
-            ResolvePath(
+            CaseCompatWizardPrompts.ResolvePath(
                 input,
                 output,
                 label:
@@ -116,7 +115,7 @@ internal static class CaseCompatWizard
         }
 
         string? cccPath =
-            ResolvePath(
+            CaseCompatWizardPrompts.ResolvePath(
                 input,
                 output,
                 label:
@@ -222,7 +221,7 @@ internal static class CaseCompatWizard
             "(Y/n): "
         );
 
-        if (!IsYes(
+        if (!CaseCompatWizardPrompts.IsYes(
                 input.ReadLine()))
         {
             output.WriteLine(
@@ -246,7 +245,7 @@ internal static class CaseCompatWizard
             candidates)
     {
         string stateDirectory =
-            GetStateDirectory(
+            CaseCompatStateDirectory.Resolve(
                 dataRoot
             );
 
@@ -456,119 +455,5 @@ internal static class CaseCompatWizard
         );
 
         return 0;
-    }
-
-    private static string? ResolvePath(
-        TextReader input,
-        TextWriter output,
-        string label,
-        string? detected,
-        Func<string, bool> validate,
-        string invalidMessage)
-    {
-        if (
-            detected is not null &&
-            validate(
-                detected))
-        {
-            output.Write(
-                $"{label} [auto-detected]: {detected}\nUse this? (Y/n): "
-            );
-
-            if (IsYes(
-                    input.ReadLine()))
-            {
-                return detected;
-            }
-        }
-
-        while (true)
-        {
-            output.Write(
-                $"Enter path for {label} (leave empty to cancel): "
-            );
-
-            string? entered =
-                input.ReadLine();
-
-            if (string.IsNullOrWhiteSpace(
-                    entered))
-            {
-                output.WriteLine(
-                    "Cancelled."
-                );
-
-                return null;
-            }
-
-            string trimmed =
-                entered.Trim();
-
-            if (!validate(
-                    trimmed))
-            {
-                output.WriteLine(
-                    invalidMessage
-                );
-
-                continue;
-            }
-
-            return trimmed;
-        }
-    }
-
-    private static bool IsYes(
-        string? response)
-    {
-        if (string.IsNullOrWhiteSpace(
-                response))
-        {
-            return true;
-        }
-
-        char first =
-            response.Trim()[0];
-
-        return
-            first != 'n' &&
-            first != 'N';
-    }
-
-    private static string GetStateDirectory(
-        string dataRoot)
-    {
-        string? xdgDataHome =
-            Environment.GetEnvironmentVariable(
-                "XDG_DATA_HOME"
-            );
-
-        string baseDirectory =
-            string.IsNullOrWhiteSpace(
-                xdgDataHome)
-                ? Path.Combine(
-                    Environment.GetFolderPath(
-                        Environment.SpecialFolder.UserProfile
-                    ),
-                    ".local",
-                    "share"
-                )
-                : xdgDataHome;
-
-        string hash =
-            Convert.ToHexString(
-                SHA256.HashData(
-                    Encoding.UTF8.GetBytes(
-                        dataRoot
-                    )
-                )
-            )[..16].ToLowerInvariant();
-
-        return Path.Combine(
-            baseDirectory,
-            "CaseCompat",
-            "installs",
-            hash
-        );
     }
 }
