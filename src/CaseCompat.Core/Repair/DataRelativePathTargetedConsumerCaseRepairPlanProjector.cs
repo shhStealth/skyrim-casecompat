@@ -22,7 +22,8 @@ public enum DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
     DestinationParentSnapshotFailed,
     DestinationParentCasefoldNotStrict,
     DestinationParentAmbiguous,
-    DirectoryRenameSourceIdentityUnavailable
+    DirectoryRenameSourceIdentityUnavailable,
+    AncestorCasingContested
 }
 
 // Manifest-independent destination plan shape.
@@ -87,10 +88,26 @@ public sealed record
 public static class
     DataRelativePathTargetedConsumerCaseRepairPlanProjector
 {
+    // contestedAncestorPrefixes is a whole-load-order aggregate (see
+    // DataRelativePathContestedAncestorAnalyzer) that this single-candidate
+    // projection has no way to derive on its own. Callers with visibility
+    // into the full discovered candidate set (batch apply, the guided
+    // wizard) must compute and pass it; callers that only ever plan one
+    // candidate in isolation (a single exact-path plan, or admission's
+    // own re-projection of an already-admitted candidate) cannot conflict
+    // with anything they didn't already pass through, so the permissive
+    // default is correct for them too.
+    private static readonly IReadOnlySet<string>
+        EmptyContestedAncestorPrefixes =
+            new HashSet<string>(
+                StringComparer.Ordinal
+            );
+
     public static DataRelativePathTargetedConsumerCaseRepairPlanProjection
         Project(
             LinuxNoFollowPathHandle trustedDataRoot,
-            DataRelativePathTargetedConsumerCaseRepairCandidate candidate)
+            DataRelativePathTargetedConsumerCaseRepairCandidate candidate,
+            IReadOnlySet<string>? contestedAncestorPrefixes = null)
     {
         ArgumentNullException.ThrowIfNull(
             trustedDataRoot
@@ -99,6 +116,9 @@ public static class
         ArgumentNullException.ThrowIfNull(
             candidate
         );
+
+        contestedAncestorPrefixes ??=
+            EmptyContestedAncestorPrefixes;
 
         if (!TryValidateCandidate(
                 trustedDataRoot,
@@ -158,7 +178,8 @@ public static class
                         components,
                         index,
                         currentParentPath,
-                        sourcePath
+                        sourcePath,
+                        contestedAncestorPrefixes
                     );
                 }
 
@@ -267,7 +288,8 @@ public static class
             IReadOnlyList<string> requestedComponents,
             int firstMissingIndex,
             string destinationParentPath,
-            string sourcePath)
+            string sourcePath,
+            IReadOnlySet<string> contestedAncestorPrefixes)
     {
         LinuxOpenedDirectorySnapshotResult openedSnapshot =
             LinuxOpenedDirectorySnapshot.Capture(
@@ -403,6 +425,7 @@ public static class
                     requestedComponents,
                     firstMissingIndex,
                     sourcePath,
+                    contestedAncestorPrefixes,
                     out operations,
                     out directoryRenameSources,
                     out DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
@@ -492,6 +515,7 @@ public static class
         IReadOnlyList<string> requestedComponents,
         int firstMissingIndex,
         string sourcePath,
+        IReadOnlySet<string> contestedAncestorPrefixes,
         out IReadOnlyList<DataRelativePathRepairPlanOperation> operations,
         out IReadOnlyList<DataRelativePathRepairDirectoryRenameSource>
             directoryRenameSources,
@@ -664,6 +688,37 @@ public static class
 
                 string matchedName =
                     matches[0];
+
+                if (matchedName != component)
+                {
+                    string accumulatedPrefix =
+                        string.Join(
+                            '/',
+                            requestedComponents.Take(
+                                index + 1
+                            )
+                        );
+
+                    if (contestedAncestorPrefixes.Contains(
+                            accumulatedPrefix.ToUpperInvariant()))
+                    {
+                        failureState =
+                            DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
+                                .AncestorCasingContested;
+
+                        error =
+                            $"'{existingScanParentPath}/{matchedName}' " +
+                            $"would need to be renamed to '{component}', " +
+                            "but a different, unrelated candidate's own " +
+                            "winning consumer requires a different casing " +
+                            "for this exact shared ancestor directory. " +
+                            "Renaming it would only satisfy one side and " +
+                            "silently strand the other's files, so this " +
+                            "fix is refused rather than guessed at.";
+
+                        return false;
+                    }
+                }
 
                 LinuxInspectChildAtResult inspected =
                     LinuxInspectChildAt.Inspect(

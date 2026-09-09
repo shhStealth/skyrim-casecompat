@@ -69,7 +69,11 @@ progress and a final summary the same way `run` does.
   file identity it renamed — rollback re-verifies that identity before
   renaming anything back, and refuses if the file has since changed.
 - A mismatch that can't be safely resolved (an ambiguous or conflicting
-  case) is skipped and reported, not guessed at.
+  case) is skipped and reported, not guessed at. This includes shared
+  ancestor directories: if two unrelated mods disagree about the correct
+  case for a folder they both use, there is no rename that satisfies
+  both, so that folder is left exactly as it is rather than fixed for
+  one mod at the other's expense.
 - There is no batch-wide atomic transaction: a batch run applies fixes
   one at a time, and each one is independently durable. If a run is
   interrupted, earlier fixes in that run remain applied; re-running is

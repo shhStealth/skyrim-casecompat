@@ -27,6 +27,11 @@ internal static class TargetedConsumerBatchApply
                 candidates.Count
             );
 
+        IReadOnlySet<string> contestedAncestorPrefixes =
+            DataRelativePathContestedAncestorAnalyzer.Analyze(
+                candidates
+            );
+
         foreach (
             DataRelativePathTargetedConsumerCaseRepairCandidate candidate
             in candidates)
@@ -36,7 +41,8 @@ internal static class TargetedConsumerBatchApply
                     dataRoot,
                     planDirectory,
                     journalDirectory,
-                    candidate
+                    candidate,
+                    contestedAncestorPrefixes
                 );
 
             var item =
@@ -102,7 +108,8 @@ internal static class TargetedConsumerBatchApply
             LinuxNoFollowPathHandle dataRoot,
             LinuxNoFollowPathHandle planDirectory,
             LinuxNoFollowPathHandle journalDirectory,
-            DataRelativePathTargetedConsumerCaseRepairCandidate candidate)
+            DataRelativePathTargetedConsumerCaseRepairCandidate candidate,
+            IReadOnlySet<string> contestedAncestorPrefixes)
     {
         DataRelativePathTargetedConsumerCaseRepairPlanProjection projection;
 
@@ -112,7 +119,8 @@ internal static class TargetedConsumerBatchApply
                 DataRelativePathTargetedConsumerCaseRepairPlanProjector
                     .Project(
                         dataRoot,
-                        candidate
+                        candidate,
+                        contestedAncestorPrefixes
                     );
         }
         catch (Exception ex)

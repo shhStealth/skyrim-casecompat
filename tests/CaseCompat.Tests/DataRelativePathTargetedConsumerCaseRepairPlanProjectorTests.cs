@@ -565,6 +565,156 @@ public sealed class
         );
     }
 
+    [Fact]
+    public void
+        Project_ContestedAncestorCasing_RefusesRenameButAllowsExactMatch()
+    {
+        // Two unrelated candidates whose own winning consumers disagree
+        // about the casing of the same shared ancestor ("actors" vs
+        // "Actors"). Only one physical "actors" (lowercase) exists.
+        // Candidate A would need to rename it to satisfy its own
+        // preference - that rename is refused, since it would strand
+        // whichever other candidate(s) actually need "actors" lowercase.
+        // Candidate B's own preference already matches what's on disk,
+        // so no rename is attempted for it and it proceeds normally.
+        string dataRoot =
+            CreateDataRoot();
+
+        CreateFile(
+            dataRoot,
+            "meshes/actors/CandidateA.nif",
+            "candidate A source"
+        );
+
+        CreateFile(
+            dataRoot,
+            "meshes/actors/CandidateB.nif",
+            "candidate B source"
+        );
+
+        DataRelativePathTargetedConsumerCaseRepairCandidate candidateA =
+            CreateCandidate(
+                dataRoot,
+                "Meshes/Actors/CandidateA.nif"
+            );
+
+        DataRelativePathTargetedConsumerCaseRepairCandidate candidateB =
+            CreateCandidate(
+                dataRoot,
+                "Meshes/actors/CandidateB.nif"
+            );
+
+        IReadOnlySet<string> contestedAncestorPrefixes =
+            DataRelativePathContestedAncestorAnalyzer.Analyze(
+                new[]
+                {
+                    candidateA,
+                    candidateB
+                }
+            );
+
+        Assert.Contains(
+            "MESHES/ACTORS",
+            contestedAncestorPrefixes
+        );
+
+        Assert.DoesNotContain(
+            "MESHES",
+            contestedAncestorPrefixes
+        );
+
+        using LinuxNoFollowPathHandle root =
+            OpenRoot(
+                dataRoot
+            );
+
+        DataRelativePathTargetedConsumerCaseRepairPlanProjection
+            projectionA =
+                DataRelativePathTargetedConsumerCaseRepairPlanProjector
+                    .Project(
+                        root,
+                        candidateA,
+                        contestedAncestorPrefixes
+                    );
+
+        Assert.False(
+            projectionA.HasPlan
+        );
+
+        Assert.Equal(
+            DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
+                .AncestorCasingContested,
+            projectionA.State
+        );
+
+        Assert.Empty(
+            projectionA.Operations
+        );
+
+        DataRelativePathTargetedConsumerCaseRepairPlanProjection
+            projectionB =
+                DataRelativePathTargetedConsumerCaseRepairPlanProjector
+                    .Project(
+                        root,
+                        candidateB,
+                        contestedAncestorPrefixes
+                    );
+
+        Assert.True(
+            projectionB.HasPlan,
+            projectionB.Error
+        );
+    }
+
+    [Fact]
+    public void
+        Project_UncontestedCandidate_IgnoresUnrelatedContestedAncestor()
+    {
+        // The contested-ancestor refusal must be scoped to the exact
+        // prefix in conflict - a candidate whose own path never touches
+        // that prefix must be completely unaffected.
+        string dataRoot =
+            CreateDataRoot();
+
+        CreateFile(
+            dataRoot,
+            "meshes/weapons/Sword.nif",
+            "unrelated candidate source"
+        );
+
+        DataRelativePathTargetedConsumerCaseRepairCandidate candidate =
+            CreateCandidate(
+                dataRoot,
+                "Meshes/Weapons/Sword.nif"
+            );
+
+        var contestedAncestorPrefixes =
+            new HashSet<string>(
+                StringComparer.Ordinal)
+            {
+                "MESHES/ACTORS"
+            };
+
+        using LinuxNoFollowPathHandle root =
+            OpenRoot(
+                dataRoot
+            );
+
+        DataRelativePathTargetedConsumerCaseRepairPlanProjection
+            projection =
+                DataRelativePathTargetedConsumerCaseRepairPlanProjector
+                    .Project(
+                        root,
+                        candidate,
+                        contestedAncestorPrefixes
+                    );
+
+        Assert.True(
+            projection.HasPlan,
+            projection.Error
+        );
+    }
+
     private static
         DataRelativePathTargetedConsumerCaseRepairCandidate
         CreateCandidate(

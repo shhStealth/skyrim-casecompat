@@ -441,6 +441,21 @@ internal static class CaseCompatWizard
                 "filesystem already resolves those paths correctly, so " +
                 "no change was needed."
             );
+
+            if (result.RejectionCounts.ContainsKey(
+                    "PlanRejected:AncestorCasingContested"))
+            {
+                output.WriteLine();
+
+                output.WriteLine(
+                    "'PlanRejected:AncestorCasingContested' means two or " +
+                    "more of your mods disagree about the correct case " +
+                    "for a shared folder they both use. There is no " +
+                    "single rename that satisfies both, so these were " +
+                    "left untouched rather than fixed for one mod at " +
+                    "the other's expense."
+                );
+            }
         }
 
         output.WriteLine();
