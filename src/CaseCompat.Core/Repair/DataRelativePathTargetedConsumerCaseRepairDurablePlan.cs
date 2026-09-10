@@ -26,7 +26,9 @@ public sealed record
             InitialDestinationParentSnapshot,
         IReadOnlyList<DataRelativePathRepairPlanOperation> Operations,
         IReadOnlyList<DataRelativePathRepairDirectoryRenameSource>
-            DirectoryRenameSources
+            DirectoryRenameSources,
+        IReadOnlyList<DataRelativePathRepairAliasSource>
+            AliasSources
     )
 {
     public const int SchemaVersion1 =
@@ -80,7 +82,9 @@ public static class
             Guid planId,
             DateTimeOffset createdUtc,
             DataRelativePathTargetedConsumerCaseRepairPlanProjection
-                projection)
+                projection,
+            IReadOnlySet<string>? contestedAncestorPrefixes = null,
+            LinuxNoFollowPathHandle? aliasesDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(
             trustedDataRoot
@@ -105,7 +109,9 @@ public static class
                 DataRelativePathTargetedConsumerCaseRepairPlanAdmission
                     .Admit(
                         trustedDataRoot,
-                        projection
+                        projection,
+                        contestedAncestorPrefixes,
+                        aliasesDirectory
                     );
 
         if (
@@ -180,7 +186,9 @@ public static class
                 Operations:
                     canonical.Operations.ToArray(),
                 DirectoryRenameSources:
-                    canonical.DirectoryRenameSources.ToArray()
+                    canonical.DirectoryRenameSources.ToArray(),
+                AliasSources:
+                    canonical.AliasSources.ToArray()
             );
 
         string? validationError =
@@ -393,17 +401,23 @@ public static class
                 operationIndex ==
                 record.Operations.Count - 1;
 
-            DataRelativePathRepairPlanOperationKind expectedKind =
+            bool matchesExpectedKind =
                 isFinal
-                    ? DataRelativePathRepairPlanOperationKind.CreateFile
-                    : DataRelativePathRepairPlanOperationKind.CreateDirectory;
+                    ? operation.Kind ==
+                        DataRelativePathRepairPlanOperationKind.CreateFile
+                    : operation.Kind is
+                        DataRelativePathRepairPlanOperationKind
+                            .CreateDirectory or
+                        DataRelativePathRepairPlanOperationKind
+                            .CreateAliasSymlink;
 
-            if (operation.Kind != expectedKind)
+            if (!matchesExpectedKind)
             {
                 return
                     "The targeted durable operation sequence must contain " +
-                    "zero or more CreateDirectory operations followed by " +
-                    "exactly one final CreateFile operation.";
+                    "zero or more CreateDirectory/CreateAliasSymlink " +
+                    "operations followed by exactly one final CreateFile " +
+                    "operation.";
             }
 
             string expectedDestination;
@@ -464,6 +478,24 @@ public static class
                         "to the exact durable source snapshot path.";
                 }
             }
+            else if (
+                operation.Kind ==
+                DataRelativePathRepairPlanOperationKind
+                    .CreateAliasSymlink)
+            {
+                string? aliasSourceError =
+                    ValidateAliasSource(
+                        dataRoot,
+                        operationDestination,
+                        operation.SourcePath,
+                        record.AliasSources
+                    );
+
+                if (aliasSourceError is not null)
+                {
+                    return aliasSourceError;
+                }
+            }
             else if (operation.SourcePath is not null)
             {
                 string? renameSourceError =
@@ -491,6 +523,9 @@ public static class
                 )
                 .Count(
                     op =>
+                        op.Kind ==
+                        DataRelativePathRepairPlanOperationKind
+                            .CreateDirectory &&
                         op.SourcePath is not null
                 );
 
@@ -503,6 +538,28 @@ public static class
                 "The targeted durable plan's directory-rename sources do " +
                 "not exactly match its rename-flavored CreateDirectory " +
                 "operations.";
+        }
+
+        int expectedAliasSourceCount =
+            record.Operations
+                .Take(
+                    record.Operations.Count - 1
+                )
+                .Count(
+                    op =>
+                        op.Kind ==
+                        DataRelativePathRepairPlanOperationKind
+                            .CreateAliasSymlink
+                );
+
+        if (
+            record.AliasSources is null ||
+            record.AliasSources.Count !=
+                expectedAliasSourceCount)
+        {
+            return
+                "The targeted durable plan's alias sources do not " +
+                "exactly match its CreateAliasSymlink operations.";
         }
 
         return null;
@@ -572,6 +629,96 @@ public static class
             return
                 "A targeted directory-rename source requires complete " +
                 "physical identity bound to its exact physical path.";
+        }
+
+        return null;
+    }
+
+    private static string? ValidateAliasSource(
+        string dataRoot,
+        string operationDestination,
+        string? operationSourcePath,
+        IReadOnlyList<DataRelativePathRepairAliasSource>?
+            aliasSources)
+    {
+        if (operationSourcePath is null)
+        {
+            return
+                "A CreateAliasSymlink operation requires a source path " +
+                "identifying the real directory it points at.";
+        }
+
+        DataRelativePathRepairAliasSource? match =
+            aliasSources?
+                .FirstOrDefault(
+                    candidate =>
+                        string.Equals(
+                            candidate.DestinationPath,
+                            operationDestination,
+                            StringComparison.Ordinal
+                        )
+                );
+
+        if (match is null)
+        {
+            return
+                "A CreateAliasSymlink operation has no matching alias " +
+                "source evidence.";
+        }
+
+        if (
+            !TryCanonicalAbsolutePath(
+                match.PhysicalPath,
+                out string physicalPath) ||
+            !string.Equals(
+                physicalPath,
+                operationSourcePath,
+                StringComparison.Ordinal) ||
+            !TryRelativeUnderRoot(
+                dataRoot,
+                physicalPath,
+                allowRoot:
+                    false,
+                out _))
+        {
+            return
+                "An alias source's physical path does not exactly match " +
+                "its operation's source path beneath the Data root.";
+        }
+
+        LinuxFileIdentityResult? identity =
+            match.Identity;
+
+        if (
+            identity is null ||
+            !identity.Success ||
+            identity.DeviceMajor is null ||
+            identity.DeviceMinor is null ||
+            identity.Inode is null ||
+            identity.MountId is null ||
+            !string.Equals(
+                identity.FullPath,
+                physicalPath,
+                StringComparison.Ordinal))
+        {
+            return
+                "An alias source requires complete physical identity " +
+                "bound to its exact physical path.";
+        }
+
+        if (
+            string.Equals(
+                Path.GetFileName(
+                    operationDestination
+                ),
+                Path.GetFileName(
+                    physicalPath
+                ),
+                StringComparison.Ordinal))
+        {
+            return
+                "An alias's link name and target name must not be " +
+                "identical.";
         }
 
         return null;

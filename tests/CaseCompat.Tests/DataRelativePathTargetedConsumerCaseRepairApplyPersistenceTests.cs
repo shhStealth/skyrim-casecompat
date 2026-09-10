@@ -733,6 +733,712 @@ public sealed class
     }
 
     [Fact]
+    public void
+        Execute_RealPipeline_ContestedAncestor_AliasesInsteadOfRenamingSharedDirectory()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        // A real end-to-end run through Candidate -> Project ->
+        // DurablePlan.Create -> Execute, exercising the alias path this
+        // Step-4 change adds. The uncontested "meshes" top level is
+        // still renamed wholesale (as always), but the contested
+        // "actors"/"Actors" ancestor beneath it must become a symlink
+        // alias instead of a rename - and this deliberately exercises
+        // that alias immediately following (in the same plan) an
+        // ancestor that was ITSELF just renamed, since the alias's own
+        // reopen must not depend on a now-stale absolute path string
+        // captured at plan-build time.
+        string dataRoot =
+            RealPipelineDataRoot();
+
+        string realActorsDirectory =
+            Path.Combine(
+                dataRoot,
+                "meshes",
+                "actors"
+            );
+
+        Directory.CreateDirectory(
+            realActorsDirectory
+        );
+
+        File.WriteAllText(
+            Path.Combine(
+                realActorsDirectory,
+                "candidatea.nif"
+            ),
+            "candidate A content"
+        );
+
+        File.WriteAllText(
+            Path.Combine(
+                realActorsDirectory,
+                "candidateb.nif"
+            ),
+            "candidate B content"
+        );
+
+        DataRelativePathTargetedConsumerCaseRepairCandidate candidateA =
+            RealPipelineCandidate(
+                dataRoot,
+                "Meshes/Actors/CandidateA.nif"
+            );
+
+        DataRelativePathTargetedConsumerCaseRepairCandidate candidateB =
+            RealPipelineCandidate(
+                dataRoot,
+                "Meshes/actors/CandidateB.nif"
+            );
+
+        IReadOnlySet<string> contestedAncestorPrefixes =
+            DataRelativePathContestedAncestorAnalyzer.Analyze(
+                new[]
+                {
+                    candidateA.AuthoritativeRequestedPath,
+                    candidateB.AuthoritativeRequestedPath
+                }
+            );
+
+        Assert.Contains(
+            "MESHES/ACTORS",
+            contestedAncestorPrefixes
+        );
+
+        using LinuxNoFollowPathHandle root =
+            RealPipelineOpenRoot(
+                dataRoot
+            );
+
+        DataRelativePathTargetedConsumerCaseRepairPlanProjection
+            projectionA =
+                DataRelativePathTargetedConsumerCaseRepairPlanProjector
+                    .Project(
+                        root,
+                        candidateA,
+                        contestedAncestorPrefixes
+                    );
+
+        Assert.True(
+            projectionA.HasPlan,
+            projectionA.Error
+        );
+
+        Assert.Single(
+            projectionA.AliasSources
+        );
+
+        Assert.Contains(
+            projectionA.Operations,
+            op =>
+                op.Kind ==
+                DataRelativePathRepairPlanOperationKind
+                    .CreateAliasSymlink
+        );
+
+        // Admission's own re-projection must be told about the same
+        // contested-ancestor set the original projection saw, or it will
+        // recompute a plain rename instead of an alias and reject this
+        // perfectly valid plan as a mismatch against itself.
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanCreation
+            creationA =
+                DataRelativePathTargetedConsumerCaseRepairDurablePlan.Create(
+                    root,
+                    Guid.NewGuid(),
+                    T0,
+                    projectionA,
+                    contestedAncestorPrefixes
+                );
+
+        Assert.True(
+            creationA.Success,
+            creationA.Error
+        );
+
+        string journalDirectoryPath =
+            Path.Combine(
+                Path.GetDirectoryName(
+                    dataRoot
+                )!,
+                "Journal"
+            );
+
+        string aliasesDirectoryPath =
+            Path.Combine(
+                Path.GetDirectoryName(
+                    dataRoot
+                )!,
+                "Aliases"
+            );
+
+        Directory.CreateDirectory(
+            journalDirectoryPath
+        );
+
+        Directory.CreateDirectory(
+            aliasesDirectoryPath
+        );
+
+        using LinuxNoFollowPathHandle journalDirectory =
+            RealPipelineOpenRoot(
+                journalDirectoryPath
+            );
+
+        using LinuxNoFollowPathHandle aliasesDirectory =
+            RealPipelineOpenRoot(
+                aliasesDirectoryPath
+            );
+
+        if (
+            !SupportsUnnamedFilesAt(
+                journalDirectory) ||
+            !SupportsUnnamedFilesAt(
+                aliasesDirectory))
+        {
+            return;
+        }
+
+        DataRelativePathTargetedConsumerCaseRepairApplyExecution executionA =
+            DataRelativePathTargetedConsumerCaseRepairApplyExecutor.Execute(
+                root,
+                journalDirectory,
+                creationA.Record!,
+                T0,
+                aliasesDirectory
+            );
+
+        Assert.True(
+            executionA.Success,
+            $"State={executionA.State} Error={executionA.Error}"
+        );
+
+        string renamedTopLevel =
+            Path.Combine(
+                dataRoot,
+                "Meshes"
+            );
+
+        Assert.True(
+            Directory.Exists(
+                renamedTopLevel
+            )
+        );
+
+        // The one real "actors" directory must still be exactly where it
+        // was - untouched and unrenamed - now reachable beneath the
+        // renamed top level under its original lowercase name.
+        string realActorsAfterTopRename =
+            Path.Combine(
+                renamedTopLevel,
+                "actors"
+            );
+
+        Assert.True(
+            Directory.Exists(
+                realActorsAfterTopRename
+            )
+        );
+
+        var aliasInfo =
+            new FileInfo(
+                Path.Combine(
+                    renamedTopLevel,
+                    "Actors"
+                )
+            );
+
+        Assert.Equal(
+            "actors",
+            aliasInfo.LinkTarget
+        );
+
+        // Candidate A's own file moved into place through the alias.
+        Assert.False(
+            File.Exists(
+                Path.Combine(
+                    realActorsDirectory,
+                    "candidatea.nif"
+                )
+            )
+        );
+
+        Assert.Equal(
+            "candidate A content",
+            File.ReadAllText(
+                Path.Combine(
+                    renamedTopLevel,
+                    "Actors",
+                    "CandidateA.nif"
+                )
+            )
+        );
+
+        // Candidate B's own file, an untouched sibling in the same real
+        // directory, must be completely unaffected by A's alias.
+        Assert.Equal(
+            "candidate B content",
+            File.ReadAllText(
+                Path.Combine(
+                    realActorsAfterTopRename,
+                    "candidateb.nif"
+                )
+            )
+        );
+
+        // The alias must genuinely expose the real directory's entire,
+        // untouched content - not just candidate A's own moved file -
+        // when read through the aliased (capitalized) name.
+        //
+        // Rediscovering candidate B through the full candidate-discovery
+        // pipeline after this alias exists is deliberately out of scope
+        // here: that pipeline's own case-insensitive namespace analyzer
+        // (DataRelativePathRepairAggregateNamespaceCurrentLeafAnalyzer)
+        // is a separate, pre-existing component, independent of the plan
+        // projector's own outer-loop alias recognition and ambiguous-match
+        // collapsing (see TryCollapseAmbiguousMatches and
+        // IsVerifiedKnownAlias). It is not yet alias-aware itself, and
+        // treats the real directory plus its alias as an unresolved
+        // multi-match conflict. This only matters for rediscovering
+        // candidates in a later, separate re-scan after aliases already
+        // exist on disk - a real batch run discovers every candidate
+        // once, up front, before any of them apply (see
+        // Execute_RealPipeline_SecondCandidateReusesExistingAliasAfterFirstApplies),
+        // so it does not block the feature's actual motivating scenario.
+        Assert.Equal(
+            "candidate B content",
+            File.ReadAllText(
+                Path.Combine(
+                    renamedTopLevel,
+                    "Actors",
+                    "candidateb.nif"
+                )
+            )
+        );
+    }
+
+    [Fact]
+    public void
+        Execute_RealPipeline_SecondCandidateReusesExistingAliasAfterFirstApplies()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        // Three unrelated candidates share the same contested ancestor:
+        // A and B both need "Actors" (capitalized); Z needs "actors"
+        // (lowercase, matching the one real directory exactly) - this is
+        // what makes the ancestor contested at all. "Meshes" itself is
+        // already correctly cased from the start, so applying A never
+        // needs to rename anything B's own SourceSnapshot depends on -
+        // isolating this test from the unrelated, already-understood
+        // "stale source after an ancestor rename" characteristic this
+        // pipeline has always had.
+        //
+        // This is the actual motivating scenario for the whole alias
+        // feature: a real batch run applies candidates one at a time,
+        // so B's own Project call necessarily happens AFTER A's alias
+        // already exists on disk. Without outer-loop alias recognition,
+        // B's exact-match traversal would hit A's symlink and be wrongly
+        // refused as a destination conflict.
+        string dataRoot =
+            RealPipelineDataRoot();
+
+        string meshesDirectory =
+            Path.Combine(
+                dataRoot,
+                "Meshes"
+            );
+
+        string realActorsDirectory =
+            Path.Combine(
+                meshesDirectory,
+                "actors"
+            );
+
+        Directory.CreateDirectory(
+            realActorsDirectory
+        );
+
+        File.WriteAllText(
+            Path.Combine(
+                realActorsDirectory,
+                "candidatea.nif"
+            ),
+            "candidate A content"
+        );
+
+        File.WriteAllText(
+            Path.Combine(
+                realActorsDirectory,
+                "candidateb2.nif"
+            ),
+            "candidate B content"
+        );
+
+        File.WriteAllText(
+            Path.Combine(
+                realActorsDirectory,
+                "candidatez.nif"
+            ),
+            "candidate Z content"
+        );
+
+        DataRelativePathTargetedConsumerCaseRepairCandidate candidateA =
+            RealPipelineCandidate(
+                dataRoot,
+                "Meshes/Actors/CandidateA.nif"
+            );
+
+        DataRelativePathTargetedConsumerCaseRepairCandidate candidateB =
+            RealPipelineCandidate(
+                dataRoot,
+                "Meshes/Actors/CandidateB2.nif"
+            );
+
+        DataRelativePathTargetedConsumerCaseRepairCandidate candidateZ =
+            RealPipelineCandidate(
+                dataRoot,
+                "Meshes/actors/CandidateZ.nif"
+            );
+
+        IReadOnlySet<string> contestedAncestorPrefixes =
+            DataRelativePathContestedAncestorAnalyzer.Analyze(
+                new[]
+                {
+                    candidateA.AuthoritativeRequestedPath,
+                    candidateB.AuthoritativeRequestedPath,
+                    candidateZ.AuthoritativeRequestedPath
+                }
+            );
+
+        Assert.Contains(
+            "MESHES/ACTORS",
+            contestedAncestorPrefixes
+        );
+
+        using LinuxNoFollowPathHandle root =
+            RealPipelineOpenRoot(
+                dataRoot
+            );
+
+        string journalDirectoryPath =
+            Path.Combine(
+                Path.GetDirectoryName(
+                    dataRoot
+                )!,
+                "Journal"
+            );
+
+        string aliasesDirectoryPath =
+            Path.Combine(
+                Path.GetDirectoryName(
+                    dataRoot
+                )!,
+                "Aliases"
+            );
+
+        Directory.CreateDirectory(
+            journalDirectoryPath
+        );
+
+        Directory.CreateDirectory(
+            aliasesDirectoryPath
+        );
+
+        using LinuxNoFollowPathHandle journalDirectory =
+            RealPipelineOpenRoot(
+                journalDirectoryPath
+            );
+
+        using LinuxNoFollowPathHandle aliasesDirectory =
+            RealPipelineOpenRoot(
+                aliasesDirectoryPath
+            );
+
+        if (
+            !SupportsUnnamedFilesAt(
+                journalDirectory) ||
+            !SupportsUnnamedFilesAt(
+                aliasesDirectory))
+        {
+            return;
+        }
+
+        // Candidate A applies first, creating the real alias.
+        DataRelativePathTargetedConsumerCaseRepairPlanProjection
+            projectionA =
+                DataRelativePathTargetedConsumerCaseRepairPlanProjector
+                    .Project(
+                        root,
+                        candidateA,
+                        contestedAncestorPrefixes,
+                        aliasesDirectory
+                    );
+
+        Assert.True(
+            projectionA.HasPlan,
+            projectionA.Error
+        );
+
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanCreation
+            creationA =
+                DataRelativePathTargetedConsumerCaseRepairDurablePlan.Create(
+                    root,
+                    Guid.NewGuid(),
+                    T0,
+                    projectionA,
+                    contestedAncestorPrefixes,
+                    aliasesDirectory
+                );
+
+        Assert.True(
+            creationA.Success,
+            creationA.Error
+        );
+
+        DataRelativePathTargetedConsumerCaseRepairApplyExecution executionA =
+            DataRelativePathTargetedConsumerCaseRepairApplyExecutor.Execute(
+                root,
+                journalDirectory,
+                creationA.Record!,
+                T0,
+                aliasesDirectory
+            );
+
+        Assert.True(
+            executionA.Success,
+            $"State={executionA.State} Error={executionA.Error}"
+        );
+
+        var aliasInfo =
+            new FileInfo(
+                Path.Combine(
+                    meshesDirectory,
+                    "Actors"
+                )
+            );
+
+        Assert.Equal(
+            "actors",
+            aliasInfo.LinkTarget
+        );
+
+        // Candidate B's own Project call now happens against a
+        // filesystem where "Actors" already exists as A's symlink -
+        // exactly the real batch-apply ordering.
+        DataRelativePathTargetedConsumerCaseRepairPlanProjection
+            projectionB =
+                DataRelativePathTargetedConsumerCaseRepairPlanProjector
+                    .Project(
+                        root,
+                        candidateB,
+                        contestedAncestorPrefixes,
+                        aliasesDirectory
+                    );
+
+        Assert.True(
+            projectionB.HasPlan,
+            projectionB.Error
+        );
+
+        Assert.Single(
+            projectionB.AliasSources
+        );
+
+        Assert.Contains(
+            projectionB.Operations,
+            op =>
+                op.Kind ==
+                DataRelativePathRepairPlanOperationKind
+                    .CreateAliasSymlink
+        );
+
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanCreation
+            creationB =
+                DataRelativePathTargetedConsumerCaseRepairDurablePlan.Create(
+                    root,
+                    Guid.NewGuid(),
+                    T0,
+                    projectionB,
+                    contestedAncestorPrefixes,
+                    aliasesDirectory
+                );
+
+        Assert.True(
+            creationB.Success,
+            creationB.Error
+        );
+
+        DataRelativePathTargetedConsumerCaseRepairApplyExecution executionB =
+            DataRelativePathTargetedConsumerCaseRepairApplyExecutor.Execute(
+                root,
+                journalDirectory,
+                creationB.Record!,
+                T0,
+                aliasesDirectory
+            );
+
+        // The alias operation is a reuse (idempotent no-op), not a
+        // conflict - B's own apply must succeed, not fail with
+        // AliasAlreadyExists.
+        Assert.True(
+            executionB.Success,
+            $"State={executionB.State} Error={executionB.Error}"
+        );
+
+        Assert.Equal(
+            "candidate B content",
+            File.ReadAllText(
+                Path.Combine(
+                    meshesDirectory,
+                    "Actors",
+                    "CandidateB2.nif"
+                )
+            )
+        );
+
+        // The alias itself is still exactly one symlink - B's apply did
+        // not create a second, competing one.
+        var aliasInfoAfterB =
+            new FileInfo(
+                Path.Combine(
+                    meshesDirectory,
+                    "Actors"
+                )
+            );
+
+        Assert.Equal(
+            "actors",
+            aliasInfoAfterB.LinkTarget
+        );
+
+        Assert.Equal(
+            "candidate A content",
+            File.ReadAllText(
+                Path.Combine(
+                    meshesDirectory,
+                    "Actors",
+                    "CandidateA.nif"
+                )
+            )
+        );
+    }
+
+    [Fact]
+    public void
+        Execute_RealPipeline_TwoRealDirectoriesStillRefuseAsAmbiguous()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        // Both "actors" and "Actors" physically exist as real,
+        // populated, non-symlink directories - the genuine "someone
+        // already manually created both" shape, distinct from the
+        // alias shape. A requested casing that matches neither exactly
+        // must still be refused as ambiguous, never guessed at, even
+        // with alias recognition wired in.
+        string dataRoot =
+            RealPipelineDataRoot();
+
+        string meshesDirectory =
+            Path.Combine(
+                dataRoot,
+                "Meshes"
+            );
+
+        string lowercaseActors =
+            Path.Combine(
+                meshesDirectory,
+                "actors"
+            );
+
+        string capitalizedActors =
+            Path.Combine(
+                meshesDirectory,
+                "Actors"
+            );
+
+        Directory.CreateDirectory(
+            lowercaseActors
+        );
+
+        Directory.CreateDirectory(
+            capitalizedActors
+        );
+
+        File.WriteAllText(
+            Path.Combine(
+                lowercaseActors,
+                "candidatea.nif"
+            ),
+            "lower content"
+        );
+
+        File.WriteAllText(
+            Path.Combine(
+                capitalizedActors,
+                "upper.nif"
+            ),
+            "upper content"
+        );
+
+        DataRelativePathTargetedConsumerCaseRepairCandidate candidate =
+            RealPipelineCandidate(
+                dataRoot,
+                "Meshes/ACTORS/CandidateA.nif"
+            );
+
+        using LinuxNoFollowPathHandle root =
+            RealPipelineOpenRoot(
+                dataRoot
+            );
+
+        string aliasesDirectoryPath =
+            Path.Combine(
+                Path.GetDirectoryName(
+                    dataRoot
+                )!,
+                "Aliases"
+            );
+
+        Directory.CreateDirectory(
+            aliasesDirectoryPath
+        );
+
+        using LinuxNoFollowPathHandle aliasesDirectory =
+            RealPipelineOpenRoot(
+                aliasesDirectoryPath
+            );
+
+        DataRelativePathTargetedConsumerCaseRepairPlanProjection
+            projection =
+                DataRelativePathTargetedConsumerCaseRepairPlanProjector
+                    .Project(
+                        root,
+                        candidate,
+                        contestedAncestorPrefixes:
+                            null,
+                        aliasesDirectory:
+                            aliasesDirectory
+                    );
+
+        Assert.False(
+            projection.HasPlan
+        );
+
+        Assert.Equal(
+            DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
+                .DestinationParentAmbiguous,
+            projection.State
+        );
+    }
+
+    [Fact]
     public void Execute_RequiredDirectoryAlreadyExists_RefusesWithoutCreatingFile()
     {
         if (!OperatingSystem.IsLinux())
@@ -852,6 +1558,331 @@ public sealed class
             Directory.GetFiles(
                 fixture.JournalDirectoryPath
             )
+        );
+    }
+
+    // ---- Executor: CreateAliasSymlink ----
+
+    [Fact]
+    public void
+        Execute_AliasOperation_CreatesSymlinkAndAppliesNestedFileInsideRealTarget()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (
+            !fixture.SupportsUnnamedFiles() ||
+            !fixture.SupportsUnnamedFilesAtAliasesDirectory())
+        {
+            return;
+        }
+
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord plan =
+            fixture.CreateAliasPlan(
+                out string realTargetDirectoryPath,
+                out string aliasLinkPath,
+                out string finalSourcePath,
+                out string finalDestinationPath
+            );
+
+        byte[] sourceBytesBeforeApply =
+            File.ReadAllBytes(
+                finalSourcePath
+            );
+
+        DataRelativePathTargetedConsumerCaseRepairApplyExecution execution =
+            DataRelativePathTargetedConsumerCaseRepairApplyExecutor.Execute(
+                fixture.DataRoot,
+                fixture.JournalDirectory,
+                plan,
+                T0,
+                fixture.AliasesDirectory
+            );
+
+        Assert.True(
+            execution.Success,
+            $"State={execution.State} Error={execution.Error}"
+        );
+
+        var linkInfo =
+            new FileInfo(
+                aliasLinkPath
+            );
+
+        Assert.True(
+            linkInfo.LinkTarget is not null
+        );
+
+        Assert.Equal(
+            Path.GetFileName(
+                realTargetDirectoryPath
+            ),
+            linkInfo.LinkTarget
+        );
+
+        Assert.True(
+            File.Exists(
+                finalDestinationPath
+            )
+        );
+
+        Assert.Equal(
+            sourceBytesBeforeApply,
+            File.ReadAllBytes(
+                finalDestinationPath
+            )
+        );
+
+        Assert.False(
+            File.Exists(
+                finalSourcePath
+            )
+        );
+
+        // The alias's own registry entry must be durably recorded so a
+        // later scan can recognize this specific symlink as one this
+        // project created itself.
+        DataRelativePathRepairAliasRegistryLookupResult lookup =
+            DataRelativePathRepairAliasRegistry.TryFind(
+                fixture.AliasesDirectory,
+                Path.GetDirectoryName(
+                    aliasLinkPath
+                )!,
+                Path.GetFileName(
+                    aliasLinkPath
+                )
+            );
+
+        Assert.True(
+            lookup.Success,
+            lookup.Error
+        );
+
+        Assert.Equal(
+            Path.GetFileName(
+                realTargetDirectoryPath
+            ),
+            lookup.Record!.TargetName
+        );
+    }
+
+    [Fact]
+    public void Execute_AliasOperation_AliasesDirectoryNotProvided_Refuses()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (!fixture.SupportsUnnamedFiles())
+        {
+            return;
+        }
+
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord plan =
+            fixture.CreateAliasPlan(
+                out _,
+                out string aliasLinkPath,
+                out string finalSourcePath,
+                out _
+            );
+
+        DataRelativePathTargetedConsumerCaseRepairApplyExecution execution =
+            DataRelativePathTargetedConsumerCaseRepairApplyExecutor.Execute(
+                fixture.DataRoot,
+                fixture.JournalDirectory,
+                plan,
+                T0
+            );
+
+        Assert.False(
+            execution.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                .AliasesDirectoryRequired,
+            execution.State
+        );
+
+        Assert.False(
+            File.Exists(
+                aliasLinkPath
+            )
+        );
+
+        Assert.True(
+            File.Exists(
+                finalSourcePath
+            )
+        );
+    }
+
+    [Fact]
+    public void Execute_AliasOperation_AliasNameAlreadyExists_Refuses()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (
+            !fixture.SupportsUnnamedFiles() ||
+            !fixture.SupportsUnnamedFilesAtAliasesDirectory())
+        {
+            return;
+        }
+
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord plan =
+            fixture.CreateAliasPlan(
+                out _,
+                out string aliasLinkPath,
+                out string finalSourcePath,
+                out _
+            );
+
+        Directory.CreateDirectory(
+            aliasLinkPath
+        );
+
+        DataRelativePathTargetedConsumerCaseRepairApplyExecution execution =
+            DataRelativePathTargetedConsumerCaseRepairApplyExecutor.Execute(
+                fixture.DataRoot,
+                fixture.JournalDirectory,
+                plan,
+                T0,
+                fixture.AliasesDirectory
+            );
+
+        Assert.False(
+            execution.Success
+        );
+
+        Assert.Equal(
+            DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                .AliasAlreadyExists,
+            execution.State
+        );
+
+        Assert.True(
+            File.Exists(
+                finalSourcePath
+            )
+        );
+
+        Assert.Empty(
+            Directory.GetFiles(
+                fixture.JournalDirectoryPath
+            )
+        );
+    }
+
+    [Fact]
+    public void
+        Execute_AliasOperation_TargetIdentityChangedSincePlanning_Refuses()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using Fixture fixture =
+            new();
+
+        if (
+            !fixture.SupportsUnnamedFiles() ||
+            !fixture.SupportsUnnamedFilesAtAliasesDirectory())
+        {
+            return;
+        }
+
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord plan =
+            fixture.CreateAliasPlan(
+                out string realTargetDirectoryPath,
+                out _,
+                out string finalSourcePath,
+                out _
+            );
+
+        // Replace the alias target with a freshly-created directory of
+        // the exact same name: same path, different inode. The source
+        // file for the final CreateFile step lives inside this same
+        // directory, so it is moved out and back via rename (which never
+        // changes a file's own inode or generation) to isolate the
+        // identity change to the target directory alone.
+        string siblingContent =
+            File.ReadAllText(
+                Path.Combine(
+                    realTargetDirectoryPath,
+                    "sibling.dat"
+                )
+            );
+
+        string temporarySourcePath =
+            Path.Combine(
+                fixture.SubDirectoryPath,
+                "newfile.dat.tmp"
+            );
+
+        File.Move(
+            finalSourcePath,
+            temporarySourcePath
+        );
+
+        Directory.Delete(
+            realTargetDirectoryPath,
+            recursive:
+                true
+        );
+
+        Directory.CreateDirectory(
+            realTargetDirectoryPath
+        );
+
+        File.WriteAllText(
+            Path.Combine(
+                realTargetDirectoryPath,
+                "sibling.dat"
+            ),
+            siblingContent
+        );
+
+        File.Move(
+            temporarySourcePath,
+            finalSourcePath
+        );
+
+        DataRelativePathTargetedConsumerCaseRepairApplyExecution execution =
+            DataRelativePathTargetedConsumerCaseRepairApplyExecutor.Execute(
+                fixture.DataRoot,
+                fixture.JournalDirectory,
+                plan,
+                T0,
+                fixture.AliasesDirectory
+            );
+
+        Assert.False(
+            execution.Success
+        );
+
+        Assert.True(
+            execution.State is
+                DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                    .AliasTargetIdentityMismatch or
+                DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                    .AliasTargetGenerationMismatch,
+            $"Unexpected execution state: {execution.State}"
         );
     }
 
@@ -1545,12 +2576,22 @@ public sealed class
                     "Journal"
                 );
 
+            AliasesDirectoryPath =
+                Path.Combine(
+                    RootPath,
+                    "Aliases"
+                );
+
             Directory.CreateDirectory(
                 SubDirectoryPath
             );
 
             Directory.CreateDirectory(
                 JournalDirectoryPath
+            );
+
+            Directory.CreateDirectory(
+                AliasesDirectoryPath
             );
 
             SourcePath =
@@ -1616,6 +2657,11 @@ public sealed class
                 OpenRoot(
                     JournalDirectoryPath
                 );
+
+            AliasesDirectory =
+                OpenRoot(
+                    AliasesDirectoryPath
+                );
         }
 
         public string RootPath { get; }
@@ -1625,6 +2671,8 @@ public sealed class
         public string SubDirectoryPath { get; }
 
         public string JournalDirectoryPath { get; }
+
+        public string AliasesDirectoryPath { get; }
 
         public string SourcePath { get; }
 
@@ -1642,11 +2690,28 @@ public sealed class
 
         public LinuxNoFollowPathHandle JournalDirectory { get; }
 
+        public LinuxNoFollowPathHandle AliasesDirectory { get; }
+
         public bool SupportsUnnamedFiles()
+        {
+            return SupportsUnnamedFilesAt(
+                JournalDirectory
+            );
+        }
+
+        public bool SupportsUnnamedFilesAtAliasesDirectory()
+        {
+            return SupportsUnnamedFilesAt(
+                AliasesDirectory
+            );
+        }
+
+        private static bool SupportsUnnamedFilesAt(
+            LinuxNoFollowPathHandle directory)
         {
             LinuxCreateUnnamedFileAtResult probe =
                 LinuxCreateUnnamedFileAt.Create(
-                    JournalDirectory
+                    directory
                 );
 
             if (
@@ -1768,6 +2833,10 @@ public sealed class
                     DirectoryRenameSources:
                         Array.Empty<
                             DataRelativePathRepairDirectoryRenameSource
+                        >(),
+                    AliasSources:
+                        Array.Empty<
+                            DataRelativePathRepairAliasSource
                         >()
                 );
 
@@ -1894,6 +2963,10 @@ public sealed class
                     DirectoryRenameSources:
                         Array.Empty<
                             DataRelativePathRepairDirectoryRenameSource
+                        >(),
+                    AliasSources:
+                        Array.Empty<
+                            DataRelativePathRepairAliasSource
                         >()
                 );
 
@@ -1908,6 +2981,254 @@ public sealed class
             );
 
             return record;
+        }
+
+        public DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord
+            CreateAliasPlan(
+                out string realTargetDirectoryPath,
+                out string aliasLinkPath,
+                out string finalSourcePath,
+                out string finalDestinationPath)
+        {
+            realTargetDirectoryPath =
+                Path.Combine(
+                    SubDirectoryPath,
+                    "Actors"
+                );
+
+            Directory.CreateDirectory(
+                realTargetDirectoryPath
+            );
+
+            File.WriteAllText(
+                Path.Combine(
+                    realTargetDirectoryPath,
+                    "sibling.dat"
+                ),
+                "an untouched sibling"
+            );
+
+            finalSourcePath =
+                Path.Combine(
+                    realTargetDirectoryPath,
+                    "newfile.dat"
+                );
+
+            File.WriteAllBytes(
+                finalSourcePath,
+                Encoding.ASCII.GetBytes(
+                    "aliased content"
+                )
+            );
+
+            aliasLinkPath =
+                Path.Combine(
+                    SubDirectoryPath,
+                    "actors"
+                );
+
+            finalDestinationPath =
+                Path.Combine(
+                    aliasLinkPath,
+                    "NewFile.DAT"
+                );
+
+            LinuxFileIdentityResult subDirectoryIdentity =
+                LinuxFileIdentity.Inspect(
+                    SubDirectoryPath
+                );
+
+            Assert.True(
+                subDirectoryIdentity.Success,
+                subDirectoryIdentity.Error
+            );
+
+            LinuxFileIdentityResult realTargetIdentity =
+                LinuxFileIdentity.Inspect(
+                    realTargetDirectoryPath
+                );
+
+            Assert.True(
+                realTargetIdentity.Success,
+                realTargetIdentity.Error
+            );
+
+            uint realTargetInodeGeneration =
+                CaptureDirectoryInodeGeneration(
+                    SubDirectoryPath,
+                    "Actors"
+                );
+
+            LinuxFileIdentityResult sourceIdentity =
+                LinuxFileIdentity.Inspect(
+                    finalSourcePath
+                );
+
+            Assert.True(
+                sourceIdentity.Success,
+                sourceIdentity.Error
+            );
+
+            byte[] sourceBytes =
+                File.ReadAllBytes(
+                    finalSourcePath
+                );
+
+            string sourceSha256 =
+                Convert.ToHexString(
+                    SHA256.HashData(
+                        sourceBytes
+                    )
+                );
+
+            uint sourceInodeGeneration =
+                CaptureInodeGeneration(
+                    realTargetDirectoryPath,
+                    "newfile.dat"
+                );
+
+            var sourceSnapshot =
+                new DataRelativePathRepairSourceSnapshot(
+                    PhysicalPath:
+                        finalSourcePath,
+                    Size:
+                        sourceBytes.Length,
+                    Sha256:
+                        sourceSha256,
+                    Identity:
+                        sourceIdentity
+                );
+
+            var parentSnapshot =
+                new DataRelativePathRepairDestinationParentSnapshot(
+                    PhysicalPath:
+                        SubDirectoryPath,
+                    Identity:
+                        subDirectoryIdentity,
+                    CasefoldEnabled:
+                        false,
+                    RawFlags:
+                        0
+                );
+
+            DataRelativePathRepairPlanOperation[] operations =
+            [
+                new(
+                    Kind:
+                        DataRelativePathRepairPlanOperationKind
+                            .CreateAliasSymlink,
+                    DestinationPath:
+                        aliasLinkPath,
+                    SourcePath:
+                        realTargetDirectoryPath
+                ),
+                new(
+                    Kind:
+                        DataRelativePathRepairPlanOperationKind.CreateFile,
+                    DestinationPath:
+                        finalDestinationPath,
+                    SourcePath:
+                        finalSourcePath
+                )
+            ];
+
+            DataRelativePathRepairAliasSource[] aliasSources =
+            [
+                new(
+                    DestinationPath:
+                        aliasLinkPath,
+                    PhysicalPath:
+                        realTargetDirectoryPath,
+                    Identity:
+                        realTargetIdentity,
+                    InodeGeneration:
+                        realTargetInodeGeneration
+                )
+            ];
+
+            var record =
+                new DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord(
+                    SchemaVersion:
+                        DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord
+                            .SchemaVersion1,
+                    PlanId:
+                        Guid.NewGuid(),
+                    CreatedUtc:
+                        T0,
+                    DataRoot:
+                        DataRootPath,
+                    RequestedPath:
+                        "sub/actors/NewFile.DAT",
+                    SourceSnapshot:
+                        sourceSnapshot,
+                    SourceInodeGeneration:
+                        sourceInodeGeneration,
+                    InitialDestinationParentSnapshot:
+                        parentSnapshot,
+                    Operations:
+                        operations,
+                    DirectoryRenameSources:
+                        Array.Empty<
+                            DataRelativePathRepairDirectoryRenameSource
+                        >(),
+                    AliasSources:
+                        aliasSources
+                );
+
+            string? validationError =
+                DataRelativePathTargetedConsumerCaseRepairDurablePlan
+                    .Validate(
+                        record
+                    );
+
+            Assert.Null(
+                validationError
+            );
+
+            return record;
+        }
+
+        private static uint CaptureDirectoryInodeGeneration(
+            string parentPath,
+            string childName)
+        {
+            LinuxNoFollowPathHandle parent =
+                OpenRoot(
+                    parentPath
+                );
+
+            try
+            {
+                LinuxOpenChildReadOnlyAtResult opened =
+                    LinuxOpenChildReadOnlyAt.Open(
+                        parent,
+                        childName
+                    );
+
+                Assert.True(
+                    opened.Success,
+                    opened.Error
+                );
+
+                using LinuxOpenedChildHandle child =
+                    opened.OpenedChild!;
+
+                LinuxOpenedInodeGenerationResult generation =
+                    LinuxOpenedInodeGeneration.Capture(
+                        child
+                    );
+
+                Assert.True(
+                    generation.Success,
+                    generation.Error
+                );
+
+                return generation.Generation!.Value;
+            }
+            finally
+            {
+                parent.Dispose();
+            }
         }
 
         private static uint CaptureInodeGeneration(
@@ -1978,6 +3299,8 @@ public sealed class
             DataRoot.Dispose();
 
             JournalDirectory.Dispose();
+
+            AliasesDirectory.Dispose();
 
             if (
                 Directory.Exists(

@@ -31,7 +31,8 @@ public enum DataRelativePathRepairPlanProjectionState
 public enum DataRelativePathRepairPlanOperationKind
 {
     CreateDirectory,
-    CreateFile
+    CreateFile,
+    CreateAliasSymlink
 }
 
 public sealed record DataRelativePathRepairSourceSnapshot(
@@ -65,6 +66,21 @@ public sealed record DataRelativePathRepairPlanOperation(
 // instead of splitting them across an old, mostly-full directory and a
 // new, nearly-empty one.
 public sealed record DataRelativePathRepairDirectoryRenameSource(
+    string DestinationPath,
+    string PhysicalPath,
+    LinuxFileIdentityResult Identity,
+    uint InodeGeneration
+);
+
+// Identity evidence for one CreateAliasSymlink operation: a genuinely
+// contested ancestor directory, where exactly one physical directory
+// (PhysicalPath) already exists for real and a different, unrelated
+// candidate's own winning consumer needs the other casing. Rather than
+// renaming - which would satisfy one side and strand the other - a
+// symlink is created at the missing casing, pointing at this same
+// real directory, so both casings resolve to identical content with
+// nothing ever duplicated or split.
+public sealed record DataRelativePathRepairAliasSource(
     string DestinationPath,
     string PhysicalPath,
     LinuxFileIdentityResult Identity,

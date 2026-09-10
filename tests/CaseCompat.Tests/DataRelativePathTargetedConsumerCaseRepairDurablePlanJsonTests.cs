@@ -206,6 +206,98 @@ public sealed class
     }
 
     [Fact]
+    public void
+        DeserializeValidated_RoundTripPreservesAliasSourcesAndUsesStringEnum()
+    {
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord record =
+            CreateRecordWithAlias();
+
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanJsonSerializationResult
+            encoded =
+                DataRelativePathTargetedConsumerCaseRepairDurablePlanJson
+                    .SerializeValidated(
+                        record
+                    );
+
+        Assert.True(
+            encoded.Success,
+            encoded.Error
+        );
+
+        string json =
+            Encoding.UTF8.GetString(
+                encoded.Bytes!
+            );
+
+        Assert.Contains(
+            "\"Kind\": \"CreateAliasSymlink\"",
+            json,
+            StringComparison.Ordinal
+        );
+
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanJsonDeserializationResult
+            decoded =
+                DataRelativePathTargetedConsumerCaseRepairDurablePlanJson
+                    .DeserializeValidated(
+                        encoded.Bytes!
+                    );
+
+        Assert.True(
+            decoded.Success,
+            decoded.Error
+        );
+
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord restored =
+            Assert.IsType<
+                DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord
+            >(
+                decoded.Record
+            );
+
+        Assert.Single(
+            restored.AliasSources
+        );
+
+        Assert.Equal(
+            record.AliasSources[0],
+            restored.AliasSources[0]
+        );
+
+        Assert.Equal(
+            record.Operations.Count,
+            restored.Operations.Count
+        );
+
+        for (
+            int index = 0;
+            index < record.Operations.Count;
+            index++)
+        {
+            Assert.Equal(
+                record.Operations[index],
+                restored.Operations[index]
+            );
+        }
+
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanJsonSerializationResult
+            reencoded =
+                DataRelativePathTargetedConsumerCaseRepairDurablePlanJson
+                    .SerializeValidated(
+                        restored
+                    );
+
+        Assert.True(
+            reencoded.Success,
+            reencoded.Error
+        );
+
+        Assert.Equal(
+            encoded.Bytes,
+            reencoded.Bytes
+        );
+    }
+
+    [Fact]
     public void DeserializeValidated_MalformedJson_IsRejected()
     {
         byte[] malformed =
@@ -544,7 +636,173 @@ public sealed class
                 DirectoryRenameSources:
                     Array.Empty<
                         DataRelativePathRepairDirectoryRenameSource
+                    >(),
+                AliasSources:
+                    Array.Empty<
+                        DataRelativePathRepairAliasSource
                     >()
+            );
+
+        Assert.Null(
+            DataRelativePathTargetedConsumerCaseRepairDurablePlan.Validate(
+                record
+            )
+        );
+
+        return record;
+    }
+
+    private static
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord
+        CreateRecordWithAlias()
+    {
+        const string dataRoot =
+            "/game/Data";
+
+        const string source =
+            "/game/Data/meshes/actors/character/file.nif";
+
+        const string requested =
+            "Meshes/Actors/Character/File.NIF";
+
+        const string realActorsDirectory =
+            "/game/Data/Meshes/actors";
+
+        var sourceSnapshot =
+            new DataRelativePathRepairSourceSnapshot(
+                PhysicalPath:
+                    source,
+                Size:
+                    6,
+                Sha256:
+                    new string(
+                        'A',
+                        64
+                    ),
+                Identity:
+                    Identity(
+                        source,
+                        inode:
+                            100UL
+                    )
+            );
+
+        var parentSnapshot =
+            new DataRelativePathRepairDestinationParentSnapshot(
+                PhysicalPath:
+                    dataRoot,
+                Identity:
+                    Identity(
+                        dataRoot,
+                        inode:
+                            200UL
+                    ),
+                CasefoldEnabled:
+                    false,
+                RawFlags:
+                    0
+            );
+
+        // "Meshes" and "Character" are plain new directories. "Actors" is
+        // a genuinely contested ancestor: a different, unrelated
+        // candidate's own winning consumer needs the real, lowercase
+        // "actors" directory left exactly where it is, so this operation
+        // is an alias rather than a rename.
+        DataRelativePathRepairPlanOperation[] operations =
+        [
+            new(
+                Kind:
+                    DataRelativePathRepairPlanOperationKind
+                        .CreateDirectory,
+                DestinationPath:
+                    "/game/Data/Meshes",
+                SourcePath:
+                    null
+            ),
+            new(
+                Kind:
+                    DataRelativePathRepairPlanOperationKind
+                        .CreateAliasSymlink,
+                DestinationPath:
+                    "/game/Data/Meshes/Actors",
+                SourcePath:
+                    realActorsDirectory
+            ),
+            new(
+                Kind:
+                    DataRelativePathRepairPlanOperationKind
+                        .CreateDirectory,
+                DestinationPath:
+                    "/game/Data/Meshes/Actors/Character",
+                SourcePath:
+                    null
+            ),
+            new(
+                Kind:
+                    DataRelativePathRepairPlanOperationKind
+                        .CreateFile,
+                DestinationPath:
+                    "/game/Data/Meshes/Actors/Character/File.NIF",
+                SourcePath:
+                    source
+            )
+        ];
+
+        DataRelativePathRepairAliasSource[] aliasSources =
+        [
+            new(
+                DestinationPath:
+                    "/game/Data/Meshes/Actors",
+                PhysicalPath:
+                    realActorsDirectory,
+                Identity:
+                    Identity(
+                        realActorsDirectory,
+                        inode:
+                            300UL
+                    ),
+                InodeGeneration:
+                    7U
+            )
+        ];
+
+        var record =
+            new DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord(
+                SchemaVersion:
+                    DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord
+                        .SchemaVersion1,
+                PlanId:
+                    Guid.Parse(
+                        "9c1a6f0e-2222-4444-8888-abcdefabcdef"
+                    ),
+                CreatedUtc:
+                    new DateTimeOffset(
+                        2026,
+                        9,
+                        8,
+                        4,
+                        0,
+                        0,
+                        TimeSpan.Zero
+                    ),
+                DataRoot:
+                    dataRoot,
+                RequestedPath:
+                    requested,
+                SourceSnapshot:
+                    sourceSnapshot,
+                SourceInodeGeneration:
+                    12345U,
+                InitialDestinationParentSnapshot:
+                    parentSnapshot,
+                Operations:
+                    operations,
+                DirectoryRenameSources:
+                    Array.Empty<
+                        DataRelativePathRepairDirectoryRenameSource
+                    >(),
+                AliasSources:
+                    aliasSources
             );
 
         Assert.Null(

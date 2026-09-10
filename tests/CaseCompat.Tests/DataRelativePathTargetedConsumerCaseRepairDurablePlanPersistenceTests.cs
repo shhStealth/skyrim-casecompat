@@ -567,6 +567,10 @@ public sealed class
                 DirectoryRenameSources:
                     Array.Empty<
                         DataRelativePathRepairDirectoryRenameSource
+                    >(),
+                AliasSources:
+                    Array.Empty<
+                        DataRelativePathRepairAliasSource
                     >()
             );
 

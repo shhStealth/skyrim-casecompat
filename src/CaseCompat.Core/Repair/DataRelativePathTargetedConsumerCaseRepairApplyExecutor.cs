@@ -91,6 +91,18 @@ public enum DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
     DirectoryRenameFailed,
     DirectoryDestinationParentSyncFailed,
 
+    AliasesDirectoryRequired,
+    AliasSourceMissing,
+    AliasInspectionFailed,
+    AliasTargetOpenFailed,
+    AliasTargetIdentityUnavailable,
+    AliasTargetIdentityMismatch,
+    AliasTargetGenerationMismatch,
+    AliasAlreadyExists,
+    AliasCreateFailed,
+    AliasParentSyncFailed,
+    AliasRegistrationFailed,
+
     DestinationInspectionFailed,
     DestinationExists,
 
@@ -136,7 +148,8 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
             LinuxNoFollowPathHandle trustedDataRoot,
             LinuxNoFollowPathHandle journalDirectory,
             DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord plan,
-            DateTimeOffset nowUtc)
+            DateTimeOffset nowUtc,
+            LinuxNoFollowPathHandle? aliasesDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(
             trustedDataRoot
@@ -176,9 +189,12 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
                 )
                 .Any(
                     op =>
-                        op.Kind !=
-                        DataRelativePathRepairPlanOperationKind
-                            .CreateDirectory
+                        op.Kind is not (
+                            DataRelativePathRepairPlanOperationKind
+                                .CreateDirectory or
+                            DataRelativePathRepairPlanOperationKind
+                                .CreateAliasSymlink
+                        )
                 ))
         {
             return Result(
@@ -187,8 +203,8 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
                 plan.PlanId,
                 error:
                     "This executor supports plans whose operations are " +
-                    "zero or more CreateDirectory steps followed by " +
-                    "exactly one final CreateFile step."
+                    "zero or more CreateDirectory/CreateAliasSymlink " +
+                    "steps followed by exactly one final CreateFile step."
             );
         }
 
@@ -374,6 +390,18 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
         LinuxNoFollowPathHandle? currentParent =
             startingParentOpen.OpenedPath!;
 
+        // Tracks the plan-declared (logical) parent path each operation
+        // must be a direct child of. This is deliberately independent of
+        // currentParent's own physical path: once an alias is created,
+        // currentParent is reopened via the alias's real physical target
+        // (see below) so that every subsequent filesystem operation lands
+        // in the one real directory - never through the symlink itself -
+        // while the plan's own destination-path bookkeeping continues to
+        // use the alias's declared casing, exactly as validated by
+        // DataRelativePathTargetedConsumerCaseRepairDurablePlan.Validate.
+        string expectedParentPath =
+            currentParent.FullPath;
+
         try
         {
             foreach (
@@ -389,7 +417,7 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
                     directoryParentPath is null ||
                     !string.Equals(
                         directoryParentPath,
-                        currentParent.FullPath,
+                        expectedParentPath,
                         StringComparison.Ordinal))
                 {
                     return Result(
@@ -412,47 +440,92 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
                         directoryOperation.DestinationPath
                     );
 
-                LinuxInspectChildAtResult directoryPreflight =
-                    LinuxInspectChildAt.Inspect(
-                        currentParent,
-                        directoryChildName
-                    );
+                bool isAliasOperation =
+                    directoryOperation.Kind ==
+                    DataRelativePathRepairPlanOperationKind
+                        .CreateAliasSymlink;
 
-                if (directoryPreflight.Success)
+                // An alias operation skips this generic preflight
+                // entirely - CreateAliasIntoPlace runs its own targeted
+                // probe instead, since (unlike a directory) an alias that
+                // already exists and is already exactly correct is a
+                // legitimate idempotent reuse, not a conflict. See its
+                // own comment for why.
+                if (!isAliasOperation)
                 {
-                    return Result(
-                        DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
-                            .DirectoryAlreadyExists,
-                        plan.PlanId,
-                        destinationPath:
-                            fileOperation.DestinationPath,
-                        createdDirectoryPaths:
-                            createdDirectoryPaths,
-                        error:
-                            "The requested directory already exists. " +
-                            "Forward apply never overwrites it."
-                    );
+                    LinuxInspectChildAtResult directoryPreflight =
+                        LinuxInspectChildAt.Inspect(
+                            currentParent,
+                            directoryChildName
+                        );
+
+                    if (directoryPreflight.Success)
+                    {
+                        return Result(
+                            DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                                .DirectoryAlreadyExists,
+                            plan.PlanId,
+                            destinationPath:
+                                fileOperation.DestinationPath,
+                            createdDirectoryPaths:
+                                createdDirectoryPaths,
+                            error:
+                                "The requested directory already " +
+                                "exists. Forward apply never " +
+                                "overwrites it."
+                        );
+                    }
+
+                    if (
+                        directoryPreflight.State !=
+                        LinuxInspectChildAtState.ChildUnavailable)
+                    {
+                        return Result(
+                            DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                                .DirectoryInspectionFailed,
+                            plan.PlanId,
+                            destinationPath:
+                                fileOperation.DestinationPath,
+                            createdDirectoryPaths:
+                                createdDirectoryPaths,
+                            error:
+                                directoryPreflight.Error ??
+                                directoryPreflight.State.ToString()
+                        );
+                    }
                 }
 
-                if (
-                    directoryPreflight.State !=
-                    LinuxInspectChildAtState.ChildUnavailable)
+                if (isAliasOperation)
                 {
-                    return Result(
-                        DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
-                            .DirectoryInspectionFailed,
-                        plan.PlanId,
-                        destinationPath:
-                            fileOperation.DestinationPath,
-                        createdDirectoryPaths:
-                            createdDirectoryPaths,
-                        error:
-                            directoryPreflight.Error ??
-                            directoryPreflight.State.ToString()
-                    );
-                }
+                    DataRelativePathTargetedConsumerCaseRepairApplyExecutionState?
+                        aliasFailureState =
+                            CreateAliasIntoPlace(
+                                plan,
+                                directoryOperation,
+                                currentParent,
+                                directoryChildName,
+                                aliasesDirectory,
+                                nowUtc,
+                                out string? aliasFailureError
+                            );
 
-                if (directoryOperation.SourcePath is null)
+                    if (aliasFailureState is
+                        DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                            failureState)
+                    {
+                        return Result(
+                            failureState,
+                            plan.PlanId,
+                            destinationPath:
+                                fileOperation.DestinationPath,
+                            createdDirectoryPaths:
+                                createdDirectoryPaths,
+                            error:
+                                aliasFailureError
+                        );
+                    }
+                }
+                else if (directoryOperation.SourcePath is null)
                 {
                     LinuxCreateDirectoryAtResult directoryCreate =
                         LinuxCreateDirectoryAt.Create(
@@ -513,10 +586,38 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
                     directoryOperation.DestinationPath
                 );
 
+                expectedParentPath =
+                    directoryOperation.DestinationPath;
+
+                // Reopening past an alias never follows the symlink
+                // itself. The alias's SourcePath always holds the real
+                // target's own physical (non-symlink) path, so this
+                // reopens the same real directory the symlink points at
+                // directly - sidestepping this project's blanket
+                // "reject any symlink" traversal policy entirely for the
+                // executor's own internal walk, rather than weakening it.
+                //
+                // This reopen is deliberately descriptor-relative
+                // (OpenReadOnlyUnderRoot from the already-open, currently
+                // correct currentParent), not a fresh absolute-path walk
+                // from the filesystem root via directoryOperation's own
+                // recorded string. That recorded SourcePath was captured
+                // at plan-build time and can name an ancestor that this
+                // same apply already renamed earlier in this very loop -
+                // exactly the same staleness RenameExistingDirectoryIntoPlace
+                // already avoids by resolving its own source relative to
+                // the current parent rather than by an absolute string.
                 LinuxNoFollowPathOpenResult reopen =
-                    LinuxNoFollowPath.OpenRootReadOnly(
-                        directoryOperation.DestinationPath
-                    );
+                    isAliasOperation
+                        ? LinuxNoFollowPath.OpenReadOnlyUnderRoot(
+                            currentParent.FullPath,
+                            Path.GetFileName(
+                                directoryOperation.SourcePath!
+                            )
+                        )
+                        : LinuxNoFollowPath.OpenRootReadOnly(
+                            directoryOperation.DestinationPath
+                        );
 
                 if (!reopen.Success)
                 {
@@ -552,7 +653,7 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
                 finalParentPath is null ||
                 !string.Equals(
                     finalParentPath,
-                    destinationParent.FullPath,
+                    expectedParentPath,
                     StringComparison.Ordinal))
             {
                 return Result(
@@ -1231,6 +1332,318 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
             return
                 DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
                     .DirectoryDestinationParentSyncFailed;
+        }
+
+        return null;
+    }
+
+    // Creates a symlink alias for one genuinely contested ancestor
+    // segment instead of a directory - see DataRelativePathRepairAliasSource.
+    // Re-derives fresh proof of the alias target's identity and
+    // generation immediately before creating the symlink, exactly as
+    // every other boundary in this pipeline re-derives fresh proof
+    // rather than trusting the snapshot the plan was built from.
+    //
+    // Returns null on success. On failure, returns the execution state
+    // to report and sets errorMessage.
+    private static
+        DataRelativePathTargetedConsumerCaseRepairApplyExecutionState?
+        CreateAliasIntoPlace(
+            DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord plan,
+            DataRelativePathRepairPlanOperation directoryOperation,
+            LinuxNoFollowPathHandle currentParent,
+            string linkName,
+            LinuxNoFollowPathHandle? aliasesDirectory,
+            DateTimeOffset nowUtc,
+            out string? errorMessage)
+    {
+        errorMessage =
+            null;
+
+        if (aliasesDirectory is null)
+        {
+            errorMessage =
+                "An alias registry directory is required to apply a " +
+                "CreateAliasSymlink operation.";
+
+            return
+                DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                    .AliasesDirectoryRequired;
+        }
+
+        DataRelativePathRepairAliasSource? expected =
+            plan.AliasSources
+                .FirstOrDefault(
+                    source =>
+                        string.Equals(
+                            source.DestinationPath,
+                            directoryOperation.DestinationPath,
+                            StringComparison.Ordinal
+                        )
+                );
+
+        if (expected is null)
+        {
+            errorMessage =
+                "No alias source evidence was durably recorded for this " +
+                "operation.";
+
+            return
+                DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                    .AliasSourceMissing;
+        }
+
+        string targetName =
+            Path.GetFileName(
+                directoryOperation.SourcePath!
+            );
+
+        // Probe whatever currently occupies the alias name, if anything.
+        // Unlike a plain directory create, an alias that already exists
+        // and is already exactly correct is a legitimate idempotent
+        // reuse - not a conflict - since a later, unrelated candidate
+        // sharing the same contested ancestor is expected to compute the
+        // exact same alias its predecessor already created. The live
+        // target is re-read fresh here, never trusted from a hint; the
+        // identity check below re-verifies the real directory it points
+        // at regardless of whether a symlink is created below or reused.
+        bool needsCreate =
+            true;
+
+        LinuxReadSymlinkAtResult existingLink =
+            LinuxReadSymlinkAt.Read(
+                currentParent,
+                linkName
+            );
+
+        if (existingLink.Success)
+        {
+            if (
+                !string.Equals(
+                    existingLink.Target,
+                    targetName,
+                    StringComparison.Ordinal))
+            {
+                errorMessage =
+                    "An existing symlink already occupies the alias " +
+                    "name but points at a different target.";
+
+                return
+                    DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                        .AliasAlreadyExists;
+            }
+
+            needsCreate =
+                false;
+        }
+        else if (
+            existingLink.State ==
+            LinuxReadSymlinkAtState.ChildNotSymbolicLink)
+        {
+            errorMessage =
+                "A non-symlink object already occupies the alias name.";
+
+            return
+                DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                    .AliasAlreadyExists;
+        }
+        else if (
+            existingLink.State !=
+            LinuxReadSymlinkAtState.ChildUnavailable)
+        {
+            errorMessage =
+                existingLink.Error ??
+                existingLink.State.ToString();
+
+            return
+                DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                    .AliasInspectionFailed;
+        }
+
+        // A symlink created via symlinkat resolves a bare target name
+        // relative to the link's own parent directory, so the target
+        // must be opened as a direct child of this exact currentParent -
+        // not looked up by directoryOperation.SourcePath's own recorded
+        // absolute string, which was captured at plan-build time and can
+        // name an ancestor this same apply already renamed earlier in
+        // this very loop. Opening by bare child name here is exactly
+        // that same-parent lookup; the identity check below (immune to
+        // that staleness, since it compares captured device/inode values
+        // rather than path strings) is what actually re-verifies this is
+        // still the plan's intended target.
+        LinuxOpenChildReadOnlyAtResult targetOpen =
+            LinuxOpenChildReadOnlyAt.Open(
+                currentParent,
+                targetName
+            );
+
+        if (
+            !targetOpen.Success ||
+            targetOpen.OpenedChild is null)
+        {
+            errorMessage =
+                targetOpen.Error ??
+                targetOpen.State.ToString();
+
+            return
+                DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                    .AliasTargetOpenFailed;
+        }
+
+        using LinuxOpenedChildHandle target =
+            targetOpen.OpenedChild;
+
+        // The label passed to Capture must be the target's current
+        // physical path, not directoryOperation.SourcePath's own
+        // plan-build-time string - which, exactly like the reopen above,
+        // can be stale if this apply already renamed one of its
+        // ancestors earlier in this same loop.
+        string currentTargetPhysicalPath =
+            Path.Combine(
+                currentParent.FullPath,
+                targetName
+            );
+
+        LinuxOpenedDirectorySnapshotResult targetSnapshot =
+            LinuxOpenedDirectorySnapshot.Capture(
+                target,
+                currentTargetPhysicalPath
+            );
+
+        LinuxOpenedInodeGenerationResult targetGeneration =
+            LinuxOpenedInodeGeneration.Capture(
+                target
+            );
+
+        if (
+            !targetSnapshot.Success ||
+            targetSnapshot.Identity is not
+                LinuxFileIdentityResult targetIdentity ||
+            !targetGeneration.Success ||
+            targetGeneration.Generation is not
+                uint targetGenerationValue)
+        {
+            errorMessage =
+                targetSnapshot.Error ??
+                targetGeneration.Error ??
+                "The alias target's identity could not be freshly " +
+                "captured.";
+
+            return
+                DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                    .AliasTargetIdentityUnavailable;
+        }
+
+        if (
+            targetIdentity.DeviceMajor !=
+                expected.Identity.DeviceMajor ||
+            targetIdentity.DeviceMinor !=
+                expected.Identity.DeviceMinor ||
+            targetIdentity.Inode !=
+                expected.Identity.Inode ||
+            targetIdentity.MountId !=
+                expected.Identity.MountId)
+        {
+            errorMessage =
+                "The freshly reacquired alias target's physical identity " +
+                "does not equal the durable plan's recorded identity.";
+
+            return
+                DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                    .AliasTargetIdentityMismatch;
+        }
+
+        if (targetGenerationValue != expected.InodeGeneration)
+        {
+            errorMessage =
+                "The freshly reacquired alias target's inode generation " +
+                "does not equal the durable plan's recorded generation.";
+
+            return
+                DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                    .AliasTargetGenerationMismatch;
+        }
+
+        if (needsCreate)
+        {
+            LinuxCreateSymlinkAtResult create =
+                LinuxCreateSymlinkAt.Create(
+                    currentParent,
+                    linkName,
+                    targetName
+                );
+
+            if (!create.Success)
+            {
+                errorMessage =
+                    create.Error ??
+                    create.State.ToString();
+
+                return
+                    create.State ==
+                    LinuxCreateSymlinkAtState.DestinationExists
+                        ? DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                            .AliasAlreadyExists
+                        : DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                            .AliasCreateFailed;
+            }
+
+            LinuxFsyncResult parentSync =
+                LinuxFsync.Sync(
+                    currentParent
+                );
+
+            if (!parentSync.Success)
+            {
+                errorMessage =
+                    parentSync.Error ??
+                    parentSync.State.ToString();
+
+                return
+                    DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                        .AliasParentSyncFailed;
+            }
+        }
+
+        var aliasRecord =
+            new DataRelativePathRepairAliasRecord(
+                SchemaVersion:
+                    DataRelativePathRepairAliasRecord.CurrentSchemaVersion,
+                PlanId:
+                    plan.PlanId,
+                CreatedUtc:
+                    nowUtc,
+                DataRoot:
+                    plan.DataRoot,
+                ParentPath:
+                    currentParent.FullPath,
+                LinkName:
+                    linkName,
+                TargetName:
+                    targetName,
+                TargetIdentity:
+                    targetIdentity
+            );
+
+        DataRelativePathRepairAliasRegistryRecordResult registration =
+            DataRelativePathRepairAliasRegistry.Record(
+                aliasesDirectory,
+                aliasRecord
+            );
+
+        if (
+            !registration.Success &&
+            registration.State !=
+                DataRelativePathRepairAliasRegistryRecordState
+                    .AlreadyRecorded)
+        {
+            errorMessage =
+                registration.Error ??
+                registration.State.ToString();
+
+            return
+                DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                    .AliasRegistrationFailed;
         }
 
         return null;

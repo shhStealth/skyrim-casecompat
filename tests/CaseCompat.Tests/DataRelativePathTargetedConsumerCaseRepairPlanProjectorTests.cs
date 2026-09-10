@@ -567,16 +567,18 @@ public sealed class
 
     [Fact]
     public void
-        Project_ContestedAncestorCasing_RefusesRenameButAllowsExactMatch()
+        Project_ContestedAncestorCasing_AliasesRatherThanRenamingTheSharedDirectory()
     {
         // Two unrelated candidates whose own winning consumers disagree
         // about the casing of the same shared ancestor ("actors" vs
         // "Actors"). Only one physical "actors" (lowercase) exists.
-        // Candidate A would need to rename it to satisfy its own
-        // preference - that rename is refused, since it would strand
-        // whichever other candidate(s) actually need "actors" lowercase.
-        // Candidate B's own preference already matches what's on disk,
-        // so no rename is attempted for it and it proceeds normally.
+        // Candidate A's own preference ("Actors") differs from what
+        // physically exists - renaming it would strand candidate B, which
+        // actually needs "actors" lowercase, so a symlink alias is
+        // created at the missing casing instead, leaving the one real
+        // directory untouched and unrenamed. Candidate B's own preference
+        // already matches what's on disk, so it proceeds via a plain
+        // (inert) same-name match, unaffected by the alias.
         string dataRoot =
             CreateDataRoot();
 
@@ -608,8 +610,8 @@ public sealed class
             DataRelativePathContestedAncestorAnalyzer.Analyze(
                 new[]
                 {
-                    candidateA,
-                    candidateB
+                    candidateA.AuthoritativeRequestedPath,
+                    candidateB.AuthoritativeRequestedPath
                 }
             );
 
@@ -637,18 +639,102 @@ public sealed class
                         contestedAncestorPrefixes
                     );
 
-        Assert.False(
-            projectionA.HasPlan
+        Assert.True(
+            projectionA.HasPlan,
+            projectionA.Error
+        );
+
+        // "meshes" (top level) is uncontested, so it is still renamed
+        // wholesale into place. "actors" is contested, so it becomes an
+        // alias instead of a rename: the real, lowercase "actors"
+        // directory is left exactly where it is.
+        Assert.Equal(
+            3,
+            projectionA.Operations.Count
         );
 
         Assert.Equal(
-            DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
-                .AncestorCasingContested,
-            projectionA.State
+            DataRelativePathRepairPlanOperationKind.CreateDirectory,
+            projectionA.Operations[0].Kind
         );
 
-        Assert.Empty(
-            projectionA.Operations
+        Assert.Equal(
+            DataRelativePathRepairPlanOperationKind.CreateAliasSymlink,
+            projectionA.Operations[1].Kind
+        );
+
+        Assert.Equal(
+            DataRelativePathRepairPlanOperationKind.CreateFile,
+            projectionA.Operations[2].Kind
+        );
+
+        Assert.Equal(
+            Path.Combine(
+                dataRoot,
+                "meshes"
+            ),
+            projectionA.Operations[0].SourcePath
+        );
+
+        Assert.Equal(
+            Path.Combine(
+                dataRoot,
+                "meshes",
+                "actors"
+            ),
+            projectionA.Operations[1].SourcePath
+        );
+
+        Assert.Single(
+            projectionA.AliasSources
+        );
+
+        Assert.Equal(
+            Path.Combine(
+                dataRoot,
+                "meshes",
+                "actors"
+            ),
+            projectionA.AliasSources[0].PhysicalPath
+        );
+
+        Assert.Equal(
+            projectionA.Operations[1].DestinationPath,
+            projectionA.AliasSources[0].DestinationPath
+        );
+
+        Assert.DoesNotContain(
+            projectionA.DirectoryRenameSources,
+            source =>
+                source.PhysicalPath ==
+                Path.Combine(
+                    dataRoot,
+                    "meshes",
+                    "actors"
+                )
+        );
+
+        // The one real "actors" directory must genuinely be left alone -
+        // both source files (candidate A's and candidate B's) must still
+        // be readable beneath it, exactly as before.
+        Assert.True(
+            Directory.Exists(
+                Path.Combine(
+                    dataRoot,
+                    "meshes",
+                    "actors"
+                )
+            )
+        );
+
+        Assert.False(
+            Directory.Exists(
+                Path.Combine(
+                    dataRoot,
+                    "Meshes",
+                    "Actors"
+                )
+            )
         );
 
         DataRelativePathTargetedConsumerCaseRepairPlanProjection
@@ -663,6 +749,10 @@ public sealed class
         Assert.True(
             projectionB.HasPlan,
             projectionB.Error
+        );
+
+        Assert.Empty(
+            projectionB.AliasSources
         );
     }
 

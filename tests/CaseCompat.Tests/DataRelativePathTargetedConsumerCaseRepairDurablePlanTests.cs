@@ -437,6 +437,126 @@ public sealed class
         );
     }
 
+    [Fact]
+    public void Validate_AliasSourcePhysicalPathTamperIsRejected()
+    {
+        AliasFixture fixture =
+            CreateAliasFixture();
+
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord record =
+            CreateAliasDurable(
+                fixture
+            );
+
+        DataRelativePathRepairAliasSource[] aliasSources =
+            record.AliasSources
+                .ToArray();
+
+        aliasSources[0] =
+            aliasSources[0] with
+            {
+                PhysicalPath =
+                    aliasSources[0].PhysicalPath +
+                    ".tampered"
+            };
+
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord changed =
+            record with
+            {
+                AliasSources =
+                    aliasSources
+            };
+
+        Assert.NotNull(
+            DataRelativePathTargetedConsumerCaseRepairDurablePlan.Validate(
+                changed
+            )
+        );
+    }
+
+    [Fact]
+    public void Validate_AliasSourcesCountMismatchIsRejected()
+    {
+        AliasFixture fixture =
+            CreateAliasFixture();
+
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord record =
+            CreateAliasDurable(
+                fixture
+            );
+
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord changed =
+            record with
+            {
+                AliasSources =
+                    record.AliasSources
+                        .Append(
+                            record.AliasSources[0] with
+                            {
+                                DestinationPath =
+                                    record.AliasSources[0].DestinationPath +
+                                    ".bogus"
+                            }
+                        )
+                        .ToArray()
+            };
+
+        Assert.NotNull(
+            DataRelativePathTargetedConsumerCaseRepairDurablePlan.Validate(
+                changed
+            )
+        );
+    }
+
+    [Fact]
+    public void Validate_AliasOperationMissingSourcePathIsRejected()
+    {
+        AliasFixture fixture =
+            CreateAliasFixture();
+
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord record =
+            CreateAliasDurable(
+                fixture
+            );
+
+        DataRelativePathRepairPlanOperation[] operations =
+            record.Operations
+                .ToArray();
+
+        int aliasIndex =
+            Array.FindIndex(
+                operations,
+                op =>
+                    op.Kind ==
+                    DataRelativePathRepairPlanOperationKind
+                        .CreateAliasSymlink
+            );
+
+        Assert.True(
+            aliasIndex >= 0
+        );
+
+        operations[aliasIndex] =
+            operations[aliasIndex] with
+            {
+                SourcePath =
+                    null
+            };
+
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord changed =
+            record with
+            {
+                Operations =
+                    operations
+            };
+
+        Assert.NotNull(
+            DataRelativePathTargetedConsumerCaseRepairDurablePlan.Validate(
+                changed
+            )
+        );
+    }
+
     private static
         DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord
         CreateDurable(
@@ -465,6 +585,171 @@ public sealed class
             DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord
         >(
             creation.Record
+        );
+    }
+
+    private static
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord
+        CreateAliasDurable(
+            AliasFixture fixture)
+    {
+        using LinuxNoFollowPathHandle root =
+            OpenRoot(
+                fixture.DataRoot
+            );
+
+        DataRelativePathTargetedConsumerCaseRepairDurablePlanCreation
+            creation =
+                DataRelativePathTargetedConsumerCaseRepairDurablePlan.Create(
+                    root,
+                    Guid.NewGuid(),
+                    DateTimeOffset.UtcNow,
+                    fixture.Plan,
+                    fixture.ContestedAncestorPrefixes
+                );
+
+        Assert.True(
+            creation.Success,
+            creation.Error
+        );
+
+        return Assert.IsType<
+            DataRelativePathTargetedConsumerCaseRepairDurablePlanRecord
+        >(
+            creation.Record
+        );
+    }
+
+    // Two unrelated candidates sharing a contested ancestor ("actors" vs
+    // "Actors") - only candidate A's own plan is returned, and it must
+    // contain a genuine CreateAliasSymlink operation (not a rename),
+    // since only one real "actors" directory exists and candidate B's
+    // own winning consumer needs it to keep its current lowercase
+    // casing.
+    private static AliasFixture CreateAliasFixture()
+    {
+        string dataRoot =
+            CreateDataRoot();
+
+        CreateFile(
+            dataRoot,
+            "meshes/actors/character/file.nif",
+            "source"
+        );
+
+        CreateFile(
+            dataRoot,
+            "meshes/actors/other.nif",
+            "other"
+        );
+
+        string requestedPathA =
+            "Meshes/Actors/Character/File.NIF";
+
+        string requestedPathB =
+            "Meshes/actors/Other.NIF";
+
+        using LinuxNoFollowPathHandle root =
+            OpenRoot(
+                dataRoot
+            );
+
+        DataRelativePathTargetedConsumerCaseRepairCandidate candidateA =
+            BuildCandidate(
+                dataRoot,
+                requestedPathA
+            );
+
+        DataRelativePathTargetedConsumerCaseRepairCandidate candidateB =
+            BuildCandidate(
+                dataRoot,
+                requestedPathB
+            );
+
+        IReadOnlySet<string> contestedAncestorPrefixes =
+            DataRelativePathContestedAncestorAnalyzer.Analyze(
+                new[]
+                {
+                    candidateA.AuthoritativeRequestedPath,
+                    candidateB.AuthoritativeRequestedPath
+                }
+            );
+
+        DataRelativePathTargetedConsumerCaseRepairPlanProjection plan =
+            DataRelativePathTargetedConsumerCaseRepairPlanProjector.Project(
+                root,
+                candidateA,
+                contestedAncestorPrefixes
+            );
+
+        Assert.True(
+            plan.HasPlan,
+            plan.Error
+        );
+
+        Assert.Single(
+            plan.AliasSources
+        );
+
+        return new(
+            DataRoot:
+                dataRoot,
+            Candidate:
+                candidateA,
+            Plan:
+                plan,
+            ContestedAncestorPrefixes:
+                contestedAncestorPrefixes
+        );
+    }
+
+    private static
+        DataRelativePathTargetedConsumerCaseRepairCandidate
+        BuildCandidate(
+            string dataRoot,
+            string requestedPath)
+    {
+        using LinuxNoFollowPathHandle root =
+            OpenRoot(
+                dataRoot
+            );
+
+        string rootLogical =
+            requestedPath
+                .Split('/')[0]
+                .ToUpperInvariant();
+
+        DataRelativePathRepairAggregateNamespaceCurrentLeafAnalysis
+            current =
+                DataRelativePathRepairAggregateNamespaceCurrentLeafAnalyzer
+                    .Analyze(
+                        root,
+                        rootLogical,
+                        requestedPath
+                    );
+
+        DataRelativePathAggregateConsumerSpellingEvidence consumer =
+            DataRelativePathAggregateConsumerSpellingClassifier.Classify(
+                requestedPath.ToUpperInvariant(),
+                new[]
+                {
+                    requestedPath
+                }
+            );
+
+        DataRelativePathTargetedConsumerCaseRepairCandidateProjection
+            candidateProjection =
+                DataRelativePathTargetedConsumerCaseRepairCandidateProjector
+                    .Project(
+                        dataRoot,
+                        consumer,
+                        current
+                    );
+
+        return Assert.IsType<
+            DataRelativePathTargetedConsumerCaseRepairCandidate
+        >(
+            candidateProjection.Candidate
         );
     }
 
@@ -624,5 +909,12 @@ public sealed class
         string SourcePath,
         DataRelativePathTargetedConsumerCaseRepairCandidate Candidate,
         DataRelativePathTargetedConsumerCaseRepairPlanProjection Plan
+    );
+
+    private sealed record AliasFixture(
+        string DataRoot,
+        DataRelativePathTargetedConsumerCaseRepairCandidate Candidate,
+        DataRelativePathTargetedConsumerCaseRepairPlanProjection Plan,
+        IReadOnlySet<string> ContestedAncestorPrefixes
     );
 }

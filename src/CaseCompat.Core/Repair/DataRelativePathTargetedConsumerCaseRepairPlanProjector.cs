@@ -22,8 +22,7 @@ public enum DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
     DestinationParentSnapshotFailed,
     DestinationParentCasefoldNotStrict,
     DestinationParentAmbiguous,
-    DirectoryRenameSourceIdentityUnavailable,
-    AncestorCasingContested
+    DirectoryRenameSourceIdentityUnavailable
 }
 
 // Manifest-independent destination plan shape.
@@ -47,6 +46,7 @@ public sealed record
         IReadOnlyList<DataRelativePathRepairPlanOperation> Operations,
         IReadOnlyList<DataRelativePathRepairDirectoryRenameSource>
             DirectoryRenameSources,
+        IReadOnlyList<DataRelativePathRepairAliasSource> AliasSources,
         string? Error
     )
 {
@@ -107,7 +107,8 @@ public static class
         Project(
             LinuxNoFollowPathHandle trustedDataRoot,
             DataRelativePathTargetedConsumerCaseRepairCandidate candidate,
-            IReadOnlySet<string>? contestedAncestorPrefixes = null)
+            IReadOnlySet<string>? contestedAncestorPrefixes = null,
+            LinuxNoFollowPathHandle? aliasesDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(
             trustedDataRoot
@@ -179,7 +180,44 @@ public static class
                         index,
                         currentParentPath,
                         sourcePath,
-                        contestedAncestorPrefixes
+                        contestedAncestorPrefixes,
+                        aliasesDirectory
+                    );
+                }
+
+                if (
+                    opened.State ==
+                    LinuxOpenChildReadOnlyAtState
+                        .ChildSymbolicLinkRejected &&
+                    aliasesDirectory is not null &&
+                    IsVerifiedKnownAlias(
+                        aliasesDirectory,
+                        current,
+                        currentParentPath,
+                        requestedComponent
+                    ))
+                {
+                    // A symlink exists with exactly this requested name,
+                    // and it is durably recorded as one this project
+                    // itself created, freshly re-verified against its
+                    // actual live target rather than trusted from the
+                    // registry hint alone. Rather than following it (this
+                    // project never traverses through a symlink, even its
+                    // own), it is treated exactly as if this component
+                    // were still missing: re-entering the same discovery
+                    // that built the alias in the first place lets a
+                    // later, unrelated candidate reuse it instead of
+                    // being refused as a destination conflict.
+                    return ProjectMissingSuffix(
+                        trustedDataRoot,
+                        current,
+                        candidate,
+                        components,
+                        index,
+                        currentParentPath,
+                        sourcePath,
+                        contestedAncestorPrefixes,
+                        aliasesDirectory
                     );
                 }
 
@@ -279,6 +317,44 @@ public static class
         }
     }
 
+    // A registry hit alone is a hint, never a trusted fact: this also
+    // re-reads the symlink's actual current target and requires it to
+    // still name exactly the registered target before trusting it for
+    // anything, per this project's "always re-derive fresh proof
+    // immediately before mutating or trusting" rule.
+    private static bool IsVerifiedKnownAlias(
+        LinuxNoFollowPathHandle aliasesDirectory,
+        ILinuxOpenedHandle parent,
+        string parentPath,
+        string linkName)
+    {
+        DataRelativePathRepairAliasRegistryLookupResult lookup =
+            DataRelativePathRepairAliasRegistry.TryFind(
+                aliasesDirectory,
+                parentPath,
+                linkName
+            );
+
+        if (!lookup.Success)
+        {
+            return false;
+        }
+
+        LinuxReadSymlinkAtResult read =
+            LinuxReadSymlinkAt.Read(
+                parent,
+                linkName
+            );
+
+        return
+            read.Success &&
+            string.Equals(
+                read.Target,
+                lookup.Record!.TargetName,
+                StringComparison.Ordinal
+            );
+    }
+
     private static
         DataRelativePathTargetedConsumerCaseRepairPlanProjection
         ProjectMissingSuffix(
@@ -289,7 +365,8 @@ public static class
             int firstMissingIndex,
             string destinationParentPath,
             string sourcePath,
-            IReadOnlySet<string> contestedAncestorPrefixes)
+            IReadOnlySet<string> contestedAncestorPrefixes,
+            LinuxNoFollowPathHandle? aliasesDirectory)
     {
         LinuxOpenedDirectorySnapshotResult openedSnapshot =
             LinuxOpenedDirectorySnapshot.Capture(
@@ -360,10 +437,23 @@ public static class
                 missingComponent
             );
 
+        bool recheckIsVerifiedKnownAlias =
+            recheck.State ==
+                LinuxOpenChildReadOnlyAtState
+                    .ChildSymbolicLinkRejected &&
+            aliasesDirectory is not null &&
+            IsVerifiedKnownAlias(
+                aliasesDirectory,
+                destinationParent,
+                destinationParentPath,
+                missingComponent
+            );
+
         if (
             recheck.State !=
-            LinuxOpenChildReadOnlyAtState
-                .ChildUnavailable)
+                LinuxOpenChildReadOnlyAtState
+                    .ChildUnavailable &&
+            !recheckIsVerifiedKnownAlias)
         {
             if (recheck.Success &&
                 recheck.OpenedChild is not null)
@@ -416,6 +506,7 @@ public static class
         IReadOnlyList<DataRelativePathRepairPlanOperation> operations;
         IReadOnlyList<DataRelativePathRepairDirectoryRenameSource>
             directoryRenameSources;
+        IReadOnlyList<DataRelativePathRepairAliasSource> aliasSources;
 
         try
         {
@@ -426,8 +517,10 @@ public static class
                     firstMissingIndex,
                     sourcePath,
                     contestedAncestorPrefixes,
+                    aliasesDirectory,
                     out operations,
                     out directoryRenameSources,
+                    out aliasSources,
                     out DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
                         buildFailureState,
                     out string? buildError))
@@ -485,6 +578,8 @@ public static class
                 operations,
             DirectoryRenameSources:
                 directoryRenameSources,
+            AliasSources:
+                aliasSources,
             Error:
                 null
         );
@@ -502,13 +597,32 @@ public static class
     //     exactly as before. Nothing beneath a genuinely new directory
     //     can already exist either, so every deeper segment is also
     //     necessarily new.
-    //   - Exactly one physical directory case-insensitively matches:
-    //     that existing, possibly-populated directory becomes this
-    //     operation's SourcePath, to be renamed wholesale rather than
-    //     shadowed by an empty new one - see
-    //     DataRelativePathRepairDirectoryRenameSource.
-    //   - Anything else (multiple matches, or a match that is not a
-    //     directory) is refused rather than guessed at.
+    //   - Exactly one physical directory case-insensitively matches, and
+    //     nothing about this shared ancestor is contested: that existing,
+    //     possibly-populated directory becomes this operation's
+    //     SourcePath, to be renamed wholesale rather than shadowed by an
+    //     empty new one - see DataRelativePathRepairDirectoryRenameSource.
+    //   - Exactly one physical directory case-insensitively matches, but
+    //     a different, unrelated candidate's own winning consumer needs
+    //     this exact same ancestor under a different casing (a genuinely
+    //     contested ancestor - see DataRelativePathContestedAncestorAnalyzer):
+    //     renaming would satisfy one side and strand the other, so a
+    //     symlink alias is created at the missing casing instead, pointing
+    //     at the one real directory - see DataRelativePathRepairAliasSource.
+    //     Traversal continues into the real directory exactly as the
+    //     rename branch does, so deeper requested segments still resolve
+    //     against real, current filesystem state.
+    //   - Multiple matches, where exactly one is a real directory and
+    //     every other match is a symlink whose live target (freshly
+    //     re-read, never trusted from a hint) names that same real
+    //     directory and is durably recorded as one this project itself
+    //     created: not actually ambiguous, since every extra match
+    //     already resolves to the one real object. Collapses to that
+    //     single real directory and proceeds exactly as the single-match
+    //     case above.
+    //   - Anything else (multiple matches that do not collapse this way,
+    //     or a match that is not a directory) is refused rather than
+    //     guessed at.
     private static bool TryBuildOperations(
         ILinuxOpenedHandle destinationParent,
         string destinationParentPath,
@@ -516,9 +630,11 @@ public static class
         int firstMissingIndex,
         string sourcePath,
         IReadOnlySet<string> contestedAncestorPrefixes,
+        LinuxNoFollowPathHandle? aliasesDirectory,
         out IReadOnlyList<DataRelativePathRepairPlanOperation> operations,
         out IReadOnlyList<DataRelativePathRepairDirectoryRenameSource>
             directoryRenameSources,
+        out IReadOnlyList<DataRelativePathRepairAliasSource> aliasSources,
         out DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
             failureState,
         out string? error)
@@ -532,11 +648,17 @@ public static class
         var renameSourceList =
             new List<DataRelativePathRepairDirectoryRenameSource>();
 
+        var aliasSourceList =
+            new List<DataRelativePathRepairAliasSource>();
+
         operations =
             operationList;
 
         directoryRenameSources =
             renameSourceList;
+
+        aliasSources =
+            aliasSourceList;
 
         failureState =
             DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
@@ -674,20 +796,37 @@ public static class
 
                 if (matches.Length > 1)
                 {
-                    failureState =
-                        DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
-                            .DestinationParentAmbiguous;
+                    string? collapsed =
+                        TryCollapseAmbiguousMatches(
+                            existingScanParent,
+                            existingScanParentPath,
+                            matches,
+                            aliasesDirectory
+                        );
 
-                    error =
-                        $"Multiple physical directory entries beneath " +
-                        $"'{existingScanParentPath}' case-insensitively " +
-                        $"match the requested segment '{component}'.";
+                    if (collapsed is null)
+                    {
+                        failureState =
+                            DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
+                                .DestinationParentAmbiguous;
 
-                    return false;
+                        error =
+                            $"Multiple physical directory entries beneath " +
+                            $"'{existingScanParentPath}' case-insensitively " +
+                            $"match the requested segment '{component}'.";
+
+                        return false;
+                    }
+
+                    matches =
+                        [collapsed];
                 }
 
                 string matchedName =
                     matches[0];
+
+                bool isContestedAncestor =
+                    false;
 
                 if (matchedName != component)
                 {
@@ -699,25 +838,10 @@ public static class
                             )
                         );
 
-                    if (contestedAncestorPrefixes.Contains(
-                            accumulatedPrefix.ToUpperInvariant()))
-                    {
-                        failureState =
-                            DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
-                                .AncestorCasingContested;
-
-                        error =
-                            $"'{existingScanParentPath}/{matchedName}' " +
-                            $"would need to be renamed to '{component}', " +
-                            "but a different, unrelated candidate's own " +
-                            "winning consumer requires a different casing " +
-                            "for this exact shared ancestor directory. " +
-                            "Renaming it would only satisfy one side and " +
-                            "silently strand the other's files, so this " +
-                            "fix is refused rather than guessed at.";
-
-                        return false;
-                    }
+                    isContestedAncestor =
+                        contestedAncestorPrefixes.Contains(
+                            accumulatedPrefix.ToUpperInvariant()
+                        );
                 }
 
                 LinuxInspectChildAtResult inspected =
@@ -810,30 +934,60 @@ public static class
                     return false;
                 }
 
-                operationList.Add(
-                    new DataRelativePathRepairPlanOperation(
-                        Kind:
-                            DataRelativePathRepairPlanOperationKind
-                                .CreateDirectory,
-                        DestinationPath:
-                            currentDestinationPath,
-                        SourcePath:
-                            matchedPhysicalPath
-                    )
-                );
+                if (isContestedAncestor)
+                {
+                    operationList.Add(
+                        new DataRelativePathRepairPlanOperation(
+                            Kind:
+                                DataRelativePathRepairPlanOperationKind
+                                    .CreateAliasSymlink,
+                            DestinationPath:
+                                currentDestinationPath,
+                            SourcePath:
+                                matchedPhysicalPath
+                        )
+                    );
 
-                renameSourceList.Add(
-                    new DataRelativePathRepairDirectoryRenameSource(
-                        DestinationPath:
-                            currentDestinationPath,
-                        PhysicalPath:
-                            matchedPhysicalPath,
-                        Identity:
-                            matchedIdentity,
-                        InodeGeneration:
-                            matchedGenerationValue
-                    )
-                );
+                    aliasSourceList.Add(
+                        new DataRelativePathRepairAliasSource(
+                            DestinationPath:
+                                currentDestinationPath,
+                            PhysicalPath:
+                                matchedPhysicalPath,
+                            Identity:
+                                matchedIdentity,
+                            InodeGeneration:
+                                matchedGenerationValue
+                        )
+                    );
+                }
+                else
+                {
+                    operationList.Add(
+                        new DataRelativePathRepairPlanOperation(
+                            Kind:
+                                DataRelativePathRepairPlanOperationKind
+                                    .CreateDirectory,
+                            DestinationPath:
+                                currentDestinationPath,
+                            SourcePath:
+                                matchedPhysicalPath
+                        )
+                    );
+
+                    renameSourceList.Add(
+                        new DataRelativePathRepairDirectoryRenameSource(
+                            DestinationPath:
+                                currentDestinationPath,
+                            PhysicalPath:
+                                matchedPhysicalPath,
+                            Identity:
+                                matchedIdentity,
+                            InodeGeneration:
+                                matchedGenerationValue
+                        )
+                    );
+                }
 
                 ownedScanParent?.Dispose();
 
@@ -853,6 +1007,103 @@ public static class
         {
             ownedScanParent?.Dispose();
         }
+    }
+
+    // Not a trust decision made from names alone: every symlink among
+    // the matches must freshly re-read (never assumed from a hint) to
+    // the one real object's own current name, AND carry a durable
+    // registry record proving this project created it. A single
+    // unverifiable or non-matching entry aborts the whole collapse
+    // rather than guessing which of several matches is the "right" one.
+    private static string? TryCollapseAmbiguousMatches(
+        ILinuxOpenedHandle parent,
+        string parentPath,
+        IReadOnlyList<string> matches,
+        LinuxNoFollowPathHandle? aliasesDirectory)
+    {
+        if (aliasesDirectory is null)
+        {
+            return null;
+        }
+
+        string? realName =
+            null;
+
+        var symlinkTargets =
+            new List<(string Name, string Target)>();
+
+        foreach (string name in matches)
+        {
+            LinuxReadSymlinkAtResult read =
+                LinuxReadSymlinkAt.Read(
+                    parent,
+                    name
+                );
+
+            if (
+                read.State ==
+                LinuxReadSymlinkAtState.ChildNotSymbolicLink)
+            {
+                if (realName is not null)
+                {
+                    // More than one real object among the matches -
+                    // genuinely ambiguous, not just an alias echo.
+                    return null;
+                }
+
+                realName =
+                    name;
+
+                continue;
+            }
+
+            if (!read.Success)
+            {
+                return null;
+            }
+
+            symlinkTargets.Add(
+                (name, read.Target!)
+            );
+        }
+
+        if (realName is null)
+        {
+            return null;
+        }
+
+        foreach (
+            (string name, string target)
+            in symlinkTargets)
+        {
+            if (
+                !string.Equals(
+                    target,
+                    realName,
+                    StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            DataRelativePathRepairAliasRegistryLookupResult lookup =
+                DataRelativePathRepairAliasRegistry.TryFind(
+                    aliasesDirectory,
+                    parentPath,
+                    name
+                );
+
+            if (
+                !lookup.Success ||
+                !string.Equals(
+                    lookup.Record!.TargetName,
+                    realName,
+                    StringComparison.Ordinal))
+            {
+                return null;
+            }
+        }
+
+        return realName;
     }
 
     private static bool TryValidateCandidate(
@@ -1121,6 +1372,8 @@ public static class
             IReadOnlyList<DataRelativePathRepairPlanOperation>? operations = null,
             IReadOnlyList<DataRelativePathRepairDirectoryRenameSource>?
                 directoryRenameSources = null,
+            IReadOnlyList<DataRelativePathRepairAliasSource>?
+                aliasSources = null,
             string? error = null)
     {
         return new(
@@ -1143,6 +1396,11 @@ public static class
                 directoryRenameSources ??
                 Array.Empty<
                     DataRelativePathRepairDirectoryRenameSource
+                >(),
+            AliasSources:
+                aliasSources ??
+                Array.Empty<
+                    DataRelativePathRepairAliasSource
                 >(),
             Error:
                 error

@@ -69,7 +69,9 @@ public static class
         Admit(
             LinuxNoFollowPathHandle trustedDataRoot,
             DataRelativePathTargetedConsumerCaseRepairPlanProjection
-                projection)
+                projection,
+            IReadOnlySet<string>? contestedAncestorPrefixes = null,
+            LinuxNoFollowPathHandle? aliasesDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(
             trustedDataRoot
@@ -91,12 +93,23 @@ public static class
             );
         }
 
+        // The supplied projection may have chosen a CreateAliasSymlink
+        // operation over a rename precisely because its caller (batch
+        // apply, the guided wizard) saw this exact ancestor as contested
+        // across the whole discovered candidate set - visibility this
+        // single-candidate re-projection has no way to derive on its
+        // own. Re-deriving fresh proof on a different basis than the
+        // plan was built on would make a perfectly valid alias plan
+        // fail equivalence below, so the same contested-ancestor set
+        // must be supplied here too.
         DataRelativePathTargetedConsumerCaseRepairPlanProjection
             revalidated =
                 DataRelativePathTargetedConsumerCaseRepairPlanProjector
                     .Project(
                         trustedDataRoot,
-                        projection.Candidate
+                        projection.Candidate,
+                        contestedAncestorPrefixes,
+                        aliasesDirectory
                     );
 
         if (!revalidated.HasPlan)
@@ -209,7 +222,10 @@ public static class
                 current.Operations) ||
             !EquivalentDirectoryRenameSources(
                 supplied.DirectoryRenameSources,
-                current.DirectoryRenameSources))
+                current.DirectoryRenameSources) ||
+            !EquivalentAliasSources(
+                supplied.AliasSources,
+                current.AliasSources))
         {
             error =
                 "The supplied targeted plan no longer exactly matches its " +
@@ -362,6 +378,54 @@ public static class
                 left[index];
 
             DataRelativePathRepairDirectoryRenameSource rightSource =
+                right[index];
+
+            if (
+                !string.Equals(
+                    leftSource.DestinationPath,
+                    rightSource.DestinationPath,
+                    StringComparison.Ordinal) ||
+                !string.Equals(
+                    leftSource.PhysicalPath,
+                    rightSource.PhysicalPath,
+                    StringComparison.Ordinal) ||
+                leftSource.InodeGeneration !=
+                    rightSource.InodeGeneration ||
+                leftSource.Identity.DeviceMajor !=
+                    rightSource.Identity.DeviceMajor ||
+                leftSource.Identity.DeviceMinor !=
+                    rightSource.Identity.DeviceMinor ||
+                leftSource.Identity.Inode !=
+                    rightSource.Identity.Inode ||
+                leftSource.Identity.MountId !=
+                    rightSource.Identity.MountId)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool EquivalentAliasSources(
+        IReadOnlyList<DataRelativePathRepairAliasSource> left,
+        IReadOnlyList<DataRelativePathRepairAliasSource> right)
+    {
+        if (left.Count !=
+            right.Count)
+        {
+            return false;
+        }
+
+        for (
+            int index = 0;
+            index < left.Count;
+            index++)
+        {
+            DataRelativePathRepairAliasSource leftSource =
+                left[index];
+
+            DataRelativePathRepairAliasSource rightSource =
                 right[index];
 
             if (
