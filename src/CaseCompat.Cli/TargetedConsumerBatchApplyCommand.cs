@@ -7,20 +7,20 @@ public static class TargetedConsumerBatchApplyCommand
 {
     public static int Run(string[] args)
     {
-        if (args.Length != 9)
+        if (args.Length != 10)
         {
             Console.Error.WriteLine(
                 "Error: targeted-consumer-batch-apply requires a Data " +
                 "root, Plugins.txt, loadorder.txt, Skyrim.ccc, plan " +
-                "directory, journal directory, report file path, and " +
-                "max candidates."
+                "directory, journal directory, aliases directory, " +
+                "report file path, and max candidates."
             );
             Console.Error.WriteLine();
             Console.Error.WriteLine(
                 "Usage: casecompat targeted-consumer-batch-apply " +
                 "<Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> " +
-                "<plan directory> <journal directory> <report file path> " +
-                "<max candidates>"
+                "<plan directory> <journal directory> <aliases directory> " +
+                "<report file path> <max candidates>"
             );
 
             return 2;
@@ -28,12 +28,12 @@ public static class TargetedConsumerBatchApplyCommand
 
         if (
             !int.TryParse(
-                args[8],
+                args[9],
                 out int maxCandidates) ||
             maxCandidates < 1)
         {
             Console.Error.WriteLine(
-                $"Error: '{args[8]}' is not a positive integer."
+                $"Error: '{args[9]}' is not a positive integer."
             );
 
             return 2;
@@ -53,7 +53,9 @@ public static class TargetedConsumerBatchApplyCommand
                     loadOrderPath:
                         args[3],
                     cccPath:
-                        args[4]
+                        args[4],
+                    aliasesDirectoryPath:
+                        args[7]
                 );
         }
         catch (InvalidOperationException ex)
@@ -195,6 +197,40 @@ public static class TargetedConsumerBatchApplyCommand
         using LinuxNoFollowPathHandle journalDirectory =
             journalDirectoryOpen.OpenedPath!;
 
+        LinuxNoFollowPathOpenResult aliasesDirectoryOpen;
+
+        try
+        {
+            aliasesDirectoryOpen =
+                LinuxNoFollowPath.OpenRootReadOnly(
+                    args[7]
+                );
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"Aliases directory open error: {ex.Message}"
+            );
+
+            return 9;
+        }
+
+        if (!aliasesDirectoryOpen.Success)
+        {
+            Console.Error.WriteLine(
+                "Aliases directory could not be opened safely."
+            );
+            Console.Error.WriteLine(
+                aliasesDirectoryOpen.Error ??
+                aliasesDirectoryOpen.State.ToString()
+            );
+
+            return 9;
+        }
+
+        using LinuxNoFollowPathHandle aliasesDirectory =
+            aliasesDirectoryOpen.OpenedPath!;
+
         IReadOnlyList<DataRelativePathTargetedConsumerCaseRepairCandidate>
             candidates =
                 discovery.Candidates
@@ -241,12 +277,18 @@ public static class TargetedConsumerBatchApplyCommand
                 dataRoot,
                 planDirectory,
                 journalDirectory,
+                aliasesDirectory,
                 candidates,
+                TargetedConsumerBatchApply.ExtractWinningRequestedPaths(
+                    discovery.Leaves
+                ),
                 item =>
                 {
                     processed++;
 
-                    if (item.Outcome == "AppliedDurably")
+                    if (item.Outcome is
+                        "AppliedDurably" or
+                        "AppliedDurablyViaAlias")
                     {
                         appliedSoFar++;
                     }
@@ -276,7 +318,7 @@ public static class TargetedConsumerBatchApplyCommand
             );
 
         File.WriteAllText(
-            args[7],
+            args[8],
             report.ToString()
         );
 
@@ -289,6 +331,14 @@ public static class TargetedConsumerBatchApplyCommand
         Console.WriteLine(
             $"Applied:    {result.AppliedCount:N0}"
         );
+
+        if (result.AppliedViaAliasCount > 0)
+        {
+            Console.WriteLine(
+                $"  (of which via alias: " +
+                $"{result.AppliedViaAliasCount:N0})"
+            );
+        }
 
         Console.WriteLine(
             $"Not applied: {processed - result.AppliedCount:N0}"
@@ -318,7 +368,7 @@ public static class TargetedConsumerBatchApplyCommand
         Console.WriteLine();
 
         Console.WriteLine(
-            $"Full per-candidate report: {args[7]}"
+            $"Full per-candidate report: {args[8]}"
         );
 
         return 0;

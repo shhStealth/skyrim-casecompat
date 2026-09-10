@@ -233,6 +233,241 @@ public sealed class
     }
 
     [Fact]
+    public void
+        Analyze_UnregisteredSymlinkWithAliasesDirectoryProvided_IsStillRejected()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        // Providing an aliases directory must never weaken this
+        // analyzer's blanket "reject any symlink it didn't create
+        // itself" policy - an arbitrary, foreign symlink the registry
+        // knows nothing about is refused exactly as before.
+        using Fixture fixture =
+            new();
+
+        fixture.CreateDirectory(
+            "meshes"
+        );
+
+        string outside =
+            fixture.CreateDirectory(
+                "outside"
+            );
+
+        Directory.CreateSymbolicLink(
+            Path.Combine(
+                fixture.DataRoot,
+                "meshes",
+                "Actors"
+            ),
+            outside
+        );
+
+        string aliasesDirectoryPath =
+            fixture.CreateDirectory(
+                "../Aliases"
+            );
+
+        using LinuxNoFollowPathHandle aliasesDirectory =
+            OpenAliasesDirectory(
+                aliasesDirectoryPath
+            );
+
+        DataRelativePathRepairAggregateNamespaceCurrentLeafAnalysis result =
+            fixture.Analyze(
+                "meshes/Actors/File.nif",
+                aliasesDirectory
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairAggregateNamespaceCurrentLeafAnalysisState
+                .IntermediateEquivalentObjectConflict,
+            result.State
+        );
+    }
+
+    [Fact]
+    public void
+        Analyze_IntermediateKnownAlias_WithoutAliasesDirectory_IsStillRejected()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        // Regression check: omitting aliasesDirectory (the default)
+        // must preserve today's behavior exactly, even for a symlink
+        // that genuinely is a registered alias.
+        using Fixture fixture =
+            new();
+
+        fixture.Write(
+            "meshes/actors/DeeperFile.nif",
+            "deeper"
+        );
+
+        string aliasesDirectoryPath =
+            fixture.CreateDirectory(
+                "../Aliases"
+            );
+
+        using LinuxNoFollowPathHandle aliasesDirectory =
+            OpenAliasesDirectory(
+                aliasesDirectoryPath
+            );
+
+        fixture.CreateAlias(
+            aliasesDirectory,
+            "meshes",
+            linkName:
+                "Actors",
+            targetName:
+                "actors"
+        );
+
+        DataRelativePathRepairAggregateNamespaceCurrentLeafAnalysis result =
+            fixture.Analyze(
+                "meshes/Actors/DeeperFile.nif"
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairAggregateNamespaceCurrentLeafAnalysisState
+                .IntermediateEquivalentObjectConflict,
+            result.State
+        );
+    }
+
+    [Fact]
+    public void
+        Analyze_IntermediateKnownAlias_WithAliasesDirectory_ResolvesThroughRealTarget()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        // The actual "subsequent run" scenario this fix exists for: a
+        // real directory ("actors") and a previously-created alias
+        // ("Actors") both exist. A requested path traversing the
+        // aliased name must resolve through the one real directory
+        // instead of being refused as an unresolved conflict.
+        using Fixture fixture =
+            new();
+
+        fixture.Write(
+            "meshes/actors/DeeperFile.nif",
+            "deeper"
+        );
+
+        string aliasesDirectoryPath =
+            fixture.CreateDirectory(
+                "../Aliases"
+            );
+
+        using LinuxNoFollowPathHandle aliasesDirectory =
+            OpenAliasesDirectory(
+                aliasesDirectoryPath
+            );
+
+        fixture.CreateAlias(
+            aliasesDirectory,
+            "meshes",
+            linkName:
+                "Actors",
+            targetName:
+                "actors"
+        );
+
+        DataRelativePathRepairAggregateNamespaceCurrentLeafAnalysis result =
+            fixture.Analyze(
+                "meshes/Actors/DeeperFile.nif",
+                aliasesDirectory
+            );
+
+        Assert.True(
+            result.Success,
+            result.Error
+        );
+
+        DataRelativePathRepairAggregateNamespaceCurrentFileRepresentation
+            representation =
+                Assert.Single(
+                    result.Representations
+                );
+
+        Assert.Equal(
+            "meshes/actors/DeeperFile.nif",
+            representation.RelativePath
+        );
+    }
+
+    [Fact]
+    public void
+        Analyze_RootLevelKnownAlias_WithAliasesDirectory_ResolvesThroughRealTarget()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        // Same fix, exercised at the Data-root level (the top-level
+        // path component) rather than an intermediate directory - a
+        // structurally distinct code path in this analyzer.
+        using Fixture fixture =
+            new();
+
+        fixture.Write(
+            "meshes/Test/File.nif",
+            "root-level"
+        );
+
+        string aliasesDirectoryPath =
+            fixture.CreateDirectory(
+                "../Aliases"
+            );
+
+        using LinuxNoFollowPathHandle aliasesDirectory =
+            OpenAliasesDirectory(
+                aliasesDirectoryPath
+            );
+
+        fixture.CreateAlias(
+            aliasesDirectory,
+            parentRelativePath:
+                "",
+            linkName:
+                "Meshes",
+            targetName:
+                "meshes"
+        );
+
+        DataRelativePathRepairAggregateNamespaceCurrentLeafAnalysis result =
+            fixture.Analyze(
+                "Meshes/Test/File.nif",
+                aliasesDirectory
+            );
+
+        Assert.True(
+            result.Success,
+            result.Error
+        );
+
+        DataRelativePathRepairAggregateNamespaceCurrentFileRepresentation
+            representation =
+                Assert.Single(
+                    result.Representations
+                );
+
+        Assert.Equal(
+            "meshes/Test/File.nif",
+            representation.RelativePath
+        );
+    }
+
+    [Fact]
     public void Analyze_FinalSymbolicLink_IsRejected()
     {
         if (!OperatingSystem.IsLinux())
@@ -448,6 +683,26 @@ public sealed class
         );
     }
 
+    private static LinuxNoFollowPathHandle OpenAliasesDirectory(
+        string path)
+    {
+        LinuxNoFollowPathOpenResult opened =
+            LinuxNoFollowPath.OpenRootReadOnly(
+                path
+            );
+
+        Assert.True(
+            opened.Success,
+            opened.Error
+        );
+
+        return Assert.IsType<
+            LinuxNoFollowPathHandle
+        >(
+            opened.OpenedPath
+        );
+    }
+
     private sealed class Fixture :
         IDisposable
     {
@@ -543,15 +798,115 @@ public sealed class
 
         public DataRelativePathRepairAggregateNamespaceCurrentLeafAnalysis
             Analyze(
-                string requestedPath)
+                string requestedPath,
+                LinuxNoFollowPathHandle? aliasesDirectory = null)
         {
             return
                 DataRelativePathRepairAggregateNamespaceCurrentLeafAnalyzer
                     .Analyze(
                         DataRootHandle,
                         "MESHES",
-                        requestedPath
+                        requestedPath,
+                        aliasesDirectory
                     );
+        }
+
+        // Creates a real symlink alias exactly as the apply executor
+        // does (LinuxCreateSymlinkAt plus a matching durable registry
+        // record), so tests can exercise this analyzer against a
+        // genuine, previously-created alias rather than an ad hoc
+        // symlink the registry knows nothing about.
+        public void CreateAlias(
+            LinuxNoFollowPathHandle aliasesDirectory,
+            string parentRelativePath,
+            string linkName,
+            string targetName)
+        {
+            string parentPath =
+                string.IsNullOrEmpty(
+                    parentRelativePath)
+                    ? DataRoot
+                    : Path.Combine(
+                        DataRoot,
+                        parentRelativePath
+                            .Replace(
+                                '/',
+                                Path.DirectorySeparatorChar
+                            )
+                    );
+
+            LinuxNoFollowPathOpenResult parentOpen =
+                LinuxNoFollowPath.OpenRootReadOnly(
+                    parentPath
+                );
+
+            Assert.True(
+                parentOpen.Success,
+                parentOpen.Error
+            );
+
+            using LinuxNoFollowPathHandle parent =
+                Assert.IsType<
+                    LinuxNoFollowPathHandle
+                >(
+                    parentOpen.OpenedPath
+                );
+
+            LinuxCreateSymlinkAtResult create =
+                LinuxCreateSymlinkAt.Create(
+                    parent,
+                    linkName,
+                    targetName
+                );
+
+            Assert.True(
+                create.Success,
+                create.Error
+            );
+
+            LinuxFileIdentityResult targetIdentity =
+                LinuxFileIdentity.Inspect(
+                    Path.Combine(
+                        parentPath,
+                        targetName
+                    )
+                );
+
+            Assert.True(
+                targetIdentity.Success,
+                targetIdentity.Error
+            );
+
+            var record =
+                new DataRelativePathRepairAliasRecord(
+                    SchemaVersion:
+                        DataRelativePathRepairAliasRecord.CurrentSchemaVersion,
+                    PlanId:
+                        Guid.NewGuid(),
+                    CreatedUtc:
+                        DateTimeOffset.UtcNow,
+                    DataRoot:
+                        DataRoot,
+                    ParentPath:
+                        parentPath,
+                    LinkName:
+                        linkName,
+                    TargetName:
+                        targetName,
+                    TargetIdentity:
+                        targetIdentity
+                );
+
+            DataRelativePathRepairAliasRegistryRecordResult registered =
+                DataRelativePathRepairAliasRegistry.Record(
+                    aliasesDirectory,
+                    record
+                );
+
+            Assert.True(
+                registered.Success,
+                registered.Error
+            );
         }
 
         public DataRelativePathRepairAggregateNamespaceCurrentLeafAnalysis
@@ -581,6 +936,7 @@ public sealed class
                         DataRootHandle,
                         "MESHES",
                         requestedPath,
+                        null,
                         afterRoot,
                         afterContent
                     }

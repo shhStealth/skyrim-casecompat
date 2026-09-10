@@ -69,11 +69,19 @@ progress and a final summary the same way `run` does.
   file identity it renamed — rollback re-verifies that identity before
   renaming anything back, and refuses if the file has since changed.
 - A mismatch that can't be safely resolved (an ambiguous or conflicting
-  case) is skipped and reported, not guessed at. This includes shared
-  ancestor directories: if two unrelated mods disagree about the correct
-  case for a folder they both use, there is no rename that satisfies
-  both, so that folder is left exactly as it is rather than fixed for
-  one mod at the other's expense.
+  case) is skipped and reported, not guessed at. A folder that already
+  physically exists under both casings your mods disagree about (not an
+  alias — two genuinely separate, populated folders) is one such case:
+  CaseCompat will not guess which is correct, so it is left exactly as
+  it is.
+- Shared ancestor directories where mods disagree about casing, but
+  only one folder physically exists, are resolved with a symlink alias
+  rather than a rename: renaming would satisfy one mod's casing and
+  silently strand the other's files, so CaseCompat instead creates a
+  second name pointing at the same real folder, leaving the original
+  untouched and unrenamed. Both casings then resolve to identical
+  content. A later fix that needs the same folder reuses the existing
+  alias rather than creating a second, competing one.
 - There is no batch-wide atomic transaction: a batch run applies fixes
   one at a time, and each one is independently durable. If a run is
   interrupted, earlier fixes in that run remain applied; re-running is
@@ -169,12 +177,15 @@ dotnet run --project src/CaseCompat.Cli -- \
   targeted-consumer-apply "$DATA" "$PLANS" targeted-consumer-plan.json "$JOURNAL"
 ```
 
-**Apply every discovered candidate in one run**, writing a CSV report:
+**Apply every discovered candidate in one run**, writing a CSV report.
+`$ALIASES` is a directory for durable records of any symlink aliases
+CaseCompat creates when two mods disagree about a shared folder's case
+(see "Safety model" above):
 
 ```bash
 dotnet run --project src/CaseCompat.Cli -- \
   targeted-consumer-batch-apply "$DATA" "$PLUGINS" "$LOADORDER" "$CCC" \
-  "$PLANS" "$JOURNAL" "$REPORT_CSV" 100000
+  "$PLANS" "$JOURNAL" "$ALIASES" "$REPORT_CSV" 100000
 ```
 
 **Roll back one applied fix**, given its plan ID (the journal directory

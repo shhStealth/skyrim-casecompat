@@ -119,7 +119,8 @@ public static class
         SkyrimWinningTargetedConsumerCaseRepairCandidateProjectionResult
         Project(
             SkyrimWinningConsumerSpellingEvidenceCompositionResult
-                consumerSpellingComposition)
+                consumerSpellingComposition,
+            LinuxNoFollowPathHandle? aliasesDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(
             consumerSpellingComposition
@@ -409,7 +410,8 @@ public static class
                         .Analyze(
                             dataRootHandle,
                             rootLogical,
-                            requestedPath
+                            requestedPath,
+                            aliasesDirectory
                         );
 
             DataRelativePathTargetedConsumerCaseRepairCandidateProjection

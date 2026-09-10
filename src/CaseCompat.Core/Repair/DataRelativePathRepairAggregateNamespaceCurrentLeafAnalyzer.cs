@@ -73,12 +73,14 @@ public static class
         Analyze(
             LinuxNoFollowPathHandle dataRoot,
             string rootWindowsLogicalPath,
-            string requestedPath)
+            string requestedPath,
+            LinuxNoFollowPathHandle? aliasesDirectory = null)
     {
         return AnalyzeCore(
             dataRoot,
             rootWindowsLogicalPath,
             requestedPath,
+            aliasesDirectory,
             afterRootEnumeration:
                 null,
             afterRepresentationContentObservation:
@@ -99,6 +101,7 @@ public static class
             LinuxNoFollowPathHandle dataRoot,
             string rootWindowsLogicalPath,
             string requestedPath,
+            LinuxNoFollowPathHandle? aliasesDirectory,
             Action? afterRootEnumeration,
             Action? afterRepresentationContentObservation)
     {
@@ -203,6 +206,32 @@ public static class
                     !opened.Success ||
                     opened.OpenedDirectory is null)
                 {
+                    bool rootIsVerifiedKnownAlias =
+                        opened.State is
+                            LinuxOpenChildDirectoryReadOnlyAtState
+                                .ChildSymbolicLinkRejected or
+                            LinuxOpenChildDirectoryReadOnlyAtState
+                                .NotDirectory &&
+                        aliasesDirectory is not null &&
+                        IsVerifiedKnownAlias(
+                            aliasesDirectory,
+                            dataRoot,
+                            dataRoot.FullPath,
+                            rootName
+                        );
+
+                    if (rootIsVerifiedKnownAlias)
+                    {
+                        // This root name is one of this project's own
+                        // aliases, not a second, genuinely separate
+                        // object - its real target is a distinct entry
+                        // in physicalRootNames (an alias's link and
+                        // target are always case-insensitive twins of
+                        // the same requested component) and will be
+                        // opened as its own root branch below.
+                        continue;
+                    }
+
                     return Result(
                         DataRelativePathRepairAggregateNamespaceCurrentLeafAnalysisState
                             .EquivalentRootOpenFailed,
@@ -309,16 +338,36 @@ public static class
                             !opened.Success ||
                             opened.OpenedDirectory is null)
                         {
-                            DisposeAll(
-                                nextBranches
-                            );
-
                             bool objectConflict =
                                 opened.State is
                                     LinuxOpenChildDirectoryReadOnlyAtState
                                         .ChildSymbolicLinkRejected or
                                     LinuxOpenChildDirectoryReadOnlyAtState
                                         .NotDirectory;
+
+                            if (
+                                objectConflict &&
+                                aliasesDirectory is not null &&
+                                IsVerifiedKnownAlias(
+                                    aliasesDirectory,
+                                    branch.Directory,
+                                    branch.Directory.FullPath,
+                                    match
+                                ))
+                            {
+                                // This match is one of this project's own
+                                // aliases, not a second, genuinely
+                                // separate object - its real target is a
+                                // case-insensitive twin of the same
+                                // requested component, so it is also
+                                // present in matches and will be opened
+                                // as its own branch in this same loop.
+                                continue;
+                            }
+
+                            DisposeAll(
+                                nextBranches
+                            );
 
                             return Result(
                                 objectConflict
@@ -806,6 +855,47 @@ public static class
         {
             currentDirectory?.Dispose();
         }
+    }
+
+    // A registry hit alone is a hint, never a trusted fact: this also
+    // re-reads the symlink's actual current target and requires it to
+    // still name exactly the registered target before trusting it for
+    // anything, per this project's "always re-derive fresh proof
+    // immediately before mutating or trusting" rule. Mirrors
+    // DataRelativePathTargetedConsumerCaseRepairPlanProjector's own
+    // IsVerifiedKnownAlias - duplicated rather than shared, per this
+    // codebase's convention that each type owns its own validation.
+    private static bool IsVerifiedKnownAlias(
+        LinuxNoFollowPathHandle aliasesDirectory,
+        ILinuxOpenedHandle parent,
+        string parentPath,
+        string linkName)
+    {
+        DataRelativePathRepairAliasRegistryLookupResult lookup =
+            DataRelativePathRepairAliasRegistry.TryFind(
+                aliasesDirectory,
+                parentPath,
+                linkName
+            );
+
+        if (!lookup.Success)
+        {
+            return false;
+        }
+
+        LinuxReadSymlinkAtResult read =
+            LinuxReadSymlinkAt.Read(
+                parent,
+                linkName
+            );
+
+        return
+            read.Success &&
+            string.Equals(
+                read.Target,
+                lookup.Record!.TargetName,
+                StringComparison.Ordinal
+            );
     }
 
     private static string[] FindEquivalentNames(

@@ -1,3 +1,4 @@
+using CaseCompat.Bethesda.Plugins;
 using CaseCompat.Core.Repair;
 using CaseCompat.Filesystem.Linux;
 
@@ -10,11 +11,16 @@ internal static class TargetedConsumerBatchApply
         LinuxNoFollowPathHandle dataRoot,
         LinuxNoFollowPathHandle planDirectory,
         LinuxNoFollowPathHandle journalDirectory,
+        LinuxNoFollowPathHandle aliasesDirectory,
         IReadOnlyList<DataRelativePathTargetedConsumerCaseRepairCandidate>
             candidates,
+        IReadOnlyList<string?> allWinningRequestedPaths,
         Action<TargetedConsumerBatchApplyItemResult>? onItemCompleted = null)
     {
         int appliedCount =
+            0;
+
+        int appliedViaAliasCount =
             0;
 
         var rejectionCounts =
@@ -27,9 +33,14 @@ internal static class TargetedConsumerBatchApply
                 candidates.Count
             );
 
+        // Deliberately every winning consumer's requested path, not
+        // just this run's mismatched candidates - see
+        // DataRelativePathContestedAncestorAnalyzer for why using
+        // candidates alone would miss an ancestor an earlier run's
+        // already-successful fix still depends on.
         IReadOnlySet<string> contestedAncestorPrefixes =
             DataRelativePathContestedAncestorAnalyzer.Analyze(
-                candidates
+                allWinningRequestedPaths
             );
 
         foreach (
@@ -41,6 +52,7 @@ internal static class TargetedConsumerBatchApply
                     dataRoot,
                     planDirectory,
                     journalDirectory,
+                    aliasesDirectory,
                     candidate,
                     contestedAncestorPrefixes
                 );
@@ -57,7 +69,13 @@ internal static class TargetedConsumerBatchApply
                 item
             );
 
-            if (outcome == "AppliedDurably")
+            if (outcome == "AppliedDurablyViaAlias")
+            {
+                appliedCount++;
+
+                appliedViaAliasCount++;
+            }
+            else if (outcome == "AppliedDurably")
             {
                 appliedCount++;
             }
@@ -78,8 +96,34 @@ internal static class TargetedConsumerBatchApply
         return new TargetedConsumerBatchApplyRunResult(
             items,
             appliedCount,
+            appliedViaAliasCount,
             rejectionCounts
         );
+    }
+
+    // Every winning consumer's own authoritative requested path across
+    // the whole scan - not just the subset that turned into a
+    // mismatched candidate. Feed this, not just this run's candidates,
+    // to contested-ancestor analysis: a consumer whose file already
+    // sits exactly where it requires still pins that ancestor's
+    // current casing as load-bearing, even though it is not itself a
+    // candidate.
+    public static IReadOnlyList<string?> ExtractWinningRequestedPaths(
+        IReadOnlyList<SkyrimWinningTargetedConsumerCaseRepairLeafProjection>
+            leaves)
+    {
+        return leaves
+            .Where(
+                leaf =>
+                    leaf.ConsumerSpelling.State ==
+                    DataRelativePathAggregateConsumerSpellingState
+                        .UniqueConsumerSpelling
+            )
+            .Select(
+                leaf =>
+                    leaf.ConsumerSpelling.AuthoritativeRequestedPath
+            )
+            .ToArray();
     }
 
     public static string EscapeCsvField(
@@ -108,6 +152,7 @@ internal static class TargetedConsumerBatchApply
             LinuxNoFollowPathHandle dataRoot,
             LinuxNoFollowPathHandle planDirectory,
             LinuxNoFollowPathHandle journalDirectory,
+            LinuxNoFollowPathHandle aliasesDirectory,
             DataRelativePathTargetedConsumerCaseRepairCandidate candidate,
             IReadOnlySet<string> contestedAncestorPrefixes)
     {
@@ -120,7 +165,8 @@ internal static class TargetedConsumerBatchApply
                     .Project(
                         dataRoot,
                         candidate,
-                        contestedAncestorPrefixes
+                        contestedAncestorPrefixes,
+                        aliasesDirectory
                     );
         }
         catch (Exception ex)
@@ -155,7 +201,9 @@ internal static class TargetedConsumerBatchApply
                     dataRoot,
                     planId,
                     DateTimeOffset.UtcNow,
-                    projection
+                    projection,
+                    contestedAncestorPrefixes,
+                    aliasesDirectory
                 );
         }
         catch (Exception ex)
@@ -236,7 +284,8 @@ internal static class TargetedConsumerBatchApply
                         dataRoot,
                         journalDirectory,
                         verify.Plan,
-                        DateTimeOffset.UtcNow
+                        DateTimeOffset.UtcNow,
+                        aliasesDirectory
                     );
         }
         catch (Exception ex)
@@ -258,8 +307,19 @@ internal static class TargetedConsumerBatchApply
             );
         }
 
+        bool appliedViaAlias =
+            plan.Operations
+                .Any(
+                    op =>
+                        op.Kind ==
+                        DataRelativePathRepairPlanOperationKind
+                            .CreateAliasSymlink
+                );
+
         return (
-            "AppliedDurably",
+            appliedViaAlias
+                ? "AppliedDurablyViaAlias"
+                : "AppliedDurably",
             string.Empty,
             destinationPath
         );
@@ -275,4 +335,5 @@ internal sealed record TargetedConsumerBatchApplyItemResult(
 internal sealed record TargetedConsumerBatchApplyRunResult(
     IReadOnlyList<TargetedConsumerBatchApplyItemResult> Items,
     int AppliedCount,
+    int AppliedViaAliasCount,
     IReadOnlyDictionary<string, int> RejectionCounts);

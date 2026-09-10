@@ -16,6 +16,7 @@ public sealed class TargetedConsumerBatchApplyCommandTests
                     "/unused/Skyrim.ccc",
                     "/unused/plan-dir",
                     "/unused/journal-dir",
+                    "/unused/aliases-dir",
                     "/unused/report.csv"
                 }
             );
@@ -40,6 +41,7 @@ public sealed class TargetedConsumerBatchApplyCommandTests
                     "/unused/Skyrim.ccc",
                     "/unused/plan-dir",
                     "/unused/journal-dir",
+                    "/unused/aliases-dir",
                     "/unused/report.csv",
                     "10",
                     "unexpected"
@@ -66,6 +68,7 @@ public sealed class TargetedConsumerBatchApplyCommandTests
                     "/unused/Skyrim.ccc",
                     "/unused/plan-dir",
                     "/unused/journal-dir",
+                    "/unused/aliases-dir",
                     "/unused/report.csv",
                     "not-a-number"
                 }
@@ -91,6 +94,7 @@ public sealed class TargetedConsumerBatchApplyCommandTests
                     "/unused/Skyrim.ccc",
                     "/unused/plan-dir",
                     "/unused/journal-dir",
+                    "/unused/aliases-dir",
                     "/unused/report.csv",
                     "0"
                 }

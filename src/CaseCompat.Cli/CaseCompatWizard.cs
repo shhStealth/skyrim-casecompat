@@ -145,6 +145,22 @@ internal static class CaseCompatWizard
 
         output.WriteLine();
 
+        // Computed here (rather than only later, in ApplyAll) so a
+        // second or later scan against this same install recognizes
+        // aliases an earlier run already created - without it, the scan
+        // would see a real directory plus its alias as an unresolved
+        // conflict rather than an already-fixed path. This is only a
+        // path computation; the directory need not exist yet, and
+        // Discover degrades gracefully if it doesn't (the common case
+        // for a genuinely first run).
+        string aliasesDirectoryPathForScan =
+            Path.Combine(
+                CaseCompatStateDirectory.Resolve(
+                    dataRoot
+                ),
+                "aliases"
+            );
+
         SkyrimWinningTargetedConsumerCaseRepairCandidateProjectionResult
             discoveryResult;
 
@@ -159,7 +175,9 @@ internal static class CaseCompatWizard
                     loadOrderPath:
                         loadOrderPath,
                     cccPath:
-                        cccPath
+                        cccPath,
+                    aliasesDirectoryPath:
+                        aliasesDirectoryPathForScan
                 );
         }
         catch (InvalidOperationException ex)
@@ -234,7 +252,8 @@ internal static class CaseCompatWizard
         return ApplyAll(
             output,
             dataRoot,
-            discoveryResult.Candidates
+            discoveryResult.Candidates,
+            discoveryResult.Leaves
         );
     }
 
@@ -242,7 +261,9 @@ internal static class CaseCompatWizard
         TextWriter output,
         string dataRoot,
         IReadOnlyList<DataRelativePathTargetedConsumerCaseRepairCandidate>
-            candidates)
+            candidates,
+        IReadOnlyList<SkyrimWinningTargetedConsumerCaseRepairLeafProjection>
+            leaves)
     {
         string stateDirectory =
             CaseCompatStateDirectory.Resolve(
@@ -261,12 +282,22 @@ internal static class CaseCompatWizard
                 "journal"
             );
 
+        string aliasesDirectoryPath =
+            Path.Combine(
+                stateDirectory,
+                "aliases"
+            );
+
         Directory.CreateDirectory(
             planDirectoryPath
         );
 
         Directory.CreateDirectory(
             journalDirectoryPath
+        );
+
+        Directory.CreateDirectory(
+            aliasesDirectoryPath
         );
 
         string reportPath =
@@ -341,6 +372,28 @@ internal static class CaseCompatWizard
         using LinuxNoFollowPathHandle journalDirectoryHandle =
             journalDirectoryOpen.OpenedPath!;
 
+        LinuxNoFollowPathOpenResult aliasesDirectoryOpen =
+            LinuxNoFollowPath.OpenRootReadOnly(
+                aliasesDirectoryPath
+            );
+
+        if (!aliasesDirectoryOpen.Success)
+        {
+            output.WriteLine(
+                "The aliases directory could not be opened safely."
+            );
+
+            output.WriteLine(
+                aliasesDirectoryOpen.Error ??
+                aliasesDirectoryOpen.State.ToString()
+            );
+
+            return 9;
+        }
+
+        using LinuxNoFollowPathHandle aliasesDirectoryHandle =
+            aliasesDirectoryOpen.OpenedPath!;
+
         var report =
             new StringBuilder();
 
@@ -363,12 +416,18 @@ internal static class CaseCompatWizard
                 dataRootHandle,
                 planDirectoryHandle,
                 journalDirectoryHandle,
+                aliasesDirectoryHandle,
                 candidates,
+                TargetedConsumerBatchApply.ExtractWinningRequestedPaths(
+                    leaves
+                ),
                 item =>
                 {
                     processed++;
 
-                    if (item.Outcome == "AppliedDurably")
+                    if (item.Outcome is
+                        "AppliedDurably" or
+                        "AppliedDurablyViaAlias")
                     {
                         appliedSoFar++;
                     }
@@ -409,6 +468,23 @@ internal static class CaseCompatWizard
             $"Applied:     {result.AppliedCount:N0}"
         );
 
+        if (result.AppliedViaAliasCount > 0)
+        {
+            output.WriteLine(
+                $"  (of which via alias: " +
+                $"{result.AppliedViaAliasCount:N0})"
+            );
+
+            output.WriteLine(
+                "  An 'alias' fix means two or more of your mods " +
+                "disagreed about the correct case for a shared folder. " +
+                "Rather than renaming it - which would have broken " +
+                "whichever mod needed the other casing - CaseCompat " +
+                "created a second name pointing at the same folder, so " +
+                "both mods can find it."
+            );
+        }
+
         output.WriteLine(
             $"Not applied: {candidates.Count - result.AppliedCount:N0}"
         );
@@ -443,17 +519,17 @@ internal static class CaseCompatWizard
             );
 
             if (result.RejectionCounts.ContainsKey(
-                    "PlanRejected:AncestorCasingContested"))
+                    "PlanRejected:DestinationParentAmbiguous"))
             {
                 output.WriteLine();
 
                 output.WriteLine(
-                    "'PlanRejected:AncestorCasingContested' means two or " +
-                    "more of your mods disagree about the correct case " +
-                    "for a shared folder they both use. There is no " +
-                    "single rename that satisfies both, so these were " +
-                    "left untouched rather than fixed for one mod at " +
-                    "the other's expense."
+                    "'PlanRejected:DestinationParentAmbiguous' means a " +
+                    "shared folder already physically exists under both " +
+                    "casings your mods disagree about (not just one real " +
+                    "folder with an alias - two genuinely separate " +
+                    "folders). CaseCompat will not guess which one is " +
+                    "correct, so these were left untouched."
                 );
             }
         }

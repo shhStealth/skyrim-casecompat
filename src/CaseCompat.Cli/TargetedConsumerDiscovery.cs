@@ -1,6 +1,7 @@
 using CaseCompat.Bethesda.Plugins;
 using CaseCompat.Core.Analysis;
 using CaseCompat.Core.LoadOrder;
+using CaseCompat.Filesystem.Linux;
 
 // Shared winning-consumer discovery orchestration for every
 // targeted-consumer-* CLI command. Runs the full ArmorAddon + HeadPart
@@ -16,7 +17,8 @@ internal static class TargetedConsumerDiscovery
             string dataRoot,
             string pluginsPath,
             string loadOrderPath,
-            string cccPath)
+            string cccPath,
+            string? aliasesDirectoryPath = null)
     {
         SkyrimRuntimeLoadOrder loadOrder =
             SkyrimRuntimeLoadOrderReader.Read(
@@ -87,9 +89,24 @@ internal static class TargetedConsumerDiscovery
                 headPartProjection
             );
 
+        // A missing or unopenable aliases directory degrades to no alias
+        // awareness rather than failing discovery outright - most
+        // commonly, this is simply the first-ever run against this
+        // install, before any alias has been created and before its
+        // durable state directory necessarily exists yet.
+        using LinuxNoFollowPathHandle? aliasesDirectory =
+            string.IsNullOrWhiteSpace(
+                aliasesDirectoryPath)
+                ? null
+                : LinuxNoFollowPath.OpenRootReadOnly(
+                        aliasesDirectoryPath
+                    )
+                    .OpenedPath;
+
         return
             SkyrimWinningTargetedConsumerCaseRepairCandidateProjector.Project(
-                composition
+                composition,
+                aliasesDirectory
             );
     }
 }
