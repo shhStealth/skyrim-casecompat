@@ -585,13 +585,31 @@ public static class
         );
     }
 
-    // Builds the missing suffix as zero or more CreateDirectory steps
-    // followed by exactly one CreateFile step.
+    // Builds the missing suffix as zero or more intermediate directory
+    // steps followed by exactly one CreateFile step. Every requested
+    // path component still gets exactly one operation - even a segment
+    // that turns out to already be exactly correct - so the durable
+    // plan's one-operation-per-component shape (relied on by
+    // DurablePlan.Validate and the executor's own per-step parent
+    // check) never has to special-case a skipped component.
     //
-    // Each intermediate CreateDirectory step is classified against the
-    // real, current filesystem state rather than assumed to need a fresh
-    // empty directory:
+    // Each intermediate step is classified against the real, current
+    // filesystem state rather than assumed to need a fresh empty
+    // directory:
     //
+    //   - The case-insensitive match already has the exact requested
+    //     casing: a VerifyExistingDirectory step (SourcePath null).
+    //     This is reachable even though the very first requested
+    //     component always resolves via the outer loop's own
+    //     exact-match traversal (never entering this method at all if
+    //     it matches): once a known alias earlier in the path forces
+    //     entry into this case-insensitive scan (see the outer loop),
+    //     every later segment is resolved here too, including ones
+    //     that were never mismatched. A same-name "rename" for one of
+    //     those would always collide with the very directory it's
+    //     supposed to rename, since source and destination would be
+    //     identical - VerifyExistingDirectory instead just re-derives
+    //     fresh proof it still exists before continuing.
     //   - No physical child case-insensitively matches the requested
     //     segment: a genuinely new, empty directory (SourcePath null),
     //     exactly as before. Nothing beneath a genuinely new directory
@@ -825,24 +843,113 @@ public static class
                 string matchedName =
                     matches[0];
 
-                bool isContestedAncestor =
-                    false;
-
-                if (matchedName != component)
+                // The matched sibling already has the exact requested
+                // casing - nothing to rename and nothing to alias. This
+                // is reachable here (as opposed to being handled by the
+                // outer exact-match loop before this method is ever
+                // called) specifically when a known alias earlier in
+                // the path forced entry into this case-insensitive
+                // scan: every segment from that point on is resolved
+                // here, including ones that were never mismatched at
+                // all. A VerifyExistingDirectory operation is emitted
+                // (not skipped outright) so the durable plan keeps its
+                // one-operation-per-requested-component shape; the
+                // executor re-derives fresh proof this still exists
+                // immediately before continuing, exactly as every other
+                // step here does, rather than trusting this snapshot.
+                if (matchedName == component)
                 {
-                    string accumulatedPrefix =
-                        string.Join(
-                            '/',
-                            requestedComponents.Take(
-                                index + 1
+                    LinuxInspectChildAtResult exactInspected =
+                        LinuxInspectChildAt.Inspect(
+                            existingScanParent,
+                            matchedName
+                        );
+
+                    if (
+                        !exactInspected.Success ||
+                        exactInspected.Kind !=
+                            LinuxChildObjectKind.Directory)
+                    {
+                        failureState =
+                            DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
+                                .DestinationConflict;
+
+                        error =
+                            $"'{matchedName}' beneath " +
+                            $"'{existingScanParentPath}' already has the " +
+                            "exact requested casing but is not a " +
+                            "directory.";
+
+                        return false;
+                    }
+
+                    LinuxOpenChildReadOnlyAtResult exactOpen =
+                        LinuxOpenChildReadOnlyAt.Open(
+                            existingScanParent,
+                            matchedName
+                        );
+
+                    if (
+                        !exactOpen.Success ||
+                        exactOpen.OpenedChild is null)
+                    {
+                        failureState =
+                            DataRelativePathTargetedConsumerCaseRepairPlanProjectionState
+                                .DestinationInspectionFailed;
+
+                        error =
+                            exactOpen.Error ??
+                            exactOpen.State.ToString();
+
+                        return false;
+                    }
+
+                    operationList.Add(
+                        new DataRelativePathRepairPlanOperation(
+                            Kind:
+                                DataRelativePathRepairPlanOperationKind
+                                    .VerifyExistingDirectory,
+                            DestinationPath:
+                                currentDestinationPath,
+                            SourcePath:
+                                null
+                        )
+                    );
+
+                    ownedScanParent?.Dispose();
+
+                    ownedScanParent =
+                        exactOpen.OpenedChild;
+
+                    existingScanParent =
+                        ownedScanParent;
+
+                    existingScanParentPath =
+                        Path.GetFullPath(
+                            Path.Combine(
+                                existingScanParentPath,
+                                matchedName
                             )
                         );
 
-                    isContestedAncestor =
-                        contestedAncestorPrefixes.Contains(
-                            accumulatedPrefix.ToUpperInvariant()
-                        );
+                    continue;
                 }
+
+                // matchedName is guaranteed to differ from component
+                // here - the exact-match case above always continues
+                // the loop before reaching this point.
+                string accumulatedPrefix =
+                    string.Join(
+                        '/',
+                        requestedComponents.Take(
+                            index + 1
+                        )
+                    );
+
+                bool isContestedAncestor =
+                    contestedAncestorPrefixes.Contains(
+                        accumulatedPrefix.ToUpperInvariant()
+                    );
 
                 LinuxInspectChildAtResult inspected =
                     LinuxInspectChildAt.Inspect(

@@ -409,15 +409,17 @@ public static class
                         DataRelativePathRepairPlanOperationKind
                             .CreateDirectory or
                         DataRelativePathRepairPlanOperationKind
-                            .CreateAliasSymlink;
+                            .CreateAliasSymlink or
+                        DataRelativePathRepairPlanOperationKind
+                            .VerifyExistingDirectory;
 
             if (!matchesExpectedKind)
             {
                 return
                     "The targeted durable operation sequence must contain " +
-                    "zero or more CreateDirectory/CreateAliasSymlink " +
-                    "operations followed by exactly one final CreateFile " +
-                    "operation.";
+                    "zero or more CreateDirectory/CreateAliasSymlink/" +
+                    "VerifyExistingDirectory operations followed by " +
+                    "exactly one final CreateFile operation.";
             }
 
             string expectedDestination;

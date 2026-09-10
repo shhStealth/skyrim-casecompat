@@ -221,6 +221,266 @@ public sealed class TargetedConsumerBatchApplyTests
 
     [Fact]
     public void
+        Run_ManyCandidatesSharingTwoNestedContestedAncestors_AllSucceed()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        // Reproduces a real bug found live on a user's install: many
+        // candidates share TWO nested contested ancestors ("character"/
+        // "Character", then "character assets"/"Character Assets"
+        // beneath it), and every candidate's own leaf filename was
+        // already exactly correct - only the two ancestor directories
+        // were ever mismatched. Applying the first candidate creates
+        // both alias levels as its own prerequisite steps; every other
+        // candidate then reuses both. This exercises two distinct gaps
+        // that only became reachable once an alias could force entry
+        // into the case-insensitive intermediate scan for segments that
+        // were never themselves contested:
+        //
+        //   1. A later segment that already has the exact requested
+        //      casing (here, "Beards") must not be treated as needing a
+        //      rename - a same-name "rename" always collides with
+        //      itself (see DataRelativePathRepairPlanOperationKind
+        //      .VerifyExistingDirectory).
+        //   2. Once both ancestors resolve correctly, a leaf whose own
+        //      name was never mismatched is now the SAME physical file
+        //      as its own destination - there is nothing left to
+        //      rename, and that must be recognized as success, not a
+        //      destination conflict.
+        //
+        // All five candidates apply in ONE pass with zero left over,
+        // matching what the fix restores: before it, this scenario
+        // showed Applied=0 across repeated runs, identically, forever.
+        string dataRoot =
+            CreateDataRoot();
+
+        string realDirectory =
+            Path.Combine(
+                dataRoot,
+                "Meshes",
+                "character",
+                "character assets",
+                "Beards"
+            );
+
+        Directory.CreateDirectory(
+            realDirectory
+        );
+
+        var candidates =
+            new List<
+                DataRelativePathTargetedConsumerCaseRepairCandidate
+            >();
+
+        var allWinningRequestedPaths =
+            new List<string?>();
+
+        for (
+            int index = 1;
+            index <= 5;
+            index++)
+        {
+            File.WriteAllText(
+                Path.Combine(
+                    realDirectory,
+                    $"File{index}.tri"
+                ),
+                $"content {index}"
+            );
+
+            string requestedPath =
+                "Meshes/Character/Character Assets/Beards/" +
+                $"File{index}.tri";
+
+            candidates.Add(
+                BuildCandidate(
+                    dataRoot,
+                    requestedPath
+                )
+            );
+
+            allWinningRequestedPaths.Add(
+                requestedPath
+            );
+        }
+
+        // Pin "character" lowercase at the first level, and "character
+        // assets" lowercase at the second (beneath the SAME "Character"
+        // casing the five candidates above use) - two independent,
+        // genuine winning-consumer disagreements, one per nested level.
+        allWinningRequestedPaths.Add(
+            "Meshes/character/LowercasePinnedFile1.nif"
+        );
+
+        allWinningRequestedPaths.Add(
+            "Meshes/Character/character assets/LowercasePinnedFile2.nif"
+        );
+
+        using LinuxNoFollowPathHandle dataRootHandle =
+            OpenRoot(
+                dataRoot
+            );
+
+        string rootPath =
+            Path.Combine(
+                Path.GetTempPath(),
+                "casecompat-batch-apply-tests",
+                Guid.NewGuid().ToString("N")
+            );
+
+        string planDirectoryPath =
+            Path.Combine(
+                rootPath,
+                "Plan"
+            );
+
+        string journalDirectoryPath =
+            Path.Combine(
+                rootPath,
+                "Journal"
+            );
+
+        string aliasesDirectoryPath =
+            Path.Combine(
+                rootPath,
+                "Aliases"
+            );
+
+        Directory.CreateDirectory(
+            planDirectoryPath
+        );
+
+        Directory.CreateDirectory(
+            journalDirectoryPath
+        );
+
+        Directory.CreateDirectory(
+            aliasesDirectoryPath
+        );
+
+        using LinuxNoFollowPathHandle planDirectory =
+            OpenRoot(
+                planDirectoryPath
+            );
+
+        using LinuxNoFollowPathHandle journalDirectory =
+            OpenRoot(
+                journalDirectoryPath
+            );
+
+        using LinuxNoFollowPathHandle aliasesDirectory =
+            OpenRoot(
+                aliasesDirectoryPath
+            );
+
+        if (!SupportsUnnamedFilesAt(
+                journalDirectory))
+        {
+            return;
+        }
+
+        TargetedConsumerBatchApplyRunResult result =
+            TargetedConsumerBatchApply.Run(
+                dataRootHandle,
+                planDirectory,
+                journalDirectory,
+                aliasesDirectory,
+                candidates,
+                allWinningRequestedPaths
+            );
+
+        Assert.Equal(
+            5,
+            result.AppliedCount
+        );
+
+        Assert.Equal(
+            5,
+            result.AppliedViaAliasCount
+        );
+
+        Assert.Empty(
+            result.RejectionCounts
+        );
+
+        string fixedDirectory =
+            Path.Combine(
+                dataRoot,
+                "Meshes",
+                "Character",
+                "Character Assets",
+                "Beards"
+            );
+
+        for (
+            int index = 1;
+            index <= 5;
+            index++)
+        {
+            Assert.Equal(
+                $"content {index}",
+                File.ReadAllText(
+                    Path.Combine(
+                        fixedDirectory,
+                        $"File{index}.tri"
+                    )
+                )
+            );
+        }
+
+        var characterAliasInfo =
+            new FileInfo(
+                Path.Combine(
+                    dataRoot,
+                    "Meshes",
+                    "Character"
+                )
+            );
+
+        Assert.Equal(
+            "character",
+            characterAliasInfo.LinkTarget
+        );
+
+        var characterAssetsAliasInfo =
+            new FileInfo(
+                Path.Combine(
+                    dataRoot,
+                    "Meshes",
+                    "character",
+                    "Character Assets"
+                )
+            );
+
+        Assert.Equal(
+            "character assets",
+            characterAssetsAliasInfo.LinkTarget
+        );
+
+        // The real, original directories are untouched and unrenamed -
+        // only aliases were created, never a rename of either.
+        Assert.True(
+            Directory.Exists(
+                Path.Combine(
+                    dataRoot,
+                    "Meshes",
+                    "character"
+                )
+            )
+        );
+
+        Assert.True(
+            Directory.Exists(
+                realDirectory
+            )
+        );
+    }
+
+    [Fact]
+    public void
         Run_AlreadyFixedFileNoLongerACandidate_IsNotStrandedByUnrelatedFix()
     {
         if (!OperatingSystem.IsLinux())

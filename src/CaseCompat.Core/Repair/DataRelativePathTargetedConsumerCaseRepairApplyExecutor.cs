@@ -103,6 +103,9 @@ public enum DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
     AliasParentSyncFailed,
     AliasRegistrationFailed,
 
+    VerifyExistingDirectoryMissing,
+    VerifyExistingDirectoryInspectionFailed,
+
     DestinationInspectionFailed,
     DestinationExists,
 
@@ -193,7 +196,9 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
                             DataRelativePathRepairPlanOperationKind
                                 .CreateDirectory or
                             DataRelativePathRepairPlanOperationKind
-                                .CreateAliasSymlink
+                                .CreateAliasSymlink or
+                            DataRelativePathRepairPlanOperationKind
+                                .VerifyExistingDirectory
                         )
                 ))
         {
@@ -203,8 +208,9 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
                 plan.PlanId,
                 error:
                     "This executor supports plans whose operations are " +
-                    "zero or more CreateDirectory/CreateAliasSymlink " +
-                    "steps followed by exactly one final CreateFile step."
+                    "zero or more CreateDirectory/CreateAliasSymlink/" +
+                    "VerifyExistingDirectory steps followed by exactly " +
+                    "one final CreateFile step."
             );
         }
 
@@ -445,13 +451,25 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
                     DataRelativePathRepairPlanOperationKind
                         .CreateAliasSymlink;
 
+                bool isVerifyOperation =
+                    directoryOperation.Kind ==
+                    DataRelativePathRepairPlanOperationKind
+                        .VerifyExistingDirectory;
+
                 // An alias operation skips this generic preflight
                 // entirely - CreateAliasIntoPlace runs its own targeted
                 // probe instead, since (unlike a directory) an alias that
                 // already exists and is already exactly correct is a
                 // legitimate idempotent reuse, not a conflict. See its
                 // own comment for why.
-                if (!isAliasOperation)
+                //
+                // A verify operation skips it too, for the opposite
+                // reason: it exists specifically BECAUSE the projector
+                // already found this exact-cased directory in place, so
+                // "already exists" is the expected, required state here,
+                // not a conflict - see the dedicated existence check
+                // below instead.
+                if (!isAliasOperation && !isVerifyOperation)
                 {
                     LinuxInspectChildAtResult directoryPreflight =
                         LinuxInspectChildAt.Inspect(
@@ -522,6 +540,59 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
                                 createdDirectoryPaths,
                             error:
                                 aliasFailureError
+                        );
+                    }
+                }
+                else if (isVerifyOperation)
+                {
+                    // Always re-derive fresh proof immediately before
+                    // trusting it: the plan says this directory was
+                    // exactly correct at projection time, but that is a
+                    // hint, not a fact this apply may rely on without
+                    // re-checking. No mutation happens either way - the
+                    // whole point of this step is that none is needed.
+                    LinuxInspectChildAtResult verifyInspect =
+                        LinuxInspectChildAt.Inspect(
+                            currentParent,
+                            directoryChildName
+                        );
+
+                    if (!verifyInspect.Success)
+                    {
+                        return Result(
+                            verifyInspect.State ==
+                            LinuxInspectChildAtState.ChildUnavailable
+                                ? DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                                    .VerifyExistingDirectoryMissing
+                                : DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                                    .VerifyExistingDirectoryInspectionFailed,
+                            plan.PlanId,
+                            destinationPath:
+                                fileOperation.DestinationPath,
+                            createdDirectoryPaths:
+                                createdDirectoryPaths,
+                            error:
+                                verifyInspect.Error ??
+                                verifyInspect.State.ToString()
+                        );
+                    }
+
+                    if (
+                        verifyInspect.Kind !=
+                        LinuxChildObjectKind.Directory)
+                    {
+                        return Result(
+                            DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                                .VerifyExistingDirectoryInspectionFailed,
+                            plan.PlanId,
+                            destinationPath:
+                                fileOperation.DestinationPath,
+                            createdDirectoryPaths:
+                                createdDirectoryPaths,
+                            error:
+                                "The requested path component already " +
+                                "exists with the exact requested casing " +
+                                "but is not a directory."
                         );
                     }
                 }
@@ -685,6 +756,56 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
 
             if (destinationPreflight.Success)
             {
+                // Not necessarily a conflict: when every ancestor
+                // between source and destination resolves (via alias
+                // and/or exact-match verification) back to the same
+                // real directory, and the leaf's own name was never
+                // itself mismatched, source and destination are
+                // literally the same file reached two different ways -
+                // there is nothing left to rename. Re-derive fresh
+                // proof of that (never trust the preflight alone):
+                // open what is actually sitting at the destination and
+                // compare its own incarnation against the source's.
+                LinuxOpenChildRegularFileReadOnlyAtResult
+                    existingDestinationOpen =
+                        LinuxOpenChildRegularFileReadOnlyAt.Open(
+                            destinationParent,
+                            destinationChildName
+                        );
+
+                if (
+                    existingDestinationOpen.Success &&
+                    existingDestinationOpen.OpenedFile is not null)
+                {
+                    using LinuxOpenedChildHandle existingDestination =
+                        existingDestinationOpen.OpenedFile;
+
+                    LinuxOpenedFileIncarnationResult
+                        existingDestinationIncarnation =
+                            LinuxOpenedFileIncarnation.Capture(
+                                existingDestination
+                            );
+
+                    if (
+                        existingDestinationIncarnation.Success &&
+                        existingDestinationIncarnation.Identity is not null &&
+                        sourceIdentity.SameIncarnationAs(
+                            existingDestinationIncarnation.Identity))
+                    {
+                        return Result(
+                            DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
+                                .AppliedDurably,
+                            plan.PlanId,
+                            destinationPath:
+                                fileOperation.DestinationPath,
+                            createdDirectoryPaths:
+                                createdDirectoryPaths,
+                            appliedFileIncarnationIdentity:
+                                existingDestinationIncarnation.Identity
+                        );
+                    }
+                }
+
                 return Result(
                     DataRelativePathTargetedConsumerCaseRepairApplyExecutionState
                         .DestinationExists,

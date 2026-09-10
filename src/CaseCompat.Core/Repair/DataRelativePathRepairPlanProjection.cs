@@ -32,7 +32,8 @@ public enum DataRelativePathRepairPlanOperationKind
 {
     CreateDirectory,
     CreateFile,
-    CreateAliasSymlink
+    CreateAliasSymlink,
+    VerifyExistingDirectory
 }
 
 public sealed record DataRelativePathRepairSourceSnapshot(
