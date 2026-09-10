@@ -668,16 +668,24 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
                 // "reject any symlink" traversal policy entirely for the
                 // executor's own internal walk, rather than weakening it.
                 //
-                // This reopen is deliberately descriptor-relative
-                // (OpenReadOnlyUnderRoot from the already-open, currently
-                // correct currentParent), not a fresh absolute-path walk
-                // from the filesystem root via directoryOperation's own
-                // recorded string. That recorded SourcePath was captured
-                // at plan-build time and can name an ancestor that this
-                // same apply already renamed earlier in this very loop -
-                // exactly the same staleness RenameExistingDirectoryIntoPlace
-                // already avoids by resolving its own source relative to
-                // the current parent rather than by an absolute string.
+                // Both branches reopen descriptor-relative to the
+                // already-open, currently correct currentParent
+                // (OpenReadOnlyUnderRoot), never via a fresh absolute-path
+                // walk from the filesystem root. A single absolute
+                // open(2) call only applies O_NOFOLLOW to the path's
+                // final component - the kernel transparently follows a
+                // symlink sitting at any earlier component - so
+                // reopening via directoryOperation.DestinationPath's own
+                // recorded string would silently walk back through an
+                // earlier alias segment already resolved in this same
+                // loop, corrupting currentParent.FullPath (and, in turn,
+                // the ParentPath recorded for any alias created deeper
+                // in this same operation list) with that alias's
+                // declared casing instead of the real physical name.
+                // directoryChildName is always the real, physically
+                // verified name for the non-alias case (just created,
+                // renamed, or verified above), so this reopen is exactly
+                // as safe as the alias branch's.
                 LinuxNoFollowPathOpenResult reopen =
                     isAliasOperation
                         ? LinuxNoFollowPath.OpenReadOnlyUnderRoot(
@@ -686,8 +694,9 @@ public static class DataRelativePathTargetedConsumerCaseRepairApplyExecutor
                                 directoryOperation.SourcePath!
                             )
                         )
-                        : LinuxNoFollowPath.OpenRootReadOnly(
-                            directoryOperation.DestinationPath
+                        : LinuxNoFollowPath.OpenReadOnlyUnderRoot(
+                            currentParent.FullPath,
+                            directoryChildName
                         );
 
                 if (!reopen.Success)

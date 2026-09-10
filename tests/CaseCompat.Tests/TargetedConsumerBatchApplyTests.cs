@@ -221,6 +221,236 @@ public sealed class TargetedConsumerBatchApplyTests
 
     [Fact]
     public void
+        Run_ContestedAncestorSeparatedByUncontestedMiddleSegment_RecordsAliasUnderRealParentPath()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        // Reproduces a real bug found live on a user's install: two
+        // contested (aliased) ancestor levels separated by a THIRD,
+        // uncontested middle segment that already has the exact
+        // requested casing everywhere ("KhajiitDiversity"). Applying the
+        // first alias ("Meshes"/"meshes") reopens forward through the
+        // uncontested middle segment before reaching the second alias
+        // ("earrings"/"Earrings") - unlike the back-to-back nested case
+        // above, this exercises the executor's *non*-alias reopen
+        // branch in between two alias levels within one apply.
+        //
+        // That reopen used to re-derive the next handle's path from the
+        // plan's own absolute destination-path string. A single
+        // absolute open(2) call only applies O_NOFOLLOW to the path's
+        // *final* component, so the kernel transparently followed the
+        // already-created "Meshes" alias sitting earlier in that
+        // string, and the reopened handle's tracked path kept the
+        // alias's declared casing instead of the real "meshes" one.
+        // The second, deeper alias then durably recorded its ParentPath
+        // using that corrupted string - unfindable by a later discovery
+        // pass, which always computes the same lookup from the real,
+        // physically enumerated parent name. This aborted an entire
+        // rescan with "Not a directory" on the user's real install.
+        string dataRoot =
+            CreateDataRoot();
+
+        string realDirectory =
+            Path.Combine(
+                dataRoot,
+                "meshes",
+                "KhajiitDiversity",
+                "Shared",
+                "Earrings"
+            );
+
+        Directory.CreateDirectory(
+            realDirectory
+        );
+
+        var candidates =
+            new List<
+                DataRelativePathTargetedConsumerCaseRepairCandidate
+            >();
+
+        var allWinningRequestedPaths =
+            new List<string?>();
+
+        for (
+            int index = 1;
+            index <= 5;
+            index++)
+        {
+            File.WriteAllText(
+                Path.Combine(
+                    realDirectory,
+                    $"File{index}.tri"
+                ),
+                $"content {index}"
+            );
+
+            string requestedPath =
+                "Meshes/KhajiitDiversity/Shared/earrings/" +
+                $"File{index}.tri";
+
+            candidates.Add(
+                BuildCandidate(
+                    dataRoot,
+                    requestedPath
+                )
+            );
+
+            allWinningRequestedPaths.Add(
+                requestedPath
+            );
+        }
+
+        // Pin lowercase "meshes" at the first level (contesting the
+        // candidates' "Meshes") and capital "Earrings" at the third
+        // level (contesting the candidates' "earrings"), leaving the
+        // middle "KhajiitDiversity"/"Shared" segments uncontested -
+        // every candidate above already requests those with the exact
+        // real casing.
+        allWinningRequestedPaths.Add(
+            "meshes/LowercasePinnedFile1.nif"
+        );
+
+        allWinningRequestedPaths.Add(
+            "Meshes/KhajiitDiversity/Shared/Earrings/" +
+            "LowercasePinnedFile2.nif"
+        );
+
+        using LinuxNoFollowPathHandle dataRootHandle =
+            OpenRoot(
+                dataRoot
+            );
+
+        string rootPath =
+            Path.Combine(
+                Path.GetTempPath(),
+                "casecompat-batch-apply-tests",
+                Guid.NewGuid().ToString("N")
+            );
+
+        string planDirectoryPath =
+            Path.Combine(
+                rootPath,
+                "Plan"
+            );
+
+        string journalDirectoryPath =
+            Path.Combine(
+                rootPath,
+                "Journal"
+            );
+
+        string aliasesDirectoryPath =
+            Path.Combine(
+                rootPath,
+                "Aliases"
+            );
+
+        Directory.CreateDirectory(
+            planDirectoryPath
+        );
+
+        Directory.CreateDirectory(
+            journalDirectoryPath
+        );
+
+        Directory.CreateDirectory(
+            aliasesDirectoryPath
+        );
+
+        using LinuxNoFollowPathHandle planDirectory =
+            OpenRoot(
+                planDirectoryPath
+            );
+
+        using LinuxNoFollowPathHandle journalDirectory =
+            OpenRoot(
+                journalDirectoryPath
+            );
+
+        using LinuxNoFollowPathHandle aliasesDirectory =
+            OpenRoot(
+                aliasesDirectoryPath
+            );
+
+        if (!SupportsUnnamedFilesAt(
+                journalDirectory))
+        {
+            return;
+        }
+
+        TargetedConsumerBatchApplyRunResult result =
+            TargetedConsumerBatchApply.Run(
+                dataRootHandle,
+                planDirectory,
+                journalDirectory,
+                aliasesDirectory,
+                candidates,
+                allWinningRequestedPaths
+            );
+
+        Assert.Equal(
+            5,
+            result.AppliedCount
+        );
+
+        Assert.Equal(
+            5,
+            result.AppliedViaAliasCount
+        );
+
+        Assert.Empty(
+            result.RejectionCounts
+        );
+
+        string realParentPath =
+            Path.Combine(
+                dataRoot,
+                "meshes",
+                "KhajiitDiversity",
+                "Shared"
+            );
+
+        // The regression check: the deeper alias must be findable by a
+        // later discovery pass looking it up under the REAL, physically
+        // enumerated parent path ("meshes", lowercase) - not under the
+        // "Meshes" (capital) alias casing the buggy reopen used to
+        // leak into this record.
+        DataRelativePathRepairAliasRegistryLookupResult found =
+            DataRelativePathRepairAliasRegistry.TryFind(
+                aliasesDirectory,
+                realParentPath,
+                "earrings"
+            );
+
+        Assert.True(
+            found.Success,
+            found.Error
+        );
+
+        Assert.Equal(
+            "Earrings",
+            found.Record!.TargetName
+        );
+
+        var earringsAliasInfo =
+            new FileInfo(
+                Path.Combine(
+                    realParentPath,
+                    "earrings"
+                )
+            );
+
+        Assert.Equal(
+            "Earrings",
+            earringsAliasInfo.LinkTarget
+        );
+    }
+
+    [Fact]
+    public void
         Run_ManyCandidatesSharingTwoNestedContestedAncestors_AllSucceed()
     {
         if (!OperatingSystem.IsLinux())
