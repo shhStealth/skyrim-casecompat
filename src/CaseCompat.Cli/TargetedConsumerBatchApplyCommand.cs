@@ -1,5 +1,3 @@
-using CaseCompat.Bethesda.Plugins;
-using CaseCompat.Core.Repair;
 using CaseCompat.Filesystem.Linux;
 using System.Text;
 
@@ -20,7 +18,7 @@ public static class TargetedConsumerBatchApplyCommand
                 "Usage: casecompat targeted-consumer-batch-apply " +
                 "<Data root> <Plugins.txt> <loadorder.txt> <Skyrim.ccc> " +
                 "<plan directory> <journal directory> <aliases directory> " +
-                "<report file path> <max candidates>"
+                "<report file path> <max candidates per pass>"
             );
 
             return 2;
@@ -29,70 +27,14 @@ public static class TargetedConsumerBatchApplyCommand
         if (
             !int.TryParse(
                 args[9],
-                out int maxCandidates) ||
-            maxCandidates < 1)
+                out int maxCandidatesPerPass) ||
+            maxCandidatesPerPass < 1)
         {
             Console.Error.WriteLine(
                 $"Error: '{args[9]}' is not a positive integer."
             );
 
             return 2;
-        }
-
-        SkyrimWinningTargetedConsumerCaseRepairCandidateProjectionResult
-            discovery;
-
-        try
-        {
-            discovery =
-                TargetedConsumerDiscovery.Discover(
-                    dataRoot:
-                        args[1],
-                    pluginsPath:
-                        args[2],
-                    loadOrderPath:
-                        args[3],
-                    cccPath:
-                        args[4],
-                    aliasesDirectoryPath:
-                        args[7]
-                );
-        }
-        catch (InvalidOperationException ex)
-        {
-            Console.Error.WriteLine(
-                $"Error: {ex.Message}"
-            );
-
-            return 4;
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine(
-                $"Targeted consumer-candidate discovery error: {ex.Message}"
-            );
-
-            return 3;
-        }
-
-        if (!discovery.CandidateEvidenceComplete)
-        {
-            Console.Error.WriteLine(
-                "Targeted consumer-candidate discovery was not complete."
-            );
-            Console.Error.WriteLine(
-                $"State: {discovery.State}"
-            );
-
-            if (!string.IsNullOrWhiteSpace(
-                    discovery.Error))
-            {
-                Console.Error.WriteLine(
-                    $"Error: {discovery.Error}"
-                );
-            }
-
-            return 5;
         }
 
         LinuxNoFollowPathOpenResult dataRootOpen;
@@ -231,14 +173,6 @@ public static class TargetedConsumerBatchApplyCommand
         using LinuxNoFollowPathHandle aliasesDirectory =
             aliasesDirectoryOpen.OpenedPath!;
 
-        IReadOnlyList<DataRelativePathTargetedConsumerCaseRepairCandidate>
-            candidates =
-                discovery.Candidates
-                    .Take(
-                        maxCandidates
-                    )
-                    .ToArray();
-
         var report =
             new StringBuilder();
 
@@ -256,104 +190,205 @@ public static class TargetedConsumerBatchApplyCommand
 
         Console.WriteLine();
 
-        Console.WriteLine(
-            $"Candidates available: {discovery.CandidateCount:N0}"
-        );
-
-        Console.WriteLine(
-            $"Candidates selected:  {candidates.Count:N0}"
-        );
-
-        Console.WriteLine();
-
-        int processed =
+        int currentPassCandidateCount =
             0;
 
-        int appliedSoFar =
+        int currentPassProcessed =
             0;
 
-        TargetedConsumerBatchApplyRunResult result =
-            TargetedConsumerBatchApply.Run(
-                dataRoot,
-                planDirectory,
-                journalDirectory,
-                aliasesDirectory,
-                candidates,
-                TargetedConsumerBatchApply.ExtractWinningRequestedPaths(
-                    discovery.Leaves
-                ),
-                item =>
-                {
-                    processed++;
+        int currentPassApplied =
+            0;
 
-                    if (item.Outcome is
-                        "AppliedDurably" or
-                        "AppliedDurablyViaAlias")
-                    {
-                        appliedSoFar++;
-                    }
+        TargetedConsumerBatchApplyConvergenceResult convergence;
 
-                    report.AppendLine(
-                        $"{TargetedConsumerBatchApply.EscapeCsvField(
-                            item.Candidate.AuthoritativeRequestedPath)}," +
-                        $"{TargetedConsumerBatchApply.EscapeCsvField(
-                            item.Candidate.SourceSnapshot.PhysicalPath)}," +
-                        $"{TargetedConsumerBatchApply.EscapeCsvField(
-                            item.DestinationPath ?? string.Empty)}," +
-                        $"{TargetedConsumerBatchApply.EscapeCsvField(
-                            item.Outcome)}," +
-                        $"{TargetedConsumerBatchApply.EscapeCsvField(
-                            item.Detail)}"
-                    );
+        try
+        {
+            convergence =
+                TargetedConsumerBatchApply.RunUntilConverged(
+                    dataRoot:
+                        args[1],
+                    pluginsPath:
+                        args[2],
+                    loadOrderPath:
+                        args[3],
+                    cccPath:
+                        args[4],
+                    aliasesDirectoryPath:
+                        args[7],
+                    dataRootHandle:
+                        dataRoot,
+                    planDirectory:
+                        planDirectory,
+                    journalDirectory:
+                        journalDirectory,
+                    aliasesDirectory:
+                        aliasesDirectory,
+                    maxCandidatesPerPass:
+                        maxCandidatesPerPass,
+                    onPassStarted:
+                        (passNumber, candidateCount) =>
+                        {
+                            currentPassCandidateCount =
+                                candidateCount;
 
-                    if (processed % 250 == 0)
-                    {
-                        Console.WriteLine(
-                            $"Progress: {processed:N0}/" +
-                            $"{candidates.Count:N0} processed, " +
-                            $"{appliedSoFar:N0} applied"
-                        );
-                    }
-                }
+                            currentPassProcessed =
+                                0;
+
+                            currentPassApplied =
+                                0;
+
+                            Console.WriteLine(
+                                $"Pass {passNumber}: " +
+                                $"{candidateCount:N0} candidates " +
+                                "available, processing up to " +
+                                $"{maxCandidatesPerPass:N0}."
+                            );
+                        },
+                    onItemCompleted:
+                        (_, item) =>
+                        {
+                            currentPassProcessed++;
+
+                            if (item.Outcome is
+                                "AppliedDurably" or
+                                "AppliedDurablyViaAlias")
+                            {
+                                currentPassApplied++;
+                            }
+
+                            report.AppendLine(
+                                $"{TargetedConsumerBatchApply.EscapeCsvField(
+                                    item.Candidate
+                                        .AuthoritativeRequestedPath)}," +
+                                $"{TargetedConsumerBatchApply.EscapeCsvField(
+                                    item.Candidate.SourceSnapshot
+                                        .PhysicalPath)}," +
+                                $"{TargetedConsumerBatchApply.EscapeCsvField(
+                                    item.DestinationPath ??
+                                    string.Empty)}," +
+                                $"{TargetedConsumerBatchApply.EscapeCsvField(
+                                    item.Outcome)}," +
+                                $"{TargetedConsumerBatchApply.EscapeCsvField(
+                                    item.Detail)}"
+                            );
+
+                            if (currentPassProcessed % 250 == 0)
+                            {
+                                Console.WriteLine(
+                                    $"  Progress: " +
+                                    $"{currentPassProcessed:N0}/" +
+                                    $"{currentPassCandidateCount:N0} " +
+                                    $"processed, {currentPassApplied:N0} " +
+                                    "applied"
+                                );
+                            }
+                        }
+                );
+        }
+        catch (InvalidOperationException ex)
+        {
+            Console.Error.WriteLine(
+                $"Error: {ex.Message}"
             );
+
+            return 4;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"Targeted consumer-candidate discovery error: {ex.Message}"
+            );
+
+            return 3;
+        }
 
         File.WriteAllText(
             args[8],
             report.ToString()
         );
 
+        if (convergence.DiscoveryFailed)
+        {
+            Console.Error.WriteLine(
+                "A rescan partway through did not complete."
+            );
+            Console.Error.WriteLine(
+                $"State: {convergence.DiscoveryFailureState}"
+            );
+
+            if (!string.IsNullOrWhiteSpace(
+                    convergence.DiscoveryFailureError))
+            {
+                Console.Error.WriteLine(
+                    $"Error: {convergence.DiscoveryFailureError}"
+                );
+            }
+
+            Console.WriteLine();
+
+            Console.WriteLine(
+                $"Applied so far: {convergence.TotalAppliedCount:N0}"
+            );
+
+            Console.WriteLine(
+                $"Full per-candidate report: {args[8]}"
+            );
+
+            return 5;
+        }
+
+        int totalProcessed =
+            convergence.Passes
+                .Sum(
+                    pass =>
+                        pass.CandidateCount
+                );
+
+        int notApplied =
+            convergence.Passes.Count > 0
+                ? convergence.Passes[^1].CandidateCount -
+                    convergence.Passes[^1].RunResult.AppliedCount
+                : 0;
+
         Console.WriteLine();
 
-        Console.WriteLine(
-            $"Processed:  {processed:N0}"
-        );
-
-        Console.WriteLine(
-            $"Applied:    {result.AppliedCount:N0}"
-        );
-
-        if (result.AppliedViaAliasCount > 0)
+        if (convergence.Passes.Count > 1)
         {
             Console.WriteLine(
-                $"  (of which via alias: " +
-                $"{result.AppliedViaAliasCount:N0})"
+                $"Completed in {convergence.Passes.Count:N0} passes."
             );
         }
 
         Console.WriteLine(
-            $"Not applied: {processed - result.AppliedCount:N0}"
+            $"Processed:  {totalProcessed:N0}"
         );
 
-        if (result.RejectionCounts.Count > 0)
+        Console.WriteLine(
+            $"Applied:    {convergence.TotalAppliedCount:N0}"
+        );
+
+        if (convergence.TotalAppliedViaAliasCount > 0)
+        {
+            Console.WriteLine(
+                $"  (of which via alias: " +
+                $"{convergence.TotalAppliedViaAliasCount:N0})"
+            );
+        }
+
+        Console.WriteLine(
+            $"Not applied: {notApplied:N0}"
+        );
+
+        if (convergence.FinalRejectionCounts.Count > 0)
         {
             Console.WriteLine();
             Console.WriteLine(
-                "Outcomes other than AppliedDurably:"
+                "Outcomes other than AppliedDurably (last pass):"
             );
 
             foreach (
                 (string outcome, int count)
-                in result.RejectionCounts
+                in convergence.FinalRejectionCounts
                     .OrderByDescending(
                         pair =>
                             pair.Value
@@ -361,6 +396,28 @@ public static class TargetedConsumerBatchApplyCommand
             {
                 Console.WriteLine(
                     $"  {outcome,-32} {count,9:N0}"
+                );
+            }
+
+            if (convergence.StoppedDueToNoProgress)
+            {
+                Console.WriteLine();
+
+                Console.WriteLine(
+                    "Rescanning stopped because the remaining items did " +
+                    "not change across two rescans - this looks like a " +
+                    "permanent conflict, not a temporary ordering effect."
+                );
+            }
+            else if (convergence.StoppedDueToPassCap)
+            {
+                Console.WriteLine();
+
+                Console.WriteLine(
+                    "Rescanning stopped after " +
+                    $"{convergence.Passes.Count:N0} automatic passes. " +
+                    "Progress was still being made, so running this " +
+                    "command again may resolve more."
                 );
             }
         }

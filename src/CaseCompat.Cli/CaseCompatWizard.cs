@@ -145,14 +145,14 @@ internal static class CaseCompatWizard
 
         output.WriteLine();
 
-        // Computed here (rather than only later, in ApplyAll) so a
-        // second or later scan against this same install recognizes
-        // aliases an earlier run already created - without it, the scan
-        // would see a real directory plus its alias as an unresolved
-        // conflict rather than an already-fixed path. This is only a
-        // path computation; the directory need not exist yet, and
-        // Discover degrades gracefully if it doesn't (the common case
-        // for a genuinely first run).
+        // Computed here (rather than only later, in ApplyAll) so this
+        // first scan already recognizes aliases an earlier RUN of the
+        // wizard created - without it, the scan would see a real
+        // directory plus its alias as an unresolved conflict rather
+        // than an already-fixed path. This is only a path computation;
+        // the directory need not exist yet, and Discover degrades
+        // gracefully if it doesn't (the common case for a genuinely
+        // first run).
         string aliasesDirectoryPathForScan =
             Path.Combine(
                 CaseCompatStateDirectory.Resolve(
@@ -252,18 +252,18 @@ internal static class CaseCompatWizard
         return ApplyAll(
             output,
             dataRoot,
-            discoveryResult.Candidates,
-            discoveryResult.Leaves
+            pluginsPath,
+            loadOrderPath,
+            cccPath
         );
     }
 
     private static int ApplyAll(
         TextWriter output,
         string dataRoot,
-        IReadOnlyList<DataRelativePathTargetedConsumerCaseRepairCandidate>
-            candidates,
-        IReadOnlyList<SkyrimWinningTargetedConsumerCaseRepairLeafProjection>
-            leaves)
+        string pluginsPath,
+        string loadOrderPath,
+        string cccPath)
     {
         string stateDirectory =
             CaseCompatStateDirectory.Resolve(
@@ -401,78 +401,192 @@ internal static class CaseCompatWizard
             "RequestedPath,SourcePath,DestinationPath,Outcome,Detail"
         );
 
-        int processed =
+        int currentPassCandidateCount =
             0;
 
-        int appliedSoFar =
+        int currentPassProcessed =
             0;
 
-        output.WriteLine(
-            "Applying fixes..."
-        );
+        int currentPassApplied =
+            0;
 
-        TargetedConsumerBatchApplyRunResult result =
-            TargetedConsumerBatchApply.Run(
-                dataRootHandle,
-                planDirectoryHandle,
-                journalDirectoryHandle,
-                aliasesDirectoryHandle,
-                candidates,
-                TargetedConsumerBatchApply.ExtractWinningRequestedPaths(
-                    leaves
-                ),
-                item =>
-                {
-                    processed++;
+        TargetedConsumerBatchApplyConvergenceResult convergence;
 
-                    if (item.Outcome is
-                        "AppliedDurably" or
-                        "AppliedDurablyViaAlias")
-                    {
-                        appliedSoFar++;
-                    }
+        try
+        {
+            convergence =
+                TargetedConsumerBatchApply.RunUntilConverged(
+                    dataRoot:
+                        dataRoot,
+                    pluginsPath:
+                        pluginsPath,
+                    loadOrderPath:
+                        loadOrderPath,
+                    cccPath:
+                        cccPath,
+                    aliasesDirectoryPath:
+                        aliasesDirectoryPath,
+                    dataRootHandle:
+                        dataRootHandle,
+                    planDirectory:
+                        planDirectoryHandle,
+                    journalDirectory:
+                        journalDirectoryHandle,
+                    aliasesDirectory:
+                        aliasesDirectoryHandle,
+                    onPassStarted:
+                        (passNumber, candidateCount) =>
+                        {
+                            currentPassCandidateCount =
+                                candidateCount;
 
-                    report.AppendLine(
-                        $"{TargetedConsumerBatchApply.EscapeCsvField(
-                            item.Candidate.AuthoritativeRequestedPath)}," +
-                        $"{TargetedConsumerBatchApply.EscapeCsvField(
-                            item.Candidate.SourceSnapshot.PhysicalPath)}," +
-                        $"{TargetedConsumerBatchApply.EscapeCsvField(
-                            item.DestinationPath ?? string.Empty)}," +
-                        $"{TargetedConsumerBatchApply.EscapeCsvField(
-                            item.Outcome)}," +
-                        $"{TargetedConsumerBatchApply.EscapeCsvField(
-                            item.Detail)}"
-                    );
+                            currentPassProcessed =
+                                0;
 
-                    if (
-                        processed % 250 == 0 ||
-                        processed == candidates.Count)
-                    {
-                        output.WriteLine(
-                            $"  {processed:N0}/{candidates.Count:N0} " +
-                            $"processed, {appliedSoFar:N0} applied"
-                        );
-                    }
-                }
+                            currentPassApplied =
+                                0;
+
+                            if (passNumber > 1)
+                            {
+                                output.WriteLine();
+
+                                output.WriteLine(
+                                    $"Rescanning for remaining work " +
+                                    $"(pass {passNumber})..."
+                                );
+
+                                output.WriteLine(
+                                    $"Found {candidateCount:N0} " +
+                                    "remaining potential fixes."
+                                );
+                            }
+
+                            output.WriteLine(
+                                "Applying fixes..."
+                            );
+                        },
+                    onItemCompleted:
+                        (_, item) =>
+                        {
+                            currentPassProcessed++;
+
+                            if (item.Outcome is
+                                "AppliedDurably" or
+                                "AppliedDurablyViaAlias")
+                            {
+                                currentPassApplied++;
+                            }
+
+                            report.AppendLine(
+                                $"{TargetedConsumerBatchApply.EscapeCsvField(
+                                    item.Candidate
+                                        .AuthoritativeRequestedPath)}," +
+                                $"{TargetedConsumerBatchApply.EscapeCsvField(
+                                    item.Candidate.SourceSnapshot
+                                        .PhysicalPath)}," +
+                                $"{TargetedConsumerBatchApply.EscapeCsvField(
+                                    item.DestinationPath ??
+                                    string.Empty)}," +
+                                $"{TargetedConsumerBatchApply.EscapeCsvField(
+                                    item.Outcome)}," +
+                                $"{TargetedConsumerBatchApply.EscapeCsvField(
+                                    item.Detail)}"
+                            );
+
+                            if (
+                                currentPassProcessed % 250 == 0 ||
+                                currentPassProcessed ==
+                                    currentPassCandidateCount)
+                            {
+                                output.WriteLine(
+                                    $"  {currentPassProcessed:N0}/" +
+                                    $"{currentPassCandidateCount:N0} " +
+                                    $"processed, {currentPassApplied:N0} " +
+                                    "applied"
+                                );
+                            }
+                        }
+                );
+        }
+        catch (InvalidOperationException ex)
+        {
+            output.WriteLine(
+                $"Error: {ex.Message}"
             );
+
+            return 4;
+        }
+        catch (Exception ex)
+        {
+            output.WriteLine(
+                $"Scan failed: {ex.Message}"
+            );
+
+            return 3;
+        }
 
         File.WriteAllText(
             reportPath,
             report.ToString()
         );
 
+        if (convergence.DiscoveryFailed)
+        {
+            output.WriteLine();
+
+            output.WriteLine(
+                "A rescan partway through did not complete."
+            );
+
+            output.WriteLine(
+                $"State: {convergence.DiscoveryFailureState}"
+            );
+
+            if (!string.IsNullOrWhiteSpace(
+                    convergence.DiscoveryFailureError))
+            {
+                output.WriteLine(
+                    $"Error: {convergence.DiscoveryFailureError}"
+                );
+            }
+
+            output.WriteLine();
+
+            output.WriteLine(
+                $"Applied so far: {convergence.TotalAppliedCount:N0}"
+            );
+
+            output.WriteLine(
+                $"Full report: {reportPath}"
+            );
+
+            return 5;
+        }
+
+        int notApplied =
+            convergence.Passes.Count > 0
+                ? convergence.Passes[^1].CandidateCount -
+                    convergence.Passes[^1].RunResult.AppliedCount
+                : 0;
+
         output.WriteLine();
 
+        if (convergence.Passes.Count > 1)
+        {
+            output.WriteLine(
+                $"Completed in {convergence.Passes.Count:N0} passes."
+            );
+        }
+
         output.WriteLine(
-            $"Applied:     {result.AppliedCount:N0}"
+            $"Applied:     {convergence.TotalAppliedCount:N0}"
         );
 
-        if (result.AppliedViaAliasCount > 0)
+        if (convergence.TotalAppliedViaAliasCount > 0)
         {
             output.WriteLine(
                 $"  (of which via alias: " +
-                $"{result.AppliedViaAliasCount:N0})"
+                $"{convergence.TotalAppliedViaAliasCount:N0})"
             );
 
             output.WriteLine(
@@ -486,10 +600,10 @@ internal static class CaseCompatWizard
         }
 
         output.WriteLine(
-            $"Not applied: {candidates.Count - result.AppliedCount:N0}"
+            $"Not applied: {notApplied:N0}"
         );
 
-        if (result.RejectionCounts.Count > 0)
+        if (convergence.FinalRejectionCounts.Count > 0)
         {
             output.WriteLine();
 
@@ -499,7 +613,7 @@ internal static class CaseCompatWizard
 
             foreach (
                 (string outcome, int count)
-                in result.RejectionCounts
+                in convergence.FinalRejectionCounts
                     .OrderByDescending(
                         pair =>
                             pair.Value
@@ -518,7 +632,7 @@ internal static class CaseCompatWizard
                 "no change was needed."
             );
 
-            if (result.RejectionCounts.ContainsKey(
+            if (convergence.FinalRejectionCounts.ContainsKey(
                     "PlanRejected:DestinationParentAmbiguous"))
             {
                 output.WriteLine();
@@ -530,6 +644,29 @@ internal static class CaseCompatWizard
                     "folder with an alias - two genuinely separate " +
                     "folders). CaseCompat will not guess which one is " +
                     "correct, so these were left untouched."
+                );
+            }
+
+            if (convergence.StoppedDueToNoProgress)
+            {
+                output.WriteLine();
+
+                output.WriteLine(
+                    "Rescanning stopped because the remaining items did " +
+                    "not change across two rescans - this looks like a " +
+                    "permanent conflict CaseCompat cannot resolve " +
+                    "automatically, not a temporary ordering effect."
+                );
+            }
+            else if (convergence.StoppedDueToPassCap)
+            {
+                output.WriteLine();
+
+                output.WriteLine(
+                    "Rescanning stopped after " +
+                    $"{convergence.Passes.Count:N0} automatic passes. " +
+                    "Progress was still being made, so running the " +
+                    "wizard again may resolve more."
                 );
             }
         }

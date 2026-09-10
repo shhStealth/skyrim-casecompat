@@ -33,9 +33,15 @@ It will:
    asset requests against the current winning load order.
 3. Show how many fixable mismatches it found and ask once before
    applying anything.
-4. Apply them, showing progress, and print a summary plus the location
-   of a full per-fix report and the journal used for troubleshooting or
-   rollback.
+4. Apply them, showing progress. A single apply pass can leave some
+   fixes stale (an earlier fix in the same pass can change state a
+   later one depended on) — after your one confirmation, CaseCompat
+   automatically rescans and reapplies as many times as it takes to
+   settle, stopping once nothing is left, or once two rescans in a row
+   make no further progress (a genuine conflict it can't resolve, not
+   a temporary ordering effect). No need to re-run it yourself.
+5. Print a combined summary plus the location of a full per-fix report
+   and the journal used for troubleshooting or rollback.
 
 Running from source instead of a package:
 
@@ -177,10 +183,14 @@ dotnet run --project src/CaseCompat.Cli -- \
   targeted-consumer-apply "$DATA" "$PLANS" targeted-consumer-plan.json "$JOURNAL"
 ```
 
-**Apply every discovered candidate in one run**, writing a CSV report.
+**Apply every discovered candidate**, writing a combined CSV report.
 `$ALIASES` is a directory for durable records of any symlink aliases
 CaseCompat creates when two mods disagree about a shared folder's case
-(see "Safety model" above):
+(see "Safety model" above). Like the guided wizard, this automatically
+rescans and reapplies as many times as it takes to settle (up to a
+safety cap of 10 passes), rather than requiring the command to be
+re-invoked by hand; the final `<max candidates>` argument caps how many
+candidates are attempted per pass, not across the whole run:
 
 ```bash
 dotnet run --project src/CaseCompat.Cli -- \
