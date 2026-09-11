@@ -135,4 +135,120 @@ public sealed class SkyrimWinningMaterialTextureInventoryTests
                 reference.GivenPath == "Shared/FlatGray01_d.dds"
         );
     }
+
+    // Proves the cache is actually consulted (not merely that a rename
+    // still parses correctly on its own): after the first Inspect call
+    // populates the cache and the file is renamed, the file's bytes at
+    // its new name are corrupted in place (same inode, truncated
+    // content) before the second Inspect call. A second call that
+    // genuinely re-parsed would see the corrupted bytes and yield zero
+    // references (matching Inspect_CorruptedMaterialFile_DoesNotFailWholeInventory
+    // above); a cache hit still returns the original real reference,
+    // re-stamped to the new path - which is what this test requires.
+    [Fact]
+    public void Inspect_SameCacheAcrossRename_ReusesCachedExtractionByInode()
+    {
+        string tempDirectory =
+            Directory.CreateTempSubdirectory(
+                "casecompat-material-cache-test-"
+            ).FullName;
+
+        try
+        {
+            string fixturePath =
+                Path.Combine(
+                    AppContext.BaseDirectory,
+                    "Fixtures",
+                    "MaterialSamples",
+                    "Version_2_Default.bgsm"
+                );
+
+            string firstPath =
+                Path.Combine(
+                    tempDirectory,
+                    "material1.bgsm"
+                );
+
+            File.Copy(
+                fixturePath,
+                firstPath
+            );
+
+            var cache =
+                new SkyrimMaterialTextureExtractionCache();
+
+            SkyrimWinningMaterialTextureInventoryResult firstResult =
+                SkyrimWinningMaterialTextureInventory.Inspect(
+                    tempDirectory,
+                    [firstPath],
+                    cache
+                );
+
+            Assert.Contains(
+                firstResult.References,
+                reference =>
+                    reference.SlotName == "DiffuseTexture" &&
+                    reference.GivenPath == "Shared/FlatGray01_d.dds"
+            );
+
+            string secondPath =
+                Path.Combine(
+                    tempDirectory,
+                    "material2.bgsm"
+                );
+
+            File.Move(
+                firstPath,
+                secondPath
+            );
+
+            // Truncate the same inode's content in place - a real
+            // re-parse of this path would now fail/yield nothing.
+            using (var truncate =
+                new FileStream(
+                    secondPath,
+                    FileMode.Truncate,
+                    FileAccess.Write))
+            {
+                truncate.Write(
+                    [0x00, 0x00, 0x00, 0x00]
+                );
+            }
+
+            SkyrimWinningMaterialTextureInventoryResult secondResult =
+                SkyrimWinningMaterialTextureInventory.Inspect(
+                    tempDirectory,
+                    [secondPath],
+                    cache
+                );
+
+            Assert.True(
+                secondResult.SearchComplete
+            );
+
+            SkyrimMaterialFileTextureReference match =
+                Assert.Single(
+                    secondResult.References,
+                    reference =>
+                        reference.SlotName == "DiffuseTexture"
+                );
+
+            Assert.Equal(
+                "Shared/FlatGray01_d.dds",
+                match.GivenPath
+            );
+
+            Assert.Equal(
+                secondPath,
+                match.MaterialPhysicalPath
+            );
+        }
+        finally
+        {
+            Directory.Delete(
+                tempDirectory,
+                recursive: true
+            );
+        }
+    }
 }

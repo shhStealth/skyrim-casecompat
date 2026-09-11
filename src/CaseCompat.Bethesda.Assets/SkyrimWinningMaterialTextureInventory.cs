@@ -38,7 +38,8 @@ public static class SkyrimWinningMaterialTextureInventory
 {
     public static SkyrimWinningMaterialTextureInventoryResult Inspect(
         string dataRoot,
-        IReadOnlyList<string> materialPhysicalPaths)
+        IReadOnlyList<string> materialPhysicalPaths,
+        SkyrimMaterialTextureExtractionCache? cache = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(
             dataRoot
@@ -94,6 +95,30 @@ public static class SkyrimWinningMaterialTextureInventory
                 continue;
             }
 
+            bool haveIdentity =
+                SkyrimAssetFileIdentity.TryInspect(
+                    materialPhysicalPath,
+                    out SkyrimAssetFileIdentity identity
+                );
+
+            if (
+                cache is not null &&
+                haveIdentity &&
+                cache.TryGet(
+                    identity,
+                    materialPhysicalPath,
+                    out IReadOnlyList<SkyrimMaterialFileTextureReference>
+                        cached))
+            {
+                stream.Dispose();
+
+                references.AddRange(
+                    cached
+                );
+
+                continue;
+            }
+
             using (stream)
             {
                 // A material file this project's hand-written reader
@@ -116,6 +141,16 @@ public static class SkyrimWinningMaterialTextureInventory
                     references.AddRange(
                         extracted
                     );
+
+                    if (
+                        cache is not null &&
+                        haveIdentity)
+                    {
+                        cache.Store(
+                            identity,
+                            extracted
+                        );
+                    }
                 }
                 catch (Exception)
                 {

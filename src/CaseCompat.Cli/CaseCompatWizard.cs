@@ -1,3 +1,4 @@
+using CaseCompat.Bethesda.Assets;
 using CaseCompat.Bethesda.Plugins;
 using CaseCompat.Core.Repair;
 using CaseCompat.Filesystem.Linux;
@@ -161,6 +162,16 @@ internal static class CaseCompatWizard
                 "aliases"
             );
 
+        // Shared with ApplyAll below (which threads them into every
+        // convergence pass) so this preview scan's own mesh/material
+        // parsing work isn't thrown away and repeated again a moment
+        // later - see the cache-sharing comment on RunUntilConverged.
+        var meshCache =
+            new SkyrimMeshTextureExtractionCache();
+
+        var materialCache =
+            new SkyrimMaterialTextureExtractionCache();
+
         TargetedConsumerAssetDiscoveryResult discoveryResult;
 
         try
@@ -176,7 +187,11 @@ internal static class CaseCompatWizard
                     cccPath:
                         cccPath,
                     aliasesDirectoryPath:
-                        aliasesDirectoryPathForScan
+                        aliasesDirectoryPathForScan,
+                    meshCache:
+                        meshCache,
+                    materialCache:
+                        materialCache
                 );
         }
         catch (InvalidOperationException ex)
@@ -253,7 +268,9 @@ internal static class CaseCompatWizard
             dataRoot,
             pluginsPath,
             loadOrderPath,
-            cccPath
+            cccPath,
+            meshCache,
+            materialCache
         );
     }
 
@@ -262,7 +279,9 @@ internal static class CaseCompatWizard
         string dataRoot,
         string pluginsPath,
         string loadOrderPath,
-        string cccPath)
+        string cccPath,
+        SkyrimMeshTextureExtractionCache? meshCache = null,
+        SkyrimMaterialTextureExtractionCache? materialCache = null)
     {
         string stateDirectory =
             CaseCompatStateDirectory.Resolve(
@@ -433,6 +452,10 @@ internal static class CaseCompatWizard
                         journalDirectoryHandle,
                     aliasesDirectory:
                         aliasesDirectoryHandle,
+                    meshCache:
+                        meshCache,
+                    materialCache:
+                        materialCache,
                     onPassStarted:
                         (passNumber, candidateCount) =>
                         {

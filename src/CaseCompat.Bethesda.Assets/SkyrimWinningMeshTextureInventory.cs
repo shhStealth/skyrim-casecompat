@@ -37,7 +37,8 @@ public static class SkyrimWinningMeshTextureInventory
 {
     public static SkyrimWinningMeshTextureInventoryResult Inspect(
         string dataRoot,
-        IReadOnlyList<string> meshPhysicalPaths)
+        IReadOnlyList<string> meshPhysicalPaths,
+        SkyrimMeshTextureExtractionCache? cache = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(
             dataRoot
@@ -93,6 +94,29 @@ public static class SkyrimWinningMeshTextureInventory
                 continue;
             }
 
+            bool haveIdentity =
+                SkyrimAssetFileIdentity.TryInspect(
+                    meshPhysicalPath,
+                    out SkyrimAssetFileIdentity identity
+                );
+
+            if (
+                cache is not null &&
+                haveIdentity &&
+                cache.TryGet(
+                    identity,
+                    meshPhysicalPath,
+                    out IReadOnlyList<SkyrimNifTextureReference> cached))
+            {
+                stream.Dispose();
+
+                references.AddRange(
+                    cached
+                );
+
+                continue;
+            }
+
             using (stream)
             {
                 // NiflySharp is a third-party parser given untrusted,
@@ -114,6 +138,16 @@ public static class SkyrimWinningMeshTextureInventory
                     references.AddRange(
                         extracted
                     );
+
+                    if (
+                        cache is not null &&
+                        haveIdentity)
+                    {
+                        cache.Store(
+                            identity,
+                            extracted
+                        );
+                    }
                 }
                 catch (Exception)
                 {

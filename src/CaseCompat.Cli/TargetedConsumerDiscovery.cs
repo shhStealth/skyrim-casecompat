@@ -187,7 +187,9 @@ internal static class TargetedConsumerDiscovery
         string pluginsPath,
         string loadOrderPath,
         string cccPath,
-        string? aliasesDirectoryPath = null)
+        string? aliasesDirectoryPath = null,
+        SkyrimMeshTextureExtractionCache? meshCache = null,
+        SkyrimMaterialTextureExtractionCache? materialCache = null)
     {
         SkyrimWinningTargetedConsumerCaseRepairCandidateProjectionResult
             meshRound =
@@ -241,7 +243,8 @@ internal static class TargetedConsumerDiscovery
         SkyrimWinningMeshTextureInventoryResult meshTextureInventory =
             SkyrimWinningMeshTextureInventory.Inspect(
                 dataRoot,
-                meshPhysicalPaths
+                meshPhysicalPaths,
+                meshCache
             );
 
         SkyrimWinningMeshTextureAggregateConsumerSpellingEvidenceProjectionResult
@@ -308,7 +311,8 @@ internal static class TargetedConsumerDiscovery
         SkyrimWinningMaterialTextureInventoryResult materialTextureInventory =
             SkyrimWinningMaterialTextureInventory.Inspect(
                 dataRoot,
-                materialPhysicalPaths
+                materialPhysicalPaths,
+                materialCache
             );
 
         SkyrimWinningMaterialTextureAggregateConsumerSpellingEvidenceProjectionResult

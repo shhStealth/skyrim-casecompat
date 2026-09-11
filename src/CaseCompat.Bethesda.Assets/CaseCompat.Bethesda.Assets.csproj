@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\CaseCompat.Core\CaseCompat.Core.csproj" />
     <ProjectReference Include="..\CaseCompat.Bethesda.Plugins\CaseCompat.Bethesda.Plugins.csproj" />
+    <ProjectReference Include="..\CaseCompat.Filesystem.Linux\CaseCompat.Filesystem.Linux.csproj" />
   </ItemGroup>
 
   <ItemGroup>

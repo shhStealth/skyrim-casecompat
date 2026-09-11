@@ -1,3 +1,4 @@
+using CaseCompat.Bethesda.Assets;
 using CaseCompat.Bethesda.Plugins;
 using CaseCompat.Core.Repair;
 using CaseCompat.Filesystem.Linux;
@@ -141,8 +142,30 @@ internal static class TargetedConsumerBatchApply
             Action<int, TargetedConsumerBatchApplyItemResult>?
                 onItemCompleted = null,
             Action<int, TargetedConsumerBatchApplyRunResult>?
-                onPassCompleted = null)
+                onPassCompleted = null,
+            SkyrimMeshTextureExtractionCache? meshCache = null,
+            SkyrimMaterialTextureExtractionCache? materialCache = null)
     {
+        // Every pass reruns discovery from scratch (see the comment
+        // above this method), including a full mesh/material asset
+        // rescan - but a mesh's or material's own BYTES never change
+        // between passes, only its path (a rename or alias fix). One
+        // cache instance shared across every pass in this convergence
+        // loop means only the FIRST pass (or the caller's own upfront
+        // preview scan, if it passed its own cache in here too) ever
+        // actually opens and parses a given file - every later pass
+        // gets a cache hit keyed by the file's stable device+inode
+        // identity. Confirmed necessary on a real ~700k-reference,
+        // ~250k-candidate install: without this, a single wizard run
+        // took roughly 8 hours, almost entirely spent re-parsing the
+        // same unchanged mesh/material files on every one of several
+        // convergence passes.
+        meshCache ??=
+            new SkyrimMeshTextureExtractionCache();
+
+        materialCache ??=
+            new SkyrimMaterialTextureExtractionCache();
+
         var passes =
             new List<TargetedConsumerBatchApplyPassResult>();
 
@@ -171,7 +194,11 @@ internal static class TargetedConsumerBatchApply
                     cccPath:
                         cccPath,
                     aliasesDirectoryPath:
-                        aliasesDirectoryPath
+                        aliasesDirectoryPath,
+                    meshCache:
+                        meshCache,
+                    materialCache:
+                        materialCache
                 );
 
             if (!discovery.CandidateEvidenceComplete)
