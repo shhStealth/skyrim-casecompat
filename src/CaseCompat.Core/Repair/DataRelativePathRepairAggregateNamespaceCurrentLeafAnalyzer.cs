@@ -490,35 +490,65 @@ public static class
                         if (
                             opened.State ==
                             LinuxOpenChildRegularFileReadOnlyAtState
-                                .ChildNotRegularFile &&
-                            LinuxInspectChildAt.Inspect(
-                                    branch.Directory,
-                                    match
-                                )
-                                .Kind ==
-                                LinuxChildObjectKind.Directory)
+                                .ChildNotRegularFile)
                         {
-                            // A directory happening to share the requested
-                            // leaf's exact name is not a case-sensitivity
-                            // problem - no rename could ever turn it into
-                            // the requested file. This is the same
-                            // "nothing here to fix" outcome as the name
-                            // matching nothing at all, not a genuine
-                            // equivalent-object conflict: skip this match
-                            // and keep looking rather than aborting the
-                            // whole batch over one malformed consumer
-                            // request (observed on a real install for a
-                            // single vanilla Dragonborn record whose Model
-                            // path names a directory, not a mesh).
-                            //
-                            // A symlink or other exotic object at this
-                            // exact name is deliberately NOT skipped here -
-                            // it still falls through to
+                            bool matchIsPlainDirectory =
+                                LinuxInspectChildAt.Inspect(
+                                        branch.Directory,
+                                        match
+                                    )
+                                    .Kind ==
+                                    LinuxChildObjectKind.Directory;
+
+                            // Mirrors the intermediate-ancestor alias
+                            // check above: a verified alias symlink at
+                            // this exact leaf name is not a second,
+                            // genuinely separate object - it is this
+                            // project's own artifact, and its real
+                            // target is the case-insensitive twin also
+                            // present in matches (observed on a real
+                            // install: an ancestor-alias created for
+                            // unrelated files nested under this same
+                            // name happened to collide with a separate,
+                            // malformed leaf-level request for the
+                            // identical path). An unverified symlink -
+                            // anything the registry does not confirm as
+                            // this project's own - is deliberately NOT
+                            // covered here and still falls through to
                             // FinalEquivalentObjectConflict below, since
-                            // this project never silently trusts an
-                            // unverified symlink, even one that merely
-                            // happens to occupy a requested leaf's name.
-                            continue;
+                            // this project never silently trusts a
+                            // symlink it did not itself create and
+                            // verify.
+                            bool matchIsVerifiedAlias =
+                                aliasesDirectory is not null &&
+                                IsVerifiedKnownAlias(
+                                    aliasesDirectory,
+                                    branch.Directory,
+                                    branch.Directory.FullPath,
+                                    match
+                                );
+
+                            if (
+                                matchIsPlainDirectory ||
+                                matchIsVerifiedAlias)
+                            {
+                                // A directory (plain, or reached via this
+                                // project's own verified alias) happening
+                                // to share the requested leaf's exact name
+                                // is not a case-sensitivity problem - no
+                                // rename could ever turn it into the
+                                // requested file. This is the same
+                                // "nothing here to fix" outcome as the
+                                // name matching nothing at all, not a
+                                // genuine equivalent-object conflict: skip
+                                // this match and keep looking rather than
+                                // aborting the whole batch over one
+                                // malformed consumer request (observed on
+                                // a real install for a single vanilla
+                                // Dragonborn record whose Model path names
+                                // a directory, not a mesh).
+                                continue;
+                            }
                         }
 
                         if (

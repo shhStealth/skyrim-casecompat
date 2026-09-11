@@ -215,11 +215,16 @@ internal static class TargetedConsumerDiscovery
             );
         }
 
+        // Deliberately every resolved winning mesh, not just this
+        // round's mismatched candidates - a mesh's own path being
+        // already correctly cased says nothing about whether its
+        // embedded texture-slot strings are. Candidates alone would
+        // only scan the minority of meshes that themselves needed a
+        // path fix, silently skipping every already-correctly-named
+        // mesh's own texture references.
         string[] meshPhysicalPaths =
-            meshRound.Candidates
-                .Select(
-                    candidate =>
-                        candidate.SourceSnapshot.PhysicalPath
+            ExtractResolvedPhysicalPaths(
+                    meshRound
                 )
                 .Where(
                     path =>
@@ -288,11 +293,12 @@ internal static class TargetedConsumerDiscovery
             );
         }
 
+        // Same reasoning as meshPhysicalPaths above - every resolved
+        // material file a mesh actually points at, not just the ones
+        // whose own path needed a case fix.
         string[] materialPhysicalPaths =
-            materialPathRound.Candidates
-                .Select(
-                    candidate =>
-                        candidate.SourceSnapshot.PhysicalPath
+            ExtractResolvedPhysicalPaths(
+                    materialPathRound
                 )
                 .Distinct(
                     StringComparer.Ordinal
@@ -380,6 +386,45 @@ internal static class TargetedConsumerDiscovery
                     aliasesDirectoryPath
                 )
                 .OpenedPath;
+    }
+
+    // Every real file a winning consumer resolves to, whether or not
+    // that consumer's own requested path needed a case fix - a
+    // round's published Candidates only cover the mismatched subset
+    // (DataRelativePathTargetedConsumerCaseRepairCandidateProjector
+    // only binds a candidate for
+    // UniqueRepresentationConsumerCaseMismatchCandidate), which would
+    // silently skip scanning the (typically much larger)
+    // already-correctly-cased subset's own embedded texture/material
+    // references for a downstream round.
+    private static IEnumerable<string> ExtractResolvedPhysicalPaths(
+        SkyrimWinningTargetedConsumerCaseRepairCandidateProjectionResult
+            round)
+    {
+        foreach (
+            SkyrimWinningTargetedConsumerCaseRepairLeafProjection leaf
+            in round.Leaves)
+        {
+            DataRelativePathTargetedPhysicalLeafProjection? physical =
+                leaf.TargetedProjection?.PhysicalProjection;
+
+            if (
+                physical is null ||
+                physical.State !=
+                    DataRelativePathTargetedPhysicalLeafProjectionState
+                        .Projected)
+            {
+                continue;
+            }
+
+            foreach (
+                DataRelativePathTargetedPhysicalFileRepresentation
+                    representation
+                in physical.PhysicalRepresentations)
+            {
+                yield return representation.Snapshot.PhysicalPath;
+            }
+        }
     }
 }
 

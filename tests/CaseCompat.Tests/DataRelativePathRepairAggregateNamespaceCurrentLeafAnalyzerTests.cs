@@ -553,6 +553,71 @@ public sealed class
     }
 
     [Fact]
+    public void
+        Analyze_FinalVerifiedAlias_ProducesNoRepresentationRatherThanConflict()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        // Observed on a real install: an alias created to resolve a
+        // contested ANCESTOR for unrelated files nested under it can
+        // coincidentally occupy the exact same name a separate,
+        // malformed leaf-level request also names (a vanilla Dragonborn
+        // Static record whose Model path names a directory - see
+        // Analyze_FinalDirectory_ProducesNoRepresentationRatherThanConflict
+        // above - happened to share its name with an ancestor this
+        // project's own alias system had already resolved for other
+        // files). The alias's real target is itself a directory, so
+        // this must still be treated as "nothing here to fix" for the
+        // leaf request, not FinalEquivalentObjectConflict. Contrast with
+        // Analyze_FinalSymbolicLink_IsRejected: an UNVERIFIED symlink at
+        // this same position is deliberately NOT given this treatment.
+        using Fixture fixture =
+            new();
+
+        fixture.CreateDirectory(
+            "meshes/Test/file.nif"
+        );
+
+        string aliasesDirectoryPath =
+            fixture.CreateDirectory(
+                "../Aliases"
+            );
+
+        using LinuxNoFollowPathHandle aliasesDirectory =
+            OpenAliasesDirectory(
+                aliasesDirectoryPath
+            );
+
+        fixture.CreateAlias(
+            aliasesDirectory,
+            "meshes/Test",
+            linkName:
+                "File.nif",
+            targetName:
+                "file.nif"
+        );
+
+        DataRelativePathRepairAggregateNamespaceCurrentLeafAnalysis result =
+            fixture.Analyze(
+                "meshes/Test/File.nif",
+                aliasesDirectory
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairAggregateNamespaceCurrentLeafAnalysisState
+                .Analyzed,
+            result.State
+        );
+
+        Assert.Empty(
+            result.Representations
+        );
+    }
+
+    [Fact]
     public void Analyze_FileDirectoryCollision_IsRejected()
     {
         if (!OperatingSystem.IsLinux())
