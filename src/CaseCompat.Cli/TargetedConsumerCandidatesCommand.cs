@@ -86,11 +86,75 @@ public static class TargetedConsumerCandidatesCommand
                             headPartInventory
                         );
 
+            SkyrimWinningFurnitureInventoryResult furnitureInventory =
+                SkyrimWinningFurnitureInventory.Inspect(
+                    dataRoot:
+                        args[1],
+                    runtimePluginSet:
+                        runtimePluginSet
+                );
+
+            SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjectionResult
+                furnitureProjection =
+                    SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjector
+                        .Project(
+                            furnitureInventory
+                        );
+
+            SkyrimWinningStaticInventoryResult staticInventory =
+                SkyrimWinningStaticInventory.Inspect(
+                    dataRoot:
+                        args[1],
+                    runtimePluginSet:
+                        runtimePluginSet
+                );
+
+            SkyrimWinningStaticAggregateConsumerSpellingEvidenceProjectionResult
+                staticProjection =
+                    SkyrimWinningStaticAggregateConsumerSpellingEvidenceProjector
+                        .Project(
+                            staticInventory
+                        );
+
+            SkyrimWinningContainerInventoryResult containerInventory =
+                SkyrimWinningContainerInventory.Inspect(
+                    dataRoot:
+                        args[1],
+                    runtimePluginSet:
+                        runtimePluginSet
+                );
+
+            SkyrimWinningContainerAggregateConsumerSpellingEvidenceProjectionResult
+                containerProjection =
+                    SkyrimWinningContainerAggregateConsumerSpellingEvidenceProjector
+                        .Project(
+                            containerInventory
+                        );
+
+            SkyrimWinningTreeInventoryResult treeInventory =
+                SkyrimWinningTreeInventory.Inspect(
+                    dataRoot:
+                        args[1],
+                    runtimePluginSet:
+                        runtimePluginSet
+                );
+
+            SkyrimWinningTreeAggregateConsumerSpellingEvidenceProjectionResult
+                treeProjection =
+                    SkyrimWinningTreeAggregateConsumerSpellingEvidenceProjector
+                        .Project(
+                            treeInventory
+                        );
+
             SkyrimWinningConsumerSpellingEvidenceCompositionResult
                 composition =
                     SkyrimWinningConsumerSpellingEvidenceComposer.Compose(
                         armorAddonProjection,
-                        headPartProjection
+                        headPartProjection,
+                        furnitureProjection,
+                        staticProjection,
+                        containerProjection,
+                        treeProjection
                     );
 
             SkyrimWinningTargetedConsumerCaseRepairCandidateProjectionResult
@@ -150,6 +214,94 @@ public static class TargetedConsumerCandidatesCommand
             Console.WriteLine(
                 $"HeadPart plugin read errors:        " +
                 $"{headPartInventory.ReadErrors.Count:N0}"
+            );
+
+            Console.WriteLine();
+
+            Console.WriteLine(
+                $"Furniture runtime-active plugins:   " +
+                $"{furnitureInventory.RuntimeActivePluginCount:N0}"
+            );
+
+            Console.WriteLine(
+                $"Furniture plugins opened:           " +
+                $"{furnitureInventory.PluginsOpened:N0}"
+            );
+
+            Console.WriteLine(
+                $"Furniture missing plugin files:     " +
+                $"{furnitureInventory.MissingPluginFiles.Count:N0}"
+            );
+
+            Console.WriteLine(
+                $"Furniture plugin read errors:       " +
+                $"{furnitureInventory.ReadErrors.Count:N0}"
+            );
+
+            Console.WriteLine();
+
+            Console.WriteLine(
+                $"Static runtime-active plugins:      " +
+                $"{staticInventory.RuntimeActivePluginCount:N0}"
+            );
+
+            Console.WriteLine(
+                $"Static plugins opened:              " +
+                $"{staticInventory.PluginsOpened:N0}"
+            );
+
+            Console.WriteLine(
+                $"Static missing plugin files:        " +
+                $"{staticInventory.MissingPluginFiles.Count:N0}"
+            );
+
+            Console.WriteLine(
+                $"Static plugin read errors:          " +
+                $"{staticInventory.ReadErrors.Count:N0}"
+            );
+
+            Console.WriteLine();
+
+            Console.WriteLine(
+                $"Container runtime-active plugins:   " +
+                $"{containerInventory.RuntimeActivePluginCount:N0}"
+            );
+
+            Console.WriteLine(
+                $"Container plugins opened:           " +
+                $"{containerInventory.PluginsOpened:N0}"
+            );
+
+            Console.WriteLine(
+                $"Container missing plugin files:     " +
+                $"{containerInventory.MissingPluginFiles.Count:N0}"
+            );
+
+            Console.WriteLine(
+                $"Container plugin read errors:       " +
+                $"{containerInventory.ReadErrors.Count:N0}"
+            );
+
+            Console.WriteLine();
+
+            Console.WriteLine(
+                $"Tree runtime-active plugins:        " +
+                $"{treeInventory.RuntimeActivePluginCount:N0}"
+            );
+
+            Console.WriteLine(
+                $"Tree plugins opened:                " +
+                $"{treeInventory.PluginsOpened:N0}"
+            );
+
+            Console.WriteLine(
+                $"Tree missing plugin files:          " +
+                $"{treeInventory.MissingPluginFiles.Count:N0}"
+            );
+
+            Console.WriteLine(
+                $"Tree plugin read errors:            " +
+                $"{treeInventory.ReadErrors.Count:N0}"
             );
 
             Console.WriteLine();

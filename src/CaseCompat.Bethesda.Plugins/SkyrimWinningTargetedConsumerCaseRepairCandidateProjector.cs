@@ -558,8 +558,12 @@ public static class
         try
         {
             if (
-                supplied.ArmorAddonProjection is null ||
-                supplied.HeadPartProjection is null ||
+                supplied.Sources is null ||
+                supplied.Sources.Count == 0 ||
+                supplied.Sources.Any(
+                    source =>
+                        source is null
+                ) ||
                 supplied.Evidence is null ||
                 supplied.Error is not null)
             {
@@ -572,8 +576,7 @@ public static class
 
             SkyrimWinningConsumerSpellingEvidenceCompositionResult recomposed =
                 SkyrimWinningConsumerSpellingEvidenceComposer.Compose(
-                    supplied.ArmorAddonProjection,
-                    supplied.HeadPartProjection
+                    supplied.Sources.ToArray()
                 );
 
             if (
@@ -633,49 +636,61 @@ public static class
 
         try
         {
-            string armorAddonDataRoot =
-                composition
-                    .ArmorAddonProjection
-                    .Scan
-                    .Inventory
-                    .DataRoot;
+            var canonicalRootsBySource =
+                new List<(string SourceName, string CanonicalRoot)>();
 
-            string headPartDataRoot =
-                composition
-                    .HeadPartProjection
-                    .Inventory
-                    .DataRoot;
-
-            if (!TryCanonicalAbsolutePath(
-                    armorAddonDataRoot,
-                    out string? canonicalArmorAddonRoot) ||
-                !TryCanonicalAbsolutePath(
-                    headPartDataRoot,
-                    out string? canonicalHeadPartRoot))
+            foreach (
+                ISkyrimWinningConsumerSpellingEvidenceSource source
+                in composition.Sources)
             {
-                error =
-                    "Complete Bethesda consumer authority does not retain " +
-                    "canonical absolute Skyrim Data-root provenance.";
+                if (!TryCanonicalAbsolutePath(
+                        source.DataRoot,
+                        out string? canonicalRoot))
+                {
+                    error =
+                        "Complete Bethesda consumer authority does not " +
+                        "retain canonical absolute Skyrim Data-root " +
+                        $"provenance for source '{source.SourceName}'.";
 
-                return false;
+                    return false;
+                }
+
+                canonicalRootsBySource.Add(
+                    (source.SourceName, canonicalRoot!)
+                );
             }
 
-            if (!string.Equals(
-                    canonicalArmorAddonRoot,
-                    canonicalHeadPartRoot,
-                    StringComparison.Ordinal))
+            IReadOnlyList<string> distinctRoots =
+                canonicalRootsBySource
+                    .Select(
+                        entry =>
+                            entry.CanonicalRoot
+                    )
+                    .Distinct(
+                        StringComparer.Ordinal
+                    )
+                    .ToArray();
+
+            if (distinctRoots.Count != 1)
             {
+                string mismatchDescription =
+                    string.Join(
+                        ", ",
+                        canonicalRootsBySource.Select(
+                            entry =>
+                                $"{entry.SourceName}='{entry.CanonicalRoot}'"
+                        )
+                    );
+
                 error =
-                    $"Complete Bethesda consumer authority refers to two " +
-                    $"different Skyrim Data roots: " +
-                    $"'{canonicalArmorAddonRoot}' and " +
-                    $"'{canonicalHeadPartRoot}'.";
+                    "Complete Bethesda consumer authority refers to more " +
+                    $"than one Skyrim Data root: {mismatchDescription}.";
 
                 return false;
             }
 
             dataRoot =
-                canonicalArmorAddonRoot;
+                distinctRoots[0];
 
             return true;
         }

@@ -579,4 +579,293 @@ public sealed class SkyrimWinningConsumerSpellingEvidenceComposerTests
             requestedPaths
         );
     }
+
+    private static
+        SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjectionResult
+        CompleteFurniture(
+            params DataRelativePathAggregateConsumerSpellingEvidence[] evidence)
+    {
+        SkyrimWinningFurnitureInventoryResult inventory =
+            new(
+                DataRoot:
+                    "/fixture/Data",
+                RuntimeActivePluginCount:
+                    1,
+                PluginsOpened:
+                    1,
+                MissingPluginFiles:
+                    Array.Empty<string>(),
+                ReadErrors:
+                    Array.Empty<SkyrimPluginReadError>(),
+                Winners:
+                    Array.Empty<SkyrimWinningFurnitureRecord>()
+            );
+
+        return new
+            SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjectionResult(
+                Inventory:
+                    inventory,
+                State:
+                    SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjectionState
+                        .Complete,
+                Evidence:
+                    evidence,
+                Error:
+                    null
+            );
+    }
+
+    private static
+        SkyrimWinningStaticAggregateConsumerSpellingEvidenceProjectionResult
+        CompleteStatic(
+            params DataRelativePathAggregateConsumerSpellingEvidence[] evidence)
+    {
+        SkyrimWinningStaticInventoryResult inventory =
+            new(
+                DataRoot:
+                    "/fixture/Data",
+                RuntimeActivePluginCount:
+                    1,
+                PluginsOpened:
+                    1,
+                MissingPluginFiles:
+                    Array.Empty<string>(),
+                ReadErrors:
+                    Array.Empty<SkyrimPluginReadError>(),
+                Winners:
+                    Array.Empty<SkyrimWinningStaticRecord>()
+            );
+
+        return new
+            SkyrimWinningStaticAggregateConsumerSpellingEvidenceProjectionResult(
+                Inventory:
+                    inventory,
+                State:
+                    SkyrimWinningStaticAggregateConsumerSpellingEvidenceProjectionState
+                        .Complete,
+                Evidence:
+                    evidence,
+                Error:
+                    null
+            );
+    }
+
+    private static
+        SkyrimWinningContainerAggregateConsumerSpellingEvidenceProjectionResult
+        CompleteContainer(
+            params DataRelativePathAggregateConsumerSpellingEvidence[] evidence)
+    {
+        SkyrimWinningContainerInventoryResult inventory =
+            new(
+                DataRoot:
+                    "/fixture/Data",
+                RuntimeActivePluginCount:
+                    1,
+                PluginsOpened:
+                    1,
+                MissingPluginFiles:
+                    Array.Empty<string>(),
+                ReadErrors:
+                    Array.Empty<SkyrimPluginReadError>(),
+                Winners:
+                    Array.Empty<SkyrimWinningContainerRecord>()
+            );
+
+        return new
+            SkyrimWinningContainerAggregateConsumerSpellingEvidenceProjectionResult(
+                Inventory:
+                    inventory,
+                State:
+                    SkyrimWinningContainerAggregateConsumerSpellingEvidenceProjectionState
+                        .Complete,
+                Evidence:
+                    evidence,
+                Error:
+                    null
+            );
+    }
+
+    private static
+        SkyrimWinningTreeAggregateConsumerSpellingEvidenceProjectionResult
+        CompleteTree(
+            params DataRelativePathAggregateConsumerSpellingEvidence[] evidence)
+    {
+        SkyrimWinningTreeInventoryResult inventory =
+            new(
+                DataRoot:
+                    "/fixture/Data",
+                RuntimeActivePluginCount:
+                    1,
+                PluginsOpened:
+                    1,
+                MissingPluginFiles:
+                    Array.Empty<string>(),
+                ReadErrors:
+                    Array.Empty<SkyrimPluginReadError>(),
+                Winners:
+                    Array.Empty<SkyrimWinningTreeRecord>()
+            );
+
+        return new
+            SkyrimWinningTreeAggregateConsumerSpellingEvidenceProjectionResult(
+                Inventory:
+                    inventory,
+                State:
+                    SkyrimWinningTreeAggregateConsumerSpellingEvidenceProjectionState
+                        .Complete,
+                Evidence:
+                    evidence,
+                Error:
+                    null
+            );
+    }
+
+    [Fact]
+    public void Compose_SixSourcesUnionDifferentLogicalLeavesInOrdinalOrder()
+    {
+        SkyrimWinningConsumerSpellingEvidenceCompositionResult result =
+            SkyrimWinningConsumerSpellingEvidenceComposer.Compose(
+                CompleteArmorAddon(
+                    Consumer(
+                        "MESHES/ARMORADDON.NIF",
+                        "Meshes/ArmorAddon.nif"
+                    )
+                ),
+                CompleteHeadPart(
+                    Consumer(
+                        "MESHES/HEADPART.TRI",
+                        "Meshes/HeadPart.tri"
+                    )
+                ),
+                CompleteFurniture(
+                    Consumer(
+                        "MESHES/FURNITURE.NIF",
+                        "Meshes/Furniture.nif"
+                    )
+                ),
+                CompleteStatic(
+                    Consumer(
+                        "MESHES/STATIC.NIF",
+                        "Meshes/Static.nif"
+                    )
+                ),
+                CompleteContainer(
+                    Consumer(
+                        "MESHES/CONTAINER.NIF",
+                        "Meshes/Container.nif"
+                    )
+                ),
+                CompleteTree(
+                    Consumer(
+                        "MESHES/TREE.NIF",
+                        "Meshes/Tree.nif"
+                    )
+                )
+            );
+
+        Assert.True(result.WinnerSearchComplete);
+
+        Assert.Equal(
+            SkyrimWinningConsumerSpellingEvidenceCompositionState.Complete,
+            result.State
+        );
+
+        Assert.Equal(
+            new[]
+            {
+                "MESHES/ARMORADDON.NIF",
+                "MESHES/CONTAINER.NIF",
+                "MESHES/FURNITURE.NIF",
+                "MESHES/HEADPART.TRI",
+                "MESHES/STATIC.NIF",
+                "MESHES/TREE.NIF"
+            },
+            result.Evidence
+                .Select(
+                    item =>
+                        item.WindowsLogicalPath
+                )
+                .ToArray()
+        );
+    }
+
+    [Fact]
+    public void Compose_AnySingleIncompleteSourceAmongSixDominates()
+    {
+        SkyrimWinningConsumerSpellingEvidenceCompositionResult result =
+            SkyrimWinningConsumerSpellingEvidenceComposer.Compose(
+                CompleteArmorAddon(),
+                CompleteHeadPart(),
+                CompleteFurniture(),
+                CompleteStatic(),
+                Container(
+                    winnerSearchComplete:
+                        false,
+                    state:
+                        SkyrimWinningContainerAggregateConsumerSpellingEvidenceProjectionState
+                            .IncompleteWinnerSearch,
+                    evidence:
+                        Array.Empty<
+                            DataRelativePathAggregateConsumerSpellingEvidence
+                        >()
+                ),
+                CompleteTree()
+            );
+
+        Assert.False(result.WinnerSearchComplete);
+
+        Assert.Equal(
+            SkyrimWinningConsumerSpellingEvidenceCompositionState
+                .IncompleteWinnerSearch,
+            result.State
+        );
+
+        Assert.Empty(result.Evidence);
+    }
+
+    private static
+        SkyrimWinningContainerAggregateConsumerSpellingEvidenceProjectionResult
+        Container(
+            bool winnerSearchComplete,
+            SkyrimWinningContainerAggregateConsumerSpellingEvidenceProjectionState
+                state,
+            IReadOnlyList<DataRelativePathAggregateConsumerSpellingEvidence>
+                evidence,
+            string? error = null)
+    {
+        SkyrimWinningContainerInventoryResult inventory =
+            new(
+                DataRoot:
+                    "/fixture/Data",
+                RuntimeActivePluginCount:
+                    winnerSearchComplete
+                        ? 1
+                        : 2,
+                PluginsOpened:
+                    1,
+                MissingPluginFiles:
+                    winnerSearchComplete
+                        ? Array.Empty<string>()
+                        : new[]
+                        {
+                            "MissingContainer.esp"
+                        },
+                ReadErrors:
+                    Array.Empty<SkyrimPluginReadError>(),
+                Winners:
+                    Array.Empty<SkyrimWinningContainerRecord>()
+            );
+
+        return new
+            SkyrimWinningContainerAggregateConsumerSpellingEvidenceProjectionResult(
+                Inventory:
+                    inventory,
+                State:
+                    state,
+                Evidence:
+                    evidence,
+                Error:
+                    error
+            );
+    }
 }

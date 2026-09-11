@@ -488,6 +488,40 @@ public static class
                             );
 
                         if (
+                            opened.State ==
+                            LinuxOpenChildRegularFileReadOnlyAtState
+                                .ChildNotRegularFile &&
+                            LinuxInspectChildAt.Inspect(
+                                    branch.Directory,
+                                    match
+                                )
+                                .Kind ==
+                                LinuxChildObjectKind.Directory)
+                        {
+                            // A directory happening to share the requested
+                            // leaf's exact name is not a case-sensitivity
+                            // problem - no rename could ever turn it into
+                            // the requested file. This is the same
+                            // "nothing here to fix" outcome as the name
+                            // matching nothing at all, not a genuine
+                            // equivalent-object conflict: skip this match
+                            // and keep looking rather than aborting the
+                            // whole batch over one malformed consumer
+                            // request (observed on a real install for a
+                            // single vanilla Dragonborn record whose Model
+                            // path names a directory, not a mesh).
+                            //
+                            // A symlink or other exotic object at this
+                            // exact name is deliberately NOT skipped here -
+                            // it still falls through to
+                            // FinalEquivalentObjectConflict below, since
+                            // this project never silently trusts an
+                            // unverified symlink, even one that merely
+                            // happens to occupy a requested leaf's name.
+                            continue;
+                        }
+
+                        if (
                             !opened.Success ||
                             opened.OpenedFile is null)
                         {

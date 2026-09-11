@@ -52,8 +52,14 @@ public sealed record
         IReadOnlyList<DataRelativePathAggregateConsumerSpellingEvidence>
             Evidence,
         string? Error
-    )
+    ) : ISkyrimWinningConsumerSpellingEvidenceSource
 {
+    public string SourceName =>
+        "ArmorAddon";
+
+    public string DataRoot =>
+        Scan.Inventory.DataRoot;
+
     public bool WinnerSearchComplete =>
         Scan.WinnerSearchComplete;
 

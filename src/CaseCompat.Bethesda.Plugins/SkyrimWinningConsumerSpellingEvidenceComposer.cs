@@ -4,16 +4,18 @@ namespace CaseCompat.Bethesda.Plugins;
 
 /*
  * Aggregate authority state for composing independently projected winning
- * ArmorAddon and HeadPart consumer-spelling evidence.
+ * consumer-spelling evidence from any number of sources (ArmorAddon,
+ * HeadPart, and further record/asset kinds as they're added).
  *
- * Complete requires both winning-record searches and both source projections
- * to be complete, followed by successful generic Core composition.
+ * Complete requires every source's winning-record search and source
+ * projection to be complete, followed by successful generic Core
+ * composition.
  *
  * IncompleteWinnerSearch deliberately dominates all source-local evidence.
- * If either winning-record population is incomplete, no source evidence is
- * inspected, salvaged, or composed.
+ * If any source's winning-record population is incomplete, no source
+ * evidence is inspected, salvaged, or composed.
  *
- * IndeterminateConsumerPathEvidence means both winning-record searches were
+ * IndeterminateConsumerPathEvidence means every winning-record search was
  * complete, but at least one source could not publish complete consumer-path
  * evidence or the supposedly complete generic evidence was structurally
  * invalid when recomposed by Core.
@@ -30,27 +32,80 @@ public enum SkyrimWinningConsumerSpellingEvidenceCompositionState
 /*
  * Read-only Bethesda orchestration result.
  *
- * Both source projection results are retained by reference so their individual
- * provenance, completeness state, and diagnostic errors remain recoverable
- * even when aggregate precedence selects IncompleteWinnerSearch.
+ * Every source's projection result is retained by reference (in Sources) so
+ * its individual provenance, completeness state, and diagnostic errors
+ * remain recoverable even when aggregate precedence selects
+ * IncompleteWinnerSearch. ArmorAddonProjection/HeadPartProjection remain as
+ * named lookups into Sources for the two original, most-established call
+ * sites - newer sources are only reachable via Sources itself.
  *
  * Evidence is generic Core consumer-spelling authority only. This result grants
  * no filesystem, provider/archive, physical-spelling, content-source, repair,
  * persistence, execution, rollback, or recovery authority.
  */
 public sealed record SkyrimWinningConsumerSpellingEvidenceCompositionResult(
-    SkyrimWinningArmorAddonAggregateConsumerSpellingEvidenceProjectionResult
-        ArmorAddonProjection,
-    SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjectionResult
-        HeadPartProjection,
+    IReadOnlyList<ISkyrimWinningConsumerSpellingEvidenceSource> Sources,
     SkyrimWinningConsumerSpellingEvidenceCompositionState State,
     IReadOnlyList<DataRelativePathAggregateConsumerSpellingEvidence> Evidence,
     string? Error
 )
 {
+    // Retained for the two original sources: most existing call sites (and
+    // every test predating the N-source generalization) address ArmorAddon
+    // and HeadPart by name rather than by iterating Sources.
+    public SkyrimWinningArmorAddonAggregateConsumerSpellingEvidenceProjectionResult
+        ArmorAddonProjection =>
+        (SkyrimWinningArmorAddonAggregateConsumerSpellingEvidenceProjectionResult)
+            Sources.Single(
+                source =>
+                    source.SourceName == "ArmorAddon"
+            );
+
+    public SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjectionResult
+        HeadPartProjection =>
+        (SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjectionResult)
+            Sources.Single(
+                source =>
+                    source.SourceName == "HeadPart"
+            );
+
+    public SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjectionResult
+        FurnitureProjection =>
+        (SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjectionResult)
+            Sources.Single(
+                source =>
+                    source.SourceName == "Furniture"
+            );
+
+    public SkyrimWinningStaticAggregateConsumerSpellingEvidenceProjectionResult
+        StaticProjection =>
+        (SkyrimWinningStaticAggregateConsumerSpellingEvidenceProjectionResult)
+            Sources.Single(
+                source =>
+                    source.SourceName == "Static"
+            );
+
+    public SkyrimWinningContainerAggregateConsumerSpellingEvidenceProjectionResult
+        ContainerProjection =>
+        (SkyrimWinningContainerAggregateConsumerSpellingEvidenceProjectionResult)
+            Sources.Single(
+                source =>
+                    source.SourceName == "Container"
+            );
+
+    public SkyrimWinningTreeAggregateConsumerSpellingEvidenceProjectionResult
+        TreeProjection =>
+        (SkyrimWinningTreeAggregateConsumerSpellingEvidenceProjectionResult)
+            Sources.Single(
+                source =>
+                    source.SourceName == "Tree"
+            );
+
     public bool WinnerSearchComplete =>
-        ArmorAddonProjection.WinnerSearchComplete &&
-        HeadPartProjection.WinnerSearchComplete;
+        Sources.All(
+            source =>
+                source.WinnerSearchComplete
+        );
 
     public bool ConsumerPathEvidenceComplete =>
         State ==
@@ -71,42 +126,51 @@ public sealed record SkyrimWinningConsumerSpellingEvidenceCompositionResult(
  *       > Complete
  *
  * This is intentionally aggregate precedence rather than source precedence.
- * Neither ArmorAddon nor HeadPart wins a spelling disagreement. Only after both
- * source projections are authoritative are their genuine requested spellings
+ * No source wins a spelling disagreement over another. Only after every
+ * source projection is authoritative are their genuine requested spellings
  * passed to Core, which unions and reclassifies them without source priority.
  */
 public static class SkyrimWinningConsumerSpellingEvidenceComposer
 {
     public static SkyrimWinningConsumerSpellingEvidenceCompositionResult
         Compose(
-            SkyrimWinningArmorAddonAggregateConsumerSpellingEvidenceProjectionResult
-                armorAddonProjection,
-            SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjectionResult
-                headPartProjection)
+            params ISkyrimWinningConsumerSpellingEvidenceSource[] sources)
     {
         ArgumentNullException.ThrowIfNull(
-            armorAddonProjection
+            sources
         );
 
-        ArgumentNullException.ThrowIfNull(
-            headPartProjection
-        );
+        if (sources.Length == 0)
+        {
+            throw new ArgumentException(
+                "At least one consumer-spelling evidence source is required.",
+                nameof(sources)
+            );
+        }
+
+        foreach (
+            ISkyrimWinningConsumerSpellingEvidenceSource source
+            in sources)
+        {
+            ArgumentNullException.ThrowIfNull(
+                source,
+                nameof(sources)
+            );
+        }
 
         /*
          * Winner-search incompleteness is population-level incompleteness and
          * deliberately outranks every source-local path/evidence condition.
          *
-         * Do not dereference either Evidence collection on this branch.
+         * Do not dereference any source's Evidence collection on this branch.
          */
-        if (
-            !armorAddonProjection.WinnerSearchComplete ||
-            !headPartProjection.WinnerSearchComplete)
+        if (sources.Any(
+                source =>
+                    !source.WinnerSearchComplete))
         {
             return new SkyrimWinningConsumerSpellingEvidenceCompositionResult(
-                ArmorAddonProjection:
-                    armorAddonProjection,
-                HeadPartProjection:
-                    headPartProjection,
+                Sources:
+                    sources,
                 State:
                     SkyrimWinningConsumerSpellingEvidenceCompositionState
                         .IncompleteWinnerSearch,
@@ -120,17 +184,17 @@ public static class SkyrimWinningConsumerSpellingEvidenceComposer
         }
 
         /*
-         * At this point both winning-record populations are complete. If either
-         * source still cannot publish complete consumer-path evidence, partial
-         * authority must not be salvaged from the other source.
+         * At this point every source's winning-record population is
+         * complete. If any source still cannot publish complete
+         * consumer-path evidence, partial authority must not be salvaged
+         * from the others.
          */
-        if (
-            !armorAddonProjection.ConsumerPathEvidenceComplete ||
-            !headPartProjection.ConsumerPathEvidenceComplete)
+        if (sources.Any(
+                source =>
+                    !source.ConsumerPathEvidenceComplete))
         {
             return Indeterminate(
-                armorAddonProjection,
-                headPartProjection,
+                sources,
                 "One or more complete winning-record searches could not " +
                 "establish complete consumer-path evidence."
             );
@@ -143,20 +207,17 @@ public static class SkyrimWinningConsumerSpellingEvidenceComposer
             > evidence =
                 DataRelativePathAggregateConsumerSpellingEvidenceComposer
                     .Compose(
-                        new IReadOnlyList<
-                            DataRelativePathAggregateConsumerSpellingEvidence
-                        >[]
-                        {
-                            armorAddonProjection.Evidence,
-                            headPartProjection.Evidence
-                        }
+                        sources
+                            .Select(
+                                source =>
+                                    source.Evidence
+                            )
+                            .ToArray()
                     );
 
             return new SkyrimWinningConsumerSpellingEvidenceCompositionResult(
-                ArmorAddonProjection:
-                    armorAddonProjection,
-                HeadPartProjection:
-                    headPartProjection,
+                Sources:
+                    sources,
                 State:
                     SkyrimWinningConsumerSpellingEvidenceCompositionState
                         .Complete,
@@ -174,8 +235,7 @@ public static class SkyrimWinningConsumerSpellingEvidenceComposer
              * before composed consumer authority is published.
              */
             return Indeterminate(
-                armorAddonProjection,
-                headPartProjection,
+                sources,
                 "Generic consumer-spelling composition rejected the source " +
                 $"evidence: {ex.Message}"
             );
@@ -184,17 +244,13 @@ public static class SkyrimWinningConsumerSpellingEvidenceComposer
 
     private static SkyrimWinningConsumerSpellingEvidenceCompositionResult
         Indeterminate(
-            SkyrimWinningArmorAddonAggregateConsumerSpellingEvidenceProjectionResult
-                armorAddonProjection,
-            SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjectionResult
-                headPartProjection,
+            IReadOnlyList<ISkyrimWinningConsumerSpellingEvidenceSource>
+                sources,
             string error)
     {
         return new SkyrimWinningConsumerSpellingEvidenceCompositionResult(
-            ArmorAddonProjection:
-                armorAddonProjection,
-            HeadPartProjection:
-                headPartProjection,
+            Sources:
+                sources,
             State:
                 SkyrimWinningConsumerSpellingEvidenceCompositionState
                     .IndeterminateConsumerPathEvidence,

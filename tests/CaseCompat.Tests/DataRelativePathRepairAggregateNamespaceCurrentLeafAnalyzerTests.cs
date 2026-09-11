@@ -513,6 +513,46 @@ public sealed class
     }
 
     [Fact]
+    public void Analyze_FinalDirectory_ProducesNoRepresentationRatherThanConflict()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        // A directory happening to occupy the exact requested leaf's name
+        // (observed on a real install: a vanilla Dragonborn Static record
+        // whose Model path names a directory, not a mesh) is not a
+        // case-sensitivity problem - no rename could ever satisfy it. This
+        // must be treated the same as the name matching nothing at all,
+        // not as an equivalent-object conflict that aborts the whole
+        // discovery batch. Contrast with Analyze_FinalSymbolicLink_IsRejected
+        // above: a symlink at this same position is deliberately NOT given
+        // this treatment.
+        using Fixture fixture =
+            new();
+
+        fixture.CreateDirectory(
+            "meshes/Test/File.nif"
+        );
+
+        DataRelativePathRepairAggregateNamespaceCurrentLeafAnalysis result =
+            fixture.Analyze(
+                "meshes/Test/File.nif"
+            );
+
+        Assert.Equal(
+            DataRelativePathRepairAggregateNamespaceCurrentLeafAnalysisState
+                .Analyzed,
+            result.State
+        );
+
+        Assert.Empty(
+            result.Representations
+        );
+    }
+
+    [Fact]
     public void Analyze_FileDirectoryCollision_IsRejected()
     {
         if (!OperatingSystem.IsLinux())

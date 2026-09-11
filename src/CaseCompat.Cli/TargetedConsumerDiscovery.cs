@@ -4,8 +4,9 @@ using CaseCompat.Core.LoadOrder;
 using CaseCompat.Filesystem.Linux;
 
 // Shared winning-consumer discovery orchestration for every
-// targeted-consumer-* CLI command. Runs the full ArmorAddon + HeadPart
-// winning-consumer pipeline once and composes it into the
+// targeted-consumer-* CLI command. Runs the full ArmorAddon + HeadPart +
+// Furniture + Static + Container + Tree winning-consumer pipeline once and
+// composes it into the
 // SkyrimWinningTargetedConsumerCaseRepairCandidateProjectionResult that
 // SkyrimWinningTargetedConsumerCaseRepairCandidateProjector.Project
 // requires - candidate/conflicting-spelling classification is inherently
@@ -83,10 +84,74 @@ internal static class TargetedConsumerDiscovery
                         headPartInventory
                     );
 
+        SkyrimWinningFurnitureInventoryResult furnitureInventory =
+            SkyrimWinningFurnitureInventory.Inspect(
+                dataRoot:
+                    dataRoot,
+                runtimePluginSet:
+                    runtimePluginSet
+            );
+
+        SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjectionResult
+            furnitureProjection =
+                SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjector
+                    .Project(
+                        furnitureInventory
+                    );
+
+        SkyrimWinningStaticInventoryResult staticInventory =
+            SkyrimWinningStaticInventory.Inspect(
+                dataRoot:
+                    dataRoot,
+                runtimePluginSet:
+                    runtimePluginSet
+            );
+
+        SkyrimWinningStaticAggregateConsumerSpellingEvidenceProjectionResult
+            staticProjection =
+                SkyrimWinningStaticAggregateConsumerSpellingEvidenceProjector
+                    .Project(
+                        staticInventory
+                    );
+
+        SkyrimWinningContainerInventoryResult containerInventory =
+            SkyrimWinningContainerInventory.Inspect(
+                dataRoot:
+                    dataRoot,
+                runtimePluginSet:
+                    runtimePluginSet
+            );
+
+        SkyrimWinningContainerAggregateConsumerSpellingEvidenceProjectionResult
+            containerProjection =
+                SkyrimWinningContainerAggregateConsumerSpellingEvidenceProjector
+                    .Project(
+                        containerInventory
+                    );
+
+        SkyrimWinningTreeInventoryResult treeInventory =
+            SkyrimWinningTreeInventory.Inspect(
+                dataRoot:
+                    dataRoot,
+                runtimePluginSet:
+                    runtimePluginSet
+            );
+
+        SkyrimWinningTreeAggregateConsumerSpellingEvidenceProjectionResult
+            treeProjection =
+                SkyrimWinningTreeAggregateConsumerSpellingEvidenceProjector
+                    .Project(
+                        treeInventory
+                    );
+
         SkyrimWinningConsumerSpellingEvidenceCompositionResult composition =
             SkyrimWinningConsumerSpellingEvidenceComposer.Compose(
                 armorAddonProjection,
-                headPartProjection
+                headPartProjection,
+                furnitureProjection,
+                staticProjection,
+                containerProjection,
+                treeProjection
             );
 
         // A missing or unopenable aliases directory degrades to no alias

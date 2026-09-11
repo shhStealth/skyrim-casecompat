@@ -12,9 +12,7 @@ public sealed class
     {
         var composition =
             new SkyrimWinningConsumerSpellingEvidenceCompositionResult(
-                ArmorAddonProjection:
-                    null!,
-                HeadPartProjection:
+                Sources:
                     null!,
                 State:
                     SkyrimWinningConsumerSpellingEvidenceCompositionState
@@ -55,9 +53,7 @@ public sealed class
     {
         var composition =
             new SkyrimWinningConsumerSpellingEvidenceCompositionResult(
-                ArmorAddonProjection:
-                    null!,
-                HeadPartProjection:
+                Sources:
                     null!,
                 State:
                     SkyrimWinningConsumerSpellingEvidenceCompositionState

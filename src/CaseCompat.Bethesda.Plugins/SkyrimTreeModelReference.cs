@@ -1,0 +1,13 @@
+namespace CaseCompat.Bethesda.Plugins;
+
+// Genuine requested-path provenance retained from one Tree record's
+// Model. Mirrors SkyrimArmorAddonModelReference's shape; Field is always
+// "Model" here since Tree carries a single model, not a paired
+// Male/Female WorldModel.
+public sealed record SkyrimTreeModelReference(
+    string FormKey,
+    string? EditorId,
+    string Field,
+    string GivenPath,
+    string DataRelativePath
+);

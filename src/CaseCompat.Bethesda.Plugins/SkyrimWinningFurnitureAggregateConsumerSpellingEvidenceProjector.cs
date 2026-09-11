@@ -3,51 +3,22 @@ using CaseCompat.Core.Repair;
 
 namespace CaseCompat.Bethesda.Plugins;
 
-/*
- * Authority state for projecting genuine winning HeadPart consumer requests
- * into the generic aggregate consumer-spelling model.
- *
- * Complete means winner discovery was complete and every retained winning
- * HeadPart/reference relationship required for this projection was internally
- * valid.
- *
- * IncompleteWinnerSearch deliberately dominates path-local evidence. A partial
- * winning-record population cannot establish authoritative consumer spelling.
- *
- * IndeterminateConsumerPathEvidence means winner discovery was complete, but
- * retained requested-path or winner/reference provenance was malformed or
- * internally inconsistent.
- *
- * Only Complete may publish consumer-spelling evidence.
- */
+// Authority state for projecting genuine winning Furniture consumer
+// requests into the generic aggregate consumer-spelling model. Mirrors
+// SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjectionState's
+// precedence exactly.
 public enum
-    SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjectionState
+    SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjectionState
 {
     Complete,
     IncompleteWinnerSearch,
     IndeterminateConsumerPathEvidence
 }
 
-/*
- * Read-only Bethesda -> Core authority projection.
- *
- * Inventory is retained by reference so winning-record provenance and
- * completeness evidence remain recoverable.
- *
- * Evidence contains only generic Core consumer-spelling classification. It
- * grants no filesystem, loose/provider/archive, physical-spelling, source
- * selection, repair planning, persistence, execution, rollback, or recovery
- * authority.
- *
- * This projection intentionally does not emit NoConsumerEvidence for logical
- * leaves absent from the HeadPart consumer population. Establishing that
- * relation requires an external logical-leaf universe and belongs to aggregate
- * composition.
- */
 public sealed record
-    SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjectionResult(
-        SkyrimWinningHeadPartInventoryResult Inventory,
-        SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjectionState
+    SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjectionResult(
+        SkyrimWinningFurnitureInventoryResult Inventory,
+        SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjectionState
             State,
         IReadOnlyList<DataRelativePathAggregateConsumerSpellingEvidence>
             Evidence,
@@ -55,7 +26,7 @@ public sealed record
     ) : ISkyrimWinningConsumerSpellingEvidenceSource
 {
     public string SourceName =>
-        "HeadPart";
+        "Furniture";
 
     public string DataRoot =>
         Inventory.DataRoot;
@@ -65,34 +36,25 @@ public sealed record
 
     public bool ConsumerPathEvidenceComplete =>
         State ==
-        SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjectionState
+        SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjectionState
             .Complete;
 
     public int EvidenceCount =>
         Evidence.Count;
 }
 
-/*
- * Pure projection of winning HeadPart Parts[*].FileName consumer requests into
- * C4D aggregate consumer-spelling evidence.
- *
- * Consumer authority comes from the genuine retained
- * SkyrimHeadPartPartReference.DataRelativePath values. Winner/reference FormKey
- * and EditorId provenance is validated before any authority is published.
- *
- * Case-distinct requested paths mapping to the same Windows-logical leaf are
- * combined and delegated to the generic C4D-1 classifier.
- *
- * No filesystem access, namespace acquisition, provider/archive precedence,
- * physical comparison, hashing, repair eligibility, or mutation occurs here.
- */
+// Pure projection of winning Furniture Model consumer requests into
+// aggregate consumer-spelling evidence. Mirrors
+// SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjector's logic
+// exactly, adapted for a single Model reference per record instead of a
+// Parts list.
 public static class
-    SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjector
+    SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjector
 {
     public static
-        SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjectionResult
+        SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjectionResult
         Project(
-            SkyrimWinningHeadPartInventoryResult inventory)
+            SkyrimWinningFurnitureInventoryResult inventory)
     {
         ArgumentNullException.ThrowIfNull(
             inventory
@@ -101,25 +63,20 @@ public static class
         if (inventory.Winners is null)
         {
             throw new ArgumentException(
-                "The winning HeadPart inventory must retain its winner " +
+                "The winning Furniture inventory must retain its winner " +
                 "collection.",
                 nameof(inventory)
             );
         }
 
-        /*
-         * Incomplete winner discovery outranks every winner/reference-local
-         * condition. Never inspect, salvage, or publish partial consumer
-         * authority.
-         */
         if (!inventory.SearchComplete)
         {
             return new
-                SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjectionResult(
+                SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjectionResult(
                     Inventory:
                         inventory,
                     State:
-                        SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjectionState
+                        SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjectionState
                             .IncompleteWinnerSearch,
                     Evidence:
                         Array.Empty<
@@ -136,14 +93,14 @@ public static class
             );
 
         foreach (
-            SkyrimWinningHeadPartRecord? winner
+            SkyrimWinningFurnitureRecord? winner
             in inventory.Winners)
         {
             if (winner is null)
             {
                 return Indeterminate(
                     inventory,
-                    "The winning HeadPart inventory contains a null winner."
+                    "The winning Furniture inventory contains a null winner."
                 );
             }
 
@@ -152,29 +109,29 @@ public static class
             {
                 return Indeterminate(
                     inventory,
-                    "A winning HeadPart has no FormKey."
+                    "A winning Furniture has no FormKey."
                 );
             }
 
-            if (winner.PartReferences is null)
+            if (winner.ModelReferences is null)
             {
                 return Indeterminate(
                     inventory,
-                    $"Winning HeadPart '{winner.FormKey}' has no retained " +
-                    "part-reference collection."
+                    $"Winning Furniture '{winner.FormKey}' has no retained " +
+                    "model-reference collection."
                 );
             }
 
             foreach (
-                SkyrimHeadPartPartReference? reference
-                in winner.PartReferences)
+                SkyrimFurnitureModelReference? reference
+                in winner.ModelReferences)
             {
                 if (reference is null)
                 {
                     return Indeterminate(
                         inventory,
-                        $"Winning HeadPart '{winner.FormKey}' contains a null " +
-                        "part reference."
+                        $"Winning Furniture '{winner.FormKey}' contains a " +
+                        "null model reference."
                     );
                 }
 
@@ -185,8 +142,8 @@ public static class
                 {
                     return Indeterminate(
                         inventory,
-                        $"Winning HeadPart '{winner.FormKey}' contains part " +
-                        $"reference FormKey '{reference.FormKey}'."
+                        $"Winning Furniture '{winner.FormKey}' contains a " +
+                        $"model reference FormKey '{reference.FormKey}'."
                     );
                 }
 
@@ -197,9 +154,9 @@ public static class
                 {
                     return Indeterminate(
                         inventory,
-                        $"Winning HeadPart '{winner.FormKey}' contains part " +
-                        "reference EditorId provenance that does not match " +
-                        "the winning record."
+                        $"Winning Furniture '{winner.FormKey}' contains a " +
+                        "model reference EditorId provenance that does not " +
+                        "match the winning record."
                     );
                 }
 
@@ -213,9 +170,9 @@ public static class
                 {
                     return Indeterminate(
                         inventory,
-                        $"Winning HeadPart '{winner.FormKey}' contains invalid " +
-                        $"consumer requested path '{consumerRequestedPath}': " +
-                        $"{parseError}"
+                        $"Winning Furniture '{winner.FormKey}' contains " +
+                        $"invalid consumer requested path " +
+                        $"'{consumerRequestedPath}': {parseError}"
                     );
                 }
 
@@ -240,9 +197,9 @@ public static class
                 {
                     return Indeterminate(
                         inventory,
-                        $"Winning HeadPart '{winner.FormKey}' consumer path " +
-                        $"'{consumerRequestedPath}' cannot be mapped to the " +
-                        $"Windows namespace: {ex.Message}"
+                        $"Winning Furniture '{winner.FormKey}' consumer " +
+                        $"path '{consumerRequestedPath}' cannot be mapped " +
+                        $"to the Windows namespace: {ex.Message}"
                     );
                 }
 
@@ -259,11 +216,6 @@ public static class
                     );
                 }
 
-                /*
-                 * Keep the genuine consumer occurrence. C4D-1 owns separator
-                 * normalization, exact-spelling deduplication, logical-leaf
-                 * verification, and case-conflict classification.
-                 */
                 requestedPaths.Add(
                     consumerRequestedPath
                 );
@@ -288,11 +240,11 @@ public static class
                 .ToArray();
 
         return new
-            SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjectionResult(
+            SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjectionResult(
                 Inventory:
                     inventory,
                 State:
-                    SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjectionState
+                    SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjectionState
                         .Complete,
                 Evidence:
                     evidence,
@@ -302,17 +254,17 @@ public static class
     }
 
     private static
-        SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjectionResult
+        SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjectionResult
         Indeterminate(
-            SkyrimWinningHeadPartInventoryResult inventory,
+            SkyrimWinningFurnitureInventoryResult inventory,
             string error)
     {
         return new
-            SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjectionResult(
+            SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjectionResult(
                 Inventory:
                     inventory,
                 State:
-                    SkyrimWinningHeadPartAggregateConsumerSpellingEvidenceProjectionState
+                    SkyrimWinningFurnitureAggregateConsumerSpellingEvidenceProjectionState
                         .IndeterminateConsumerPathEvidence,
                 Evidence:
                     Array.Empty<
