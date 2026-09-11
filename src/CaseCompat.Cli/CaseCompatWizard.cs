@@ -161,13 +161,12 @@ internal static class CaseCompatWizard
                 "aliases"
             );
 
-        SkyrimWinningTargetedConsumerCaseRepairCandidateProjectionResult
-            discoveryResult;
+        TargetedConsumerAssetDiscoveryResult discoveryResult;
 
         try
         {
             discoveryResult =
-                TargetedConsumerDiscovery.Discover(
+                TargetedConsumerDiscovery.DiscoverWithAssets(
                     dataRoot:
                         dataRoot,
                     pluginsPath:

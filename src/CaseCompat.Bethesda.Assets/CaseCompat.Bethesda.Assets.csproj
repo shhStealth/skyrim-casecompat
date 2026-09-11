@@ -2,13 +2,14 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CaseCompat.Core\CaseCompat.Core.csproj" />
-    <ProjectReference Include="..\CaseCompat.Reporting\CaseCompat.Reporting.csproj" />
     <ProjectReference Include="..\CaseCompat.Bethesda.Plugins\CaseCompat.Bethesda.Plugins.csproj" />
-    <ProjectReference Include="..\CaseCompat.Bethesda.Assets\CaseCompat.Bethesda.Assets.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Nifly" Version="1.1.0" />
   </ItemGroup>
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>

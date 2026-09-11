@@ -19,10 +19,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\CaseCompat.Bethesda.Assets\CaseCompat.Bethesda.Assets.csproj" />
     <ProjectReference Include="..\..\src\CaseCompat.Bethesda.Plugins\CaseCompat.Bethesda.Plugins.csproj" />
     <ProjectReference Include="..\..\src\CaseCompat.Core\CaseCompat.Core.csproj" />
     <ProjectReference Include="..\..\src\CaseCompat.Filesystem.Linux\CaseCompat.Filesystem.Linux.csproj" />
     <ProjectReference Include="..\..\src\CaseCompat.Cli\CaseCompat.Cli.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

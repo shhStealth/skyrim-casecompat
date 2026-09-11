@@ -33,13 +33,12 @@ public static class TargetedConsumerPlanCommand
                 ? args[7]
                 : RepairCliDefaults.TargetedPlanChildName;
 
-        SkyrimWinningTargetedConsumerCaseRepairCandidateProjectionResult
-            discovery;
+        TargetedConsumerAssetDiscoveryResult discovery;
 
         try
         {
             discovery =
-                TargetedConsumerDiscovery.Discover(
+                TargetedConsumerDiscovery.DiscoverWithAssets(
                     dataRoot:
                         args[1],
                     pluginsPath:

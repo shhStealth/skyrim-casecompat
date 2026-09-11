@@ -160,20 +160,19 @@ internal static class TargetedConsumerBatchApply
             passNumber <= maxPasses;
             passNumber++)
         {
-            SkyrimWinningTargetedConsumerCaseRepairCandidateProjectionResult
-                discovery =
-                    TargetedConsumerDiscovery.Discover(
-                        dataRoot:
-                            dataRoot,
-                        pluginsPath:
-                            pluginsPath,
-                        loadOrderPath:
-                            loadOrderPath,
-                        cccPath:
-                            cccPath,
-                        aliasesDirectoryPath:
-                            aliasesDirectoryPath
-                    );
+            TargetedConsumerAssetDiscoveryResult discovery =
+                TargetedConsumerDiscovery.DiscoverWithAssets(
+                    dataRoot:
+                        dataRoot,
+                    pluginsPath:
+                        pluginsPath,
+                    loadOrderPath:
+                        loadOrderPath,
+                    cccPath:
+                        cccPath,
+                    aliasesDirectoryPath:
+                        aliasesDirectoryPath
+                );
 
             if (!discovery.CandidateEvidenceComplete)
             {

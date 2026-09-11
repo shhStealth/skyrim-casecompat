@@ -1,6 +1,8 @@
+using CaseCompat.Bethesda.Assets;
 using CaseCompat.Bethesda.Plugins;
 using CaseCompat.Core.Analysis;
 using CaseCompat.Core.LoadOrder;
+using CaseCompat.Core.Repair;
 using CaseCompat.Filesystem.Linux;
 
 // Shared winning-consumer discovery orchestration for every
@@ -154,19 +156,10 @@ internal static class TargetedConsumerDiscovery
                 treeProjection
             );
 
-        // A missing or unopenable aliases directory degrades to no alias
-        // awareness rather than failing discovery outright - most
-        // commonly, this is simply the first-ever run against this
-        // install, before any alias has been created and before its
-        // durable state directory necessarily exists yet.
         using LinuxNoFollowPathHandle? aliasesDirectory =
-            string.IsNullOrWhiteSpace(
-                aliasesDirectoryPath)
-                ? null
-                : LinuxNoFollowPath.OpenRootReadOnly(
-                        aliasesDirectoryPath
-                    )
-                    .OpenedPath;
+            OpenAliasesDirectory(
+                aliasesDirectoryPath
+            );
 
         return
             SkyrimWinningTargetedConsumerCaseRepairCandidateProjector.Project(
@@ -174,4 +167,294 @@ internal static class TargetedConsumerDiscovery
                 aliasesDirectory
             );
     }
+
+    // Runs the Phase 1 mesh-path discovery in Discover, then layers two
+    // further discovery rounds on top of its resolved real mesh paths:
+    // round 2 resolves any external .bgsm/.bgem material-file requests
+    // embedded in those meshes to real, correctly-cased material paths;
+    // round 3 unions the direct in-mesh texture requests with the
+    // texture requests embedded in those resolved material files and
+    // resolves them to real, correctly-cased texture paths. Every real
+    // mesh and material file is opened exactly once regardless of how
+    // many logical consumers reference it.
+    //
+    // Candidate publication remains all-or-nothing, now across all three
+    // rounds together - matching the single-round projector's own
+    // philosophy - since a repair plan built from a partial asset scan
+    // could silently omit real, fixable candidates.
+    public static TargetedConsumerAssetDiscoveryResult DiscoverWithAssets(
+        string dataRoot,
+        string pluginsPath,
+        string loadOrderPath,
+        string cccPath,
+        string? aliasesDirectoryPath = null)
+    {
+        SkyrimWinningTargetedConsumerCaseRepairCandidateProjectionResult
+            meshRound =
+                Discover(
+                    dataRoot,
+                    pluginsPath,
+                    loadOrderPath,
+                    cccPath,
+                    aliasesDirectoryPath
+                );
+
+        if (!meshRound.CandidateEvidenceComplete)
+        {
+            return new TargetedConsumerAssetDiscoveryResult(
+                MeshRound:
+                    meshRound,
+                MaterialPathRound:
+                    null,
+                TextureRound:
+                    null,
+                Candidates:
+                    Array.Empty<
+                        DataRelativePathTargetedConsumerCaseRepairCandidate
+                    >()
+            );
+        }
+
+        string[] meshPhysicalPaths =
+            meshRound.Candidates
+                .Select(
+                    candidate =>
+                        candidate.SourceSnapshot.PhysicalPath
+                )
+                .Where(
+                    path =>
+                        path.EndsWith(
+                            ".nif",
+                            StringComparison.OrdinalIgnoreCase
+                        )
+                )
+                .Distinct(
+                    StringComparer.Ordinal
+                )
+                .ToArray();
+
+        SkyrimWinningMeshTextureInventoryResult meshTextureInventory =
+            SkyrimWinningMeshTextureInventory.Inspect(
+                dataRoot,
+                meshPhysicalPaths
+            );
+
+        SkyrimWinningMeshTextureAggregateConsumerSpellingEvidenceProjectionResult
+            meshTextureProjection =
+                SkyrimWinningMeshTextureAggregateConsumerSpellingEvidenceProjector
+                    .Project(
+                        meshTextureInventory
+                    );
+
+        SkyrimWinningMeshMaterialPathAggregateConsumerSpellingEvidenceProjectionResult
+            meshMaterialPathProjection =
+                SkyrimWinningMeshMaterialPathAggregateConsumerSpellingEvidenceProjector
+                    .Project(
+                        meshTextureInventory
+                    );
+
+        using LinuxNoFollowPathHandle? aliasesDirectory =
+            OpenAliasesDirectory(
+                aliasesDirectoryPath
+            );
+
+        SkyrimWinningConsumerSpellingEvidenceCompositionResult
+            materialPathComposition =
+                SkyrimWinningConsumerSpellingEvidenceComposer.Compose(
+                    meshMaterialPathProjection
+                );
+
+        SkyrimWinningTargetedConsumerCaseRepairCandidateProjectionResult
+            materialPathRound =
+                SkyrimWinningTargetedConsumerCaseRepairCandidateProjector
+                    .Project(
+                        materialPathComposition,
+                        aliasesDirectory
+                    );
+
+        if (!materialPathRound.CandidateEvidenceComplete)
+        {
+            return new TargetedConsumerAssetDiscoveryResult(
+                MeshRound:
+                    meshRound,
+                MaterialPathRound:
+                    materialPathRound,
+                TextureRound:
+                    null,
+                Candidates:
+                    Array.Empty<
+                        DataRelativePathTargetedConsumerCaseRepairCandidate
+                    >()
+            );
+        }
+
+        string[] materialPhysicalPaths =
+            materialPathRound.Candidates
+                .Select(
+                    candidate =>
+                        candidate.SourceSnapshot.PhysicalPath
+                )
+                .Distinct(
+                    StringComparer.Ordinal
+                )
+                .ToArray();
+
+        SkyrimWinningMaterialTextureInventoryResult materialTextureInventory =
+            SkyrimWinningMaterialTextureInventory.Inspect(
+                dataRoot,
+                materialPhysicalPaths
+            );
+
+        SkyrimWinningMaterialTextureAggregateConsumerSpellingEvidenceProjectionResult
+            materialTextureProjection =
+                SkyrimWinningMaterialTextureAggregateConsumerSpellingEvidenceProjector
+                    .Project(
+                        materialTextureInventory
+                    );
+
+        SkyrimWinningConsumerSpellingEvidenceCompositionResult
+            textureComposition =
+                SkyrimWinningConsumerSpellingEvidenceComposer.Compose(
+                    meshTextureProjection,
+                    materialTextureProjection
+                );
+
+        SkyrimWinningTargetedConsumerCaseRepairCandidateProjectionResult
+            textureRound =
+                SkyrimWinningTargetedConsumerCaseRepairCandidateProjector
+                    .Project(
+                        textureComposition,
+                        aliasesDirectory
+                    );
+
+        if (!textureRound.CandidateEvidenceComplete)
+        {
+            return new TargetedConsumerAssetDiscoveryResult(
+                MeshRound:
+                    meshRound,
+                MaterialPathRound:
+                    materialPathRound,
+                TextureRound:
+                    textureRound,
+                Candidates:
+                    Array.Empty<
+                        DataRelativePathTargetedConsumerCaseRepairCandidate
+                    >()
+            );
+        }
+
+        DataRelativePathTargetedConsumerCaseRepairCandidate[] candidates =
+            meshRound.Candidates
+                .Concat(
+                    materialPathRound.Candidates
+                )
+                .Concat(
+                    textureRound.Candidates
+                )
+                .ToArray();
+
+        return new TargetedConsumerAssetDiscoveryResult(
+            MeshRound:
+                meshRound,
+            MaterialPathRound:
+                materialPathRound,
+            TextureRound:
+                textureRound,
+            Candidates:
+                candidates
+        );
+    }
+
+    // A missing or unopenable aliases directory degrades to no alias
+    // awareness rather than failing discovery outright - most commonly,
+    // this is simply the first-ever run against this install, before any
+    // alias has been created and before its durable state directory
+    // necessarily exists yet.
+    private static LinuxNoFollowPathHandle? OpenAliasesDirectory(
+        string? aliasesDirectoryPath)
+    {
+        return string.IsNullOrWhiteSpace(
+                aliasesDirectoryPath)
+            ? null
+            : LinuxNoFollowPath.OpenRootReadOnly(
+                    aliasesDirectoryPath
+                )
+                .OpenedPath;
+    }
+}
+
+// Aggregate result of the multi-round mesh -> material -> texture asset
+// discovery pipeline. MaterialPathRound and TextureRound are null only
+// when an earlier round failed to reach CandidateEvidenceComplete -
+// candidate publication is all-or-nothing across the whole pipeline, the
+// same philosophy the single-round projector already applies internally.
+internal sealed record TargetedConsumerAssetDiscoveryResult(
+    SkyrimWinningTargetedConsumerCaseRepairCandidateProjectionResult
+        MeshRound,
+    SkyrimWinningTargetedConsumerCaseRepairCandidateProjectionResult?
+        MaterialPathRound,
+    SkyrimWinningTargetedConsumerCaseRepairCandidateProjectionResult?
+        TextureRound,
+    IReadOnlyList<DataRelativePathTargetedConsumerCaseRepairCandidate>
+        Candidates
+)
+{
+    // Drop-in-compatible surface with
+    // SkyrimWinningTargetedConsumerCaseRepairCandidateProjectionResult so
+    // callers that only knew Phase 1's single-round result (the CLI
+    // commands and the wizard's batch-apply convergence loop) can adopt
+    // this multi-round result with no further shape changes.
+    public bool CandidateEvidenceComplete =>
+        MeshRound.CandidateEvidenceComplete &&
+        MaterialPathRound is not null &&
+        MaterialPathRound.CandidateEvidenceComplete &&
+        TextureRound is not null &&
+        TextureRound.CandidateEvidenceComplete;
+
+    public int CandidateCount =>
+        Candidates.Count;
+
+    // Whichever round first failed to reach CandidateEvidenceComplete -
+    // Complete only once every round that ran did.
+    public SkyrimWinningTargetedConsumerCaseRepairCandidateProjectionState
+        State =>
+            !MeshRound.CandidateEvidenceComplete
+                ? MeshRound.State
+                : MaterialPathRound is null
+                    ? MeshRound.State
+                    : !MaterialPathRound.CandidateEvidenceComplete
+                        ? MaterialPathRound.State
+                        : TextureRound is null
+                            ? MaterialPathRound.State
+                            : TextureRound.State;
+
+    public string? Error =>
+        !MeshRound.CandidateEvidenceComplete
+            ? MeshRound.Error
+            : MaterialPathRound is null
+                ? null
+                : !MaterialPathRound.CandidateEvidenceComplete
+                    ? MaterialPathRound.Error
+                    : TextureRound?.Error;
+
+    // Union of every round's leaves that actually ran - contested-ancestor
+    // analysis needs every winning consumer's requested path across the
+    // whole scan, texture/material consumers included, not just Phase
+    // 1's mesh-path consumers.
+    public IReadOnlyList<SkyrimWinningTargetedConsumerCaseRepairLeafProjection>
+        Leaves =>
+            MeshRound.Leaves
+                .Concat(
+                    MaterialPathRound?.Leaves ??
+                    Array.Empty<
+                        SkyrimWinningTargetedConsumerCaseRepairLeafProjection
+                    >()
+                )
+                .Concat(
+                    TextureRound?.Leaves ??
+                    Array.Empty<
+                        SkyrimWinningTargetedConsumerCaseRepairLeafProjection
+                    >()
+                )
+                .ToArray();
 }
