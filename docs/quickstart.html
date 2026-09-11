@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CaseCompat Quickstart</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+
+  :root {
+    color-scheme: light dark;
+    --paper: #f6f4ee;
+    --surface: #fffefb;
+    --ink: #1c2420;
+    --ink-muted: #5c655f;
+    --accent: #0d6e64;
+    --accent-ink: #073f39;
+    --accent-soft: #dbeeea;
+    --warn: #93500f;
+    --warn-soft: #f6e9d7;
+    --danger: #8c3327;
+    --danger-soft: #f3e2de;
+    --border: rgba(28, 36, 32, 0.14);
+    --rule: rgba(28, 36, 32, 0.28);
+    --shadow: 0 1px 2px rgba(20, 26, 23, 0.06);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #121613;
+      --surface: #191f1b;
+      --ink: #eae7de;
+      --ink-muted: #9aa39c;
+      --accent: #4fc7ba;
+      --accent-ink: #d7f3ef;
+      --accent-soft: #1c332f;
+      --warn: #e3a75c;
+      --warn-soft: #33280f;
+      --danger: #e08776;
+      --danger-soft: #3a2320;
+      --border: rgba(234, 231, 222, 0.14);
+      --rule: rgba(234, 231, 222, 0.24);
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #121613;
+    --surface: #191f1b;
+    --ink: #eae7de;
+    --ink-muted: #9aa39c;
+    --accent: #4fc7ba;
+    --accent-ink: #d7f3ef;
+    --accent-soft: #1c332f;
+    --warn: #e3a75c;
+    --warn-soft: #33280f;
+    --danger: #e08776;
+    --danger-soft: #3a2320;
+    --border: rgba(234, 231, 222, 0.14);
+    --rule: rgba(234, 231, 222, 0.24);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { margin: 0; padding: 0; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    padding: 0 20px;
+  }
+
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding-block: 48px 80px;
+  }
+
+  a { color: var(--accent-ink); text-decoration-color: var(--border); text-underline-offset: 2px; }
+  a:hover { text-decoration-color: currentColor; }
+
+  header.page-head {
+    margin-bottom: 40px;
+  }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.78rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 10px;
+  }
+
+  h1 {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-weight: 600;
+    font-size: clamp(1.9rem, 5vw, 2.5rem);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    margin: 0 0 12px;
+    text-wrap: balance;
+  }
+
+  .tagline {
+    color: var(--ink-muted);
+    font-size: 1.05rem;
+    max-width: 60ch;
+    margin: 0;
+  }
+
+  .intro {
+    margin: 24px 0 0;
+    max-width: 68ch;
+  }
+
+  .intro code, p code, li code {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.88em;
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    padding: 0.1em 0.4em;
+    border-radius: 4px;
+  }
+
+  section.callout {
+    margin: 32px 0;
+    padding: 18px 20px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--callout-color, var(--accent));
+    background: var(--callout-bg, var(--accent-soft));
+    box-shadow: var(--shadow);
+  }
+
+  section.callout.warn { --callout-color: var(--warn); --callout-bg: var(--warn-soft); }
+  section.callout.danger { --callout-color: var(--danger); --callout-bg: var(--danger-soft); }
+
+  .callout h3 {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.95rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    margin: 0 0 8px;
+    color: var(--ink);
+  }
+
+  .callout p { margin: 0 0 8px; }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout ul { margin: 8px 0 0; padding-left: 1.2em; }
+  .callout li { margin-bottom: 4px; }
+
+  ol.steps {
+    list-style: none;
+    margin: 40px 0;
+    padding: 0;
+    counter-reset: step;
+  }
+
+  li.step {
+    counter-increment: step;
+    position: relative;
+    padding: 0 0 32px 52px;
+    border-left: 2px solid var(--rule);
+    margin-left: 17px;
+  }
+
+  li.step:last-child {
+    border-left-color: transparent;
+    padding-bottom: 0;
+  }
+
+  li.step::before {
+    content: counter(step);
+    position: absolute;
+    left: -18px;
+    top: 0;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 2px solid var(--accent);
+    color: var(--accent-ink);
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-weight: 600;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  li.step.rollback::before {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+
+  li.step h2 {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin: 4px 0 8px;
+    text-wrap: balance;
+  }
+
+  li.step p { margin: 0 0 10px; max-width: 62ch; }
+  li.step p:last-child { margin-bottom: 0; }
+
+  .term {
+    background: #0e1613;
+    color: #d9e6e1;
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 12px 0;
+    box-shadow: var(--shadow);
+    max-width: 100%;
+  }
+
+  .term .bar {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px;
+    background: #172420;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+
+  .term .bar span {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: rgba(255,255,255,0.18);
+  }
+
+  .term pre {
+    margin: 0;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.86rem;
+    line-height: 1.55;
+  }
+
+  .term .comment { color: #7c8f88; }
+  .term .flag { color: #7fd8cb; }
+
+  .note {
+    font-size: 0.92rem;
+    color: var(--ink-muted);
+    margin-top: 8px;
+  }
+
+  .duration {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.85rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 3px 10px;
+    color: var(--ink-muted);
+  }
+
+  h2.section-title {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    margin: 48px 0 4px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+
+  .badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 18px 0 4px;
+  }
+
+  .badge {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.78rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 9px;
+    color: var(--ink-muted);
+  }
+
+  footer {
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    font-size: 0.92rem;
+    color: var(--ink-muted);
+  }
+
+  footer .links {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  footer a { color: var(--ink-muted); }
+
+  footer .disclosure {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--border);
+    font-size: 0.85rem;
+  }
+
+  @media (max-width: 480px) {
+    li.step { padding-left: 40px; margin-left: 12px; }
+    li.step::before { width: 30px; height: 30px; left: -15px; font-size: 0.9rem; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header class="page-head">
+    <p class="eyebrow">Early tester guide</p>
+    <h1>CaseCompat Quickstart</h1>
+    <p class="tagline">Fix filesystem case-mismatches in a modded Skyrim Special Edition install on Linux.</p>
+  </header>
+
+  <p class="intro">
+    A mod can ship the exact file Skyrim needs and still spell its path
+    differently from what a plugin requests &mdash; <code>meshes</code> vs
+    <code>Meshes</code>. Windows never notices; a case-sensitive Linux
+    filesystem does, and that's what breaks a heavily modded install.
+    CaseCompat finds every file your load order actually asks for, checks
+    it against what's really on disk, and corrects the case wherever they
+    disagree &mdash; nothing else in your install is touched.
+  </p>
+
+  <section class="callout warn">
+    <h3>Before you start</h3>
+    <p>
+      This is early tester software. It renames real files in your Data
+      folder. The tool is designed to be safe &mdash; every rename is
+      journaled and reversible (Step 5) &mdash; but until it's had more
+      real-world mileage, back up anything you'd hate to lose, or at least
+      know how to verify/reinstall your game files if something looks
+      wrong.
+    </p>
+    <p>It's also safe to close it partway through with <code>Ctrl+C</code> &mdash; nothing is left half-done, and re-running picks up where it left off.</p>
+  </section>
+
+  <ol class="steps">
+    <li class="step">
+      <h2>Install prerequisites</h2>
+      <p>CaseCompat targets <code>net10.0</code> and needs the .NET 10 SDK
+      to build and run from source. You'll also need <code>git</code> to
+      get the code.</p>
+      <div class="term">
+        <div class="bar"><span></span><span></span><span></span></div>
+        <pre><span class="comment"># Debian / Ubuntu / Mint</span>
+sudo apt install git dotnet-sdk-10.0</pre>
+      </div>
+      <p class="note">On Fedora, use <code>dnf install git dotnet-sdk-10.0</code>; on Arch, <code>pacman -S git dotnet-sdk</code>. Other distros: see <a href="https://learn.microsoft.com/dotnet/core/install/linux" target="_blank" rel="noopener">Microsoft's install guide</a>.</p>
+      <p>Confirm it installed:</p>
+      <div class="term">
+        <div class="bar"><span></span><span></span><span></span></div>
+        <pre>dotnet --version</pre>
+      </div>
+    </li>
+
+    <li class="step">
+      <h2>Get the source</h2>
+      <p>Clone the repository and move into it:</p>
+      <div class="term">
+        <div class="bar"><span></span><span></span><span></span></div>
+        <pre>git clone https://github.com/shhStealth/skyrim-casecompat.git
+cd skyrim-casecompat</pre>
+      </div>
+    </li>
+
+    <li class="step">
+      <h2>Build</h2>
+      <p>From the repository root:</p>
+      <div class="term">
+        <div class="bar"><span></span><span></span><span></span></div>
+        <pre>dotnet build</pre>
+      </div>
+    </li>
+
+    <li class="step">
+      <h2>Run it</h2>
+      <p>Launch with no arguments and confirm each prompt &mdash; it
+      auto-detects your Skyrim Data folder, <code>Plugins.txt</code>, and
+      <code>loadorder.txt</code>, then walks you through the scan and
+      repair:</p>
+      <div class="term">
+        <div class="bar"><span></span><span></span><span></span></div>
+        <pre>dotnet run --project src/CaseCompat.Cli --
+<span class="comment"># review what it finds, then press y to confirm</span></pre>
+      </div>
+      <span class="duration">large collection &rarr; can take a while</span>
+      <p class="note">
+        For a big mod list, the scan and apply can run for a long time
+        &mdash; it's opening and checking a huge number of real files, not
+        stuck. It shows live progress the whole way, and will automatically
+        rescan and reapply as many times as it takes to settle on its own
+        (no need to re-run it yourself).
+      </p>
+      <p>
+        When it's done, it prints where it saved a full CSV report and
+        the journal it just wrote &mdash; typically under
+        <code>~/.local/share/CaseCompat/installs/&lt;install-id&gt;/</code>.
+        You'll want that journal path for Step 5 if you ever need to undo
+        the run.
+      </p>
+    </li>
+
+    <li class="step rollback">
+      <h2>Roll back a previous run</h2>
+      <p>
+        Changed your mind, or something looks wrong after a run? Rollback
+        is guided the same way &mdash; no journal paths or plan IDs to dig
+        up by hand.
+      </p>
+      <div class="term">
+        <div class="bar"><span></span><span></span><span></span></div>
+        <pre>dotnet run --project src/CaseCompat.Cli -- rollback
+<span class="comment"># re-detects the same install, finds its journal,</span>
+<span class="comment"># shows how many applied fixes it found, then confirm to undo</span></pre>
+      </div>
+      <p>
+        It re-verifies each file's exact identity before renaming it back,
+        and refuses to touch anything that's changed since &mdash; it
+        won't guess.
+      </p>
+    </li>
+  </ol>
+
+  <h2 class="section-title">Full command reference</h2>
+  <p>
+    Diagnostics, scripted batch mode, and rolling back one specific fix by
+    plan ID instead of the whole run:
+  </p>
+  <div class="term">
+    <div class="bar"><span></span><span></span><span></span></div>
+    <pre>dotnet run --project src/CaseCompat.Cli -- --help</pre>
+  </div>
+  <div class="badges">
+    <span class="badge">targeted-consumer-candidates</span>
+    <span class="badge">targeted-consumer-batch-apply</span>
+    <span class="badge">targeted-consumer-rollback</span>
+    <span class="badge">doctor</span>
+  </div>
+
+  <section class="callout" style="margin-top: 40px;">
+    <h3>Good to know</h3>
+    <ul>
+      <li>A fix is a <strong>rename</strong>, not a copy &mdash; there's
+      never a second file on disk for the same asset.</li>
+      <li>Every rename is planned, journaled, and freshly re-verified
+      before it touches anything, and refuses to apply or roll back
+      whatever it can't prove it owns.</li>
+      <li>A case fight it can't safely resolve on its own &mdash; two real
+      folders that already exist under both casings your mods disagree
+      about &mdash; is reported and left alone, not guessed at.</li>
+      <li>One folder, two casings your mods need at once? It links a
+      second name to the same real folder rather than renaming anything,
+      so both mods keep working.</li>
+    </ul>
+  </section>
+
+  <h2 class="section-title">Found a problem?</h2>
+  <p>
+    Early tester feedback is exactly what this phase is for &mdash; please
+    report anything that looks wrong, including the exact command you ran
+    and what the tool printed, on the
+    <a href="https://github.com/shhStealth/skyrim-casecompat/issues" target="_blank" rel="noopener">GitHub issue tracker</a>.
+  </p>
+
+  <footer>
+    <div class="links">
+      <span>CaseCompat &mdash; GPL-3.0</span>
+      <a href="https://github.com/shhStealth/skyrim-casecompat" target="_blank" rel="noopener">github.com/shhStealth/skyrim-casecompat</a>
+    </div>
+    <p class="disclosure">Built with AI-assisted development (Claude).</p>
+  </footer>
+</main>
+</body>
+</html>
