@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Modded Skyrim on Linux</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+
+  :root {
+    color-scheme: light dark;
+    --paper: #f6f4ee;
+    --surface: #fffefb;
+    --ink: #1c2420;
+    --ink-muted: #5c655f;
+    --accent: #0d6e64;
+    --accent-ink: #073f39;
+    --accent-soft: #dbeeea;
+    --warn: #93500f;
+    --warn-soft: #f6e9d7;
+    --danger: #8c3327;
+    --danger-soft: #f3e2de;
+    --border: rgba(28, 36, 32, 0.14);
+    --rule: rgba(28, 36, 32, 0.28);
+    --shadow: 0 1px 2px rgba(20, 26, 23, 0.06);
+    --table-head: #14312d;
+    --table-head-ink: #eef7f5;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #121613; --surface: #191f1b; --ink: #eae7de; --ink-muted: #9aa39c;
+      --accent: #4fc7ba; --accent-ink: #d7f3ef; --accent-soft: #1c332f;
+      --warn: #e3a75c; --warn-soft: #33280f;
+      --danger: #e08776; --danger-soft: #3a2320;
+      --border: rgba(234, 231, 222, 0.14); --rule: rgba(234, 231, 222, 0.24);
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+      --table-head: #0e211e; --table-head-ink: #cdeae4;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #121613; --surface: #191f1b; --ink: #eae7de; --ink-muted: #9aa39c;
+    --accent: #4fc7ba; --accent-ink: #d7f3ef; --accent-soft: #1c332f;
+    --warn: #e3a75c; --warn-soft: #33280f;
+    --danger: #e08776; --danger-soft: #3a2320;
+    --border: rgba(234, 231, 222, 0.14); --rule: rgba(234, 231, 222, 0.24);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --table-head: #0e211e; --table-head-ink: #cdeae4;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--paper); color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: 16px; line-height: 1.62; padding: 0 20px;
+  }
+  main { max-width: 760px; margin: 0 auto; padding-block: 48px 90px; }
+  a { color: var(--accent-ink); text-decoration-color: var(--border); text-underline-offset: 2px; }
+  a:hover { text-decoration-color: currentColor; }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 10px;
+  }
+  h1 {
+    font-family: "IBM Plex Mono", ui-monospace, monospace; font-weight: 600;
+    font-size: clamp(1.8rem, 4.6vw, 2.4rem); line-height: 1.15;
+    letter-spacing: -0.01em; margin: 0 0 12px; text-wrap: balance;
+  }
+  .tagline { color: var(--ink-muted); font-size: 1.05rem; max-width: 62ch; margin: 0; }
+  .intro { margin: 22px 0 0; max-width: 70ch; }
+  .intro code, p code, li code, td code {
+    font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.86em;
+    background: var(--accent-soft); color: var(--accent-ink);
+    padding: 0.1em 0.4em; border-radius: 4px;
+  }
+
+  section.callout {
+    margin: 28px 0; padding: 16px 20px; border-radius: 8px;
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--callout-color, var(--accent));
+    background: var(--callout-bg, var(--accent-soft));
+    box-shadow: var(--shadow);
+  }
+  section.callout.warn { --callout-color: var(--warn); --callout-bg: var(--warn-soft); }
+  section.callout.danger { --callout-color: var(--danger); --callout-bg: var(--danger-soft); }
+  .callout h3 {
+    font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.9rem;
+    font-weight: 600; letter-spacing: 0.02em; margin: 0 0 8px; color: var(--ink);
+  }
+  .callout p { margin: 0 0 8px; }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout ul { margin: 8px 0 0; padding-left: 1.2em; }
+  .callout li { margin-bottom: 4px; }
+
+  table {
+    width: 100%; border-collapse: collapse; margin: 16px 0;
+    font-size: 0.92rem; background: var(--surface);
+    box-shadow: var(--shadow); border-radius: 8px; overflow: hidden;
+  }
+  .table-wrap { overflow-x: auto; margin: 16px 0; }
+  .table-wrap table { margin: 0; min-width: 480px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--table-head); color: var(--table-head-ink); font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.8rem; letter-spacing: 0.02em; font-weight: 500; }
+  tr:last-child td { border-bottom: none; }
+
+  ol.steps { list-style: none; margin: 32px 0; padding: 0; counter-reset: step; }
+  li.step {
+    counter-increment: step; position: relative; padding: 0 0 22px 44px;
+    border-left: 2px solid var(--rule); margin-left: 15px;
+  }
+  li.step:last-child { border-left-color: transparent; padding-bottom: 0; }
+  li.step::before {
+    content: counter(step); position: absolute; left: -16px; top: 0;
+    width: 32px; height: 32px; border-radius: 50%; background: var(--surface);
+    border: 2px solid var(--accent); color: var(--accent-ink);
+    font-family: "IBM Plex Mono", ui-monospace, monospace; font-weight: 600; font-size: 0.92rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  li.step h3 {
+    font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 1.02rem;
+    font-weight: 600; margin: 2px 0 4px;
+  }
+  .req { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 8px; margin-left: 8px; vertical-align: middle; }
+  .req.opt { color: var(--warn); border-color: var(--warn); }
+
+  h2.section-title {
+    font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 1.15rem;
+    font-weight: 600; letter-spacing: 0.01em; margin: 52px 0 6px;
+    padding-top: 26px; border-top: 1px solid var(--border);
+  }
+  h3.sub { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.98rem; font-weight: 600; margin: 22px 0 6px; }
+
+  .term {
+    background: #0e1613; color: #d9e6e1; border-radius: 8px; overflow: hidden;
+    margin: 12px 0; box-shadow: var(--shadow); max-width: 100%;
+  }
+  .term .bar { display: flex; gap: 6px; padding: 8px 12px; background: #172420; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  .term .bar span { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,0.18); }
+  .term pre { margin: 0; padding: 13px 15px; overflow-x: auto; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.82rem; line-height: 1.55; }
+  .term .comment { color: #7c8f88; }
+
+  .note { font-size: 0.92rem; color: var(--ink-muted); margin-top: 6px; }
+  p { max-width: 70ch; }
+  ul.plain, ol.plain { max-width: 70ch; padding-left: 1.3em; }
+  ul.plain li, ol.plain li { margin-bottom: 6px; }
+
+  footer {
+    margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--border);
+    font-size: 0.92rem; color: var(--ink-muted);
+  }
+  footer .links { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+  footer a { color: var(--ink-muted); }
+  footer .disclosure { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--border); font-size: 0.85rem; }
+
+  @media (max-width: 480px) {
+    li.step { padding-left: 36px; margin-left: 10px; }
+    li.step::before { width: 28px; height: 28px; left: -14px; font-size: 0.82rem; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Community setup guide &middot; generalized from real testing</p>
+  <h1>Modded Skyrim SE on Linux</h1>
+  <p class="tagline">A practical path from Steam to a playable large modded install &mdash; for any big Vortex-managed collection, not one specific list.</p>
+
+  <p class="intro">
+    Large Nexus Collections generally aren't built or tested against Linux.
+    This guide started as notes for one specific collection and has been
+    generalized here based on real testing across several different
+    collections and machines &mdash; including a 700GB collection, a 25GB
+    one, and a Steam Deck. The technical explanations are kept short and
+    only appear where they help you avoid a common mistake.
+  </p>
+
+  <section class="callout">
+    <h3>About this guide</h3>
+    <p>
+      This is a general community resource for running large modded
+      Skyrim collections on Linux &mdash; Steam/Proton setup, Vortex
+      configuration, memory, and crash triage. It's maintained alongside
+      <a href="https://github.com/shhStealth/skyrim-casecompat" target="_blank" rel="noopener">CaseCompat</a>
+      but isn't part of the tool itself: CaseCompat solves one specific
+      problem (path-casing mismatches); this guide covers everything
+      around it.
+    </p>
+  </section>
+
+  <section class="callout warn">
+    <h3>Before you start</h3>
+    <p>
+      Back up your Skyrim <strong>Data folder and Vortex staging
+      folder</strong> (not just your saves &mdash; saves aren't what these
+      steps touch) before changing filesystem attributes, Wine registry
+      values, swap, deployment paths, or loose assets.
+    </p>
+  </section>
+
+  <div class="table-wrap">
+  <table>
+    <tr><th>Tested environment</th><th>Value</th></tr>
+    <tr><td>Skyrim / SKSE</td><td>1.6.1170 / 2.2.6</td></tr>
+    <tr><td>Linux</td><td>Linux Mint 22.x on ext4; also confirmed on SteamOS (Steam Deck)</td></tr>
+    <tr><td>Compatibility tool</td><td>SteamTinkerLaunch + GE-Proton (a general-purpose, actively maintained build &mdash; prefer it over a narrow one-off Proton like &ldquo;Proton Hotfix,&rdquo; which exists to work around one specific regression, not as a daily driver)</td></tr>
+    <tr><td>Mod manager</td><td>Vortex &mdash; Windows build under Wine/Proton</td></tr>
+    <tr><td>GPU</td><td>RTX 3080 10GB tested; tighter VRAM budgets need more aggressive optimization (Step 7)</td></tr>
+    <tr><td>Collections tested</td><td>A ~700GB collection and a ~25GB collection, across four machines</td></tr>
+  </table>
+  </div>
+
+  <section class="callout">
+    <h3>Important path note</h3>
+    <p>Commands here use example paths. Your Steam library may be somewhere else. Replace the example Steam library path with your real one before running a script. Don't type a literal <code>~</code> inside quotation marks and expect it to expand &mdash; use <code>$HOME</code> or a full path instead.</p>
+  </section>
+
+  <h2 class="section-title">Quick start &mdash; the whole process</h2>
+  <p>If you only want the roadmap, these are the steps. The rest of the page explains each one.</p>
+  <ol class="plain">
+    <li><strong>Install Steam and Skyrim</strong> &mdash; launch once and let Anniversary Edition/Creation Club content finish installing.</li>
+    <li><strong>Install ProtonUp-Qt and SteamTinkerLaunch</strong> &mdash; add GE-Proton, select STL as Skyrim's compatibility tool.</li>
+    <li><strong>Install Vortex inside Skyrim's own Proton prefix</strong> &mdash; not STL's separate managed prefix.</li>
+    <li><strong>Put Vortex staging beside Skyrim</strong> &mdash; same Linux filesystem, for hardlink deployment.</li>
+    <li><strong>Install your collection</strong> &mdash; check its Nexus page for the real disk-space figure; treat that as a minimum.</li>
+    <li><strong>Create a real, empty <code>Data/data</code> folder</strong> &mdash; prevents an extremely slow Wine path-lookup fallback.</li>
+    <li><strong>Run BethINI Pie; consider VRAMr</strong> &mdash; get the base collection working before mass texture optimization.</li>
+    <li><strong>Check RAM and swap</strong> &mdash; large modlists can exhaust memory without a normal Skyrim crash log.</li>
+    <li><strong>Launch through a simple, guarded script</strong> &mdash; raises the file-descriptor limit and keeps <code>Data/data</code> safe.</li>
+    <li><strong>Classify problems before reacting</strong> &mdash; a crash log, a freeze, and a silent Linux kill are different problems with different fixes.</li>
+  </ol>
+
+  <section class="callout">
+    <h3>Disk space planning</h3>
+    <p>Collection sizes vary enormously. On one tested ~700GB collection, downloads were roughly 250GB and the unpacked staging footprint approached 600&ndash;700GB, with VRAM-optimizer output adding more; a ~25GB collection needs a small fraction of that. Check your specific collection's stated size and treat it as a floor, not a comfortable ceiling &mdash; then add headroom.</p>
+  </section>
+
+  <h2 class="section-title">1&thinsp;&middot;&thinsp;Install Steam and Skyrim <span class="req">Required</span></h2>
+  <p>Install Steam using your distro's normal package method. On Mint/Ubuntu-family systems, avoid mixing several Steam packaging methods in the same setup &mdash; prefer the normal Debian/Ubuntu-style install over a Snap-based one.</p>
+  <div class="term"><div class="bar"><span></span><span></span><span></span></div>
+  <pre><span class="comment"># Debian / Ubuntu / Mint</span>
+sudo apt update
+sudo apt install steam-installer</pre></div>
+  <p class="note">If <code>steam-installer</code> isn't your distro's package name, use that distro's own documented Steam package instead.</p>
+
+  <h3 class="sub">Install Skyrim Special Edition</h3>
+  <ol class="plain">
+    <li>Install The Elder Scrolls V: Skyrim Special Edition from Steam.</li>
+    <li>Launch it once from Steam before modding it.</li>
+    <li>Let the Anniversary Edition / Creation Club content finish installing.</li>
+    <li>Quit Skyrim only after that first-run download has settled.</li>
+  </ol>
+  <p class="note">The first launch creates Skyrim's own configuration data and lets Steam finish game-owned content. Doing this before Vortex avoids mixing first-run game changes with collection deployment.</p>
+
+  <h2 class="section-title">2&thinsp;&middot;&thinsp;Install GE-Proton <span class="req">Required</span></h2>
+  <p>Install ProtonUp-Qt using the method appropriate for your distro, then use it to add <strong>GE-Proton</strong> &mdash; the build every script in this guide talks to directly by path.</p>
+  <ol class="plain">
+    <li>Open ProtonUp-Qt.</li>
+    <li>Add the latest GE-Proton as a compatibility tool for Steam.</li>
+    <li>Restart Steam if it doesn't appear immediately.</li>
+  </ol>
+  <section class="callout"><h3>You don't need to set this in Steam's UI</h3><p>Every launcher in this guide &mdash; Vortex (Step 3A) and Skyrim itself (Step 9) &mdash; calls GE-Proton directly by path and never goes through Steam's own launch mechanism. You don't need to open Skyrim's Properties &rarr; Compatibility and force a specific Play tool at all, unless you also want a working Steam &ldquo;Play&rdquo; button as a convenience or fallback (for Steam Overlay/Input) &mdash; if so, just point that setting at the same GE-Proton build your scripts already use.</p></section>
+
+  <h3 class="sub">Optional: SteamTinkerLaunch, for one-off Windows tool launches</h3>
+  <p>STL isn't required for Vortex or Skyrim in this guide &mdash; both launch through their own small scripts instead. It's still convenient later for running an occasional Windows-only utility (BethINI Pie in Step 7) inside the right Proton environment without writing a new script for each tool.</p>
+  <p>STL doesn't bundle everything it needs to run. Install its dependencies first &mdash; most notably <code>yad</code>, the dialog toolkit its whole UI is built on:</p>
+  <div class="term"><div class="bar"><span></span><span></span><span></span></div>
+  <pre><span class="comment"># Debian / Ubuntu / Mint</span>
+sudo apt install yad</pre></div>
+  <p class="note">On Fedora, <code>dnf install yad</code>; on Arch, <code>pacman -S yad</code>. Package names vary, and STL depends on a few other common CLI tools beyond just <code>yad</code> &mdash; its own wiki keeps the complete, version-current list, and STL can check for and report missing dependencies the first time you run it.</p>
+  <ol class="plain">
+    <li>Add SteamTinkerLaunch as a Steam compatibility tool via ProtonUp-Qt, the same way as GE-Proton above.</li>
+    <li>If you want to use it for one-off tool launches, assign it as Skyrim's compatibility tool (Properties &rarr; Compatibility, as above) and run it once from Steam's Play button so it can finish its own first-time setup. This doesn't change how you'll actually launch the game later &mdash; Step 9 uses its own script either way.</li>
+  </ol>
+
+  <h2 class="section-title">3&thinsp;&middot;&thinsp;Install Vortex directly in Skyrim's Proton prefix <span class="req">Required</span></h2>
+  <p>The Vortex installation this guide uses must live inside Skyrim Special Edition's own Proton prefix (Steam AppID 489830). This is the step that's easiest to get wrong on Linux.</p>
+  <section class="callout danger">
+    <h3>Don't assume STL uses the Skyrim prefix</h3>
+    <p>SteamTinkerLaunch normally keeps its own managed Vortex under <code>~/.config/steamtinkerlaunch/vortex/compatdata/pfx</code> &mdash; a separate prefix. If you use <code>steamtinkerlaunch vortex install</code>, verify where Vortex actually landed before starting your collection.</p>
+  </section>
+
+  <h3 class="sub">1. Identify Skyrim's prefix and an x86-64 GE-Proton build</h3>
+  <div class="term"><div class="bar"><span></span><span></span><span></span></div>
+  <pre>STEAMLIB="/mnt/Speedy/SteamLibrary"    <span class="comment"># change this</span>
+COMPAT="$STEAMLIB/steamapps/compatdata/489830"
+GE_PROTON="$HOME/.steam/debian-installation/compatibilitytools.d/GE-Proton11-5-x86_64"
+
+uname -m
+file "$GE_PROTON/files/bin/wine"</pre></div>
+  <p class="note">On a normal Intel/AMD PC, <code>uname -m</code> reports <code>x86_64</code>. Never select an aarch64/ARM Proton build on an x86_64 machine. Your GE-Proton folder name will include whatever version you installed.</p>
+
+  <h3 class="sub">2. Run the Vortex installer inside Skyrim's prefix</h3>
+  <div class="term"><div class="bar"><span></span><span></span><span></span></div>
+  <pre>export WINEPREFIX="$COMPAT/pfx"
+
+"$GE_PROTON/files/bin/wine" \
+  "/path/to/vortex-setup-&lt;version&gt;.exe"</pre></div>
+  <section class="callout warn"><h3>Use the real installer path</h3><p>Point the command at the installer you actually downloaded. If STL already downloaded one, check <code>~/.config/steamtinkerlaunch/downloads/vortex/</code>.</p></section>
+
+  <h3 class="sub">3. If Vortex asks for .NET</h3>
+  <p>Install the Windows .NET Desktop Runtime it requests into this same prefix &mdash; not the Linux .NET package. Newer Vortex builds may include the Windows runtime installer under <code>resources/temp</code> after installation.</p>
+  <div class="term"><div class="bar"><span></span><span></span><span></span></div>
+  <pre>"$GE_PROTON/files/bin/wine" \
+  "$COMPAT/pfx/drive_c/Program Files/Vortex/resources/temp/windowsdesktop-runtime-win-x64.exe"</pre></div>
+
+  <h3 class="sub">4. Verify the final location</h3>
+  <div class="term"><div class="bar"><span></span><span></span><span></span></div>
+  <pre>ls -lh "$COMPAT/pfx/drive_c/Program Files/Vortex/Vortex.exe"</pre></div>
+
+  <h2 class="section-title">3A&thinsp;&middot;&thinsp;Launch Vortex and handle Nexus links</h2>
+  <p>Once Vortex is installed in Skyrim's prefix, launch it directly with a small script rather than through Steam or STL &mdash; it talks to GE-Proton by path the same way Step 9's game launcher does. The script below also handles Nexus <code>nxm://</code> links by adding the required <code>--download</code> argument.</p>
+  <section class="callout"><h3>If Vortex was first installed to STL's separate prefix</h3><p>Don't copy the whole Wine registry into Skyrim's prefix. Rerun the Vortex installer with <code>WINEPREFIX</code> set to Skyrim's 489830 prefix instead &mdash; copying program files alone can leave a stale uninstall key until it's reinstalled correctly.</p></section>
+
+  <h3 class="sub">Create <code>~/bin/vortex</code></h3>
+  <div class="term"><div class="bar"><span></span><span></span><span></span></div>
+  <pre>mkdir -p ~/bin
+nano ~/bin/vortex
+
+#!/bin/bash
+STEAMLIB="/mnt/Speedy/SteamLibrary"    <span class="comment"># change this</span>
+COMPAT="$STEAMLIB/steamapps/compatdata/489830"
+GE_PROTON="$HOME/.steam/debian-installation/compatibilitytools.d/GE-Proton11-5-x86_64"
+WINE="$GE_PROTON/files/bin/wine"
+VORTEX="$COMPAT/pfx/drive_c/Program Files/Vortex/Vortex.exe"
+export WINEPREFIX="$COMPAT/pfx"
+
+if [[ "$1" == nxm://* ]]; then
+    "$WINE" "$VORTEX" --download "$1" &
+else
+    "$WINE" "$VORTEX" "$@" &
+fi</pre></div>
+  <p class="note">Save the file, then make it executable. Mint commonly adds <code>~/bin</code> to PATH after a new login if the folder exists.</p>
+  <div class="term"><div class="bar"><span></span><span></span><span></span></div>
+  <pre>chmod +x ~/bin/vortex
+~/bin/vortex
+command -v vortex</pre></div>
+
+  <h3 class="sub">Register Nexus <code>nxm://</code> links with Linux</h3>
+  <div class="term"><div class="bar"><span></span><span></span><span></span></div>
+  <pre>mkdir -p ~/.local/share/applications
+cat &gt; ~/.local/share/applications/vortex-nxm.desktop &lt;&lt;EOF
+[Desktop Entry]
+Name=Vortex NXM Handler
+Exec=$HOME/bin/vortex %u
+Type=Application
+NoDisplay=true
+MimeType=x-scheme-handler/nxm;
+EOF
+
+update-desktop-database "$HOME/.local/share/applications"
+xdg-mime default vortex-nxm.desktop x-scheme-handler/nxm
+xdg-mime query default x-scheme-handler/nxm</pre></div>
+  <p class="note">The unquoted <code>EOF</code> above expands <code>$HOME</code> while the file is being created, so <code>Exec</code> receives an absolute path. The final command should print <code>vortex-nxm.desktop</code>. When you click &ldquo;Download with Manager&rdquo; on Nexus, choose Vortex NXM Handler.</p>
+  <section class="callout warn"><h3>LibreWolf / hardened Firefox only, if the NXM chooser doesn't appear</h3><p>Open <code>about:config</code>. Set <code>network.protocol-handler.expose.nxm = false</code> and <code>network.protocol-handler.external.nxm = true</code>. Restart the browser, then click an actual Nexus &ldquo;Download with Manager&rdquo; link again.</p></section>
+
+  <h2 class="section-title">4&thinsp;&middot;&thinsp;Configure Vortex storage correctly <span class="req">Required</span></h2>
+  <p>Once Vortex detects Skyrim, set the game and staging paths before you start your collection.</p>
+  <section class="callout danger"><h3>Game + staging: same filesystem</h3><p>Skyrim and the Vortex mod staging folder must be on the same Linux filesystem for hardlink deployment. Being on the same physical disk isn't enough if that disk is split into different mounted filesystems.</p></section>
+  <div class="term"><div class="bar"><span></span><span></span><span></span></div>
+  <pre>df -T "/path/to/Skyrim Special Edition"
+df -T "/path/to/Vortex Mod Staging"</pre></div>
+  <p>The filesystem/device information should match. The mod download folder is different: it can live on another drive because Vortex doesn't deploy from the download archive folder.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Folder</th><th>Where it can live</th><th>Practical advice</th></tr>
+    <tr><td>Skyrim game folder</td><td>Linux-native filesystem (ext4 tested)</td><td>Prefer SSD.</td></tr>
+    <tr><td>Vortex mod staging</td><td>Same filesystem as Skyrim</td><td>This is the important hardlink requirement.</td></tr>
+    <tr><td>Vortex downloads</td><td>Any drive with enough space</td><td>HDD is usable; SSD is faster.</td></tr>
+  </table></div>
+
+  <h2 class="section-title">5&thinsp;&middot;&thinsp;Start your collection <span class="req">Required</span></h2>
+  <ol class="plain">
+    <li>In Vortex, open Skyrim Special Edition.</li>
+    <li>Open Collections and locate the one you want &mdash; or start it from that collection's own Nexus Mods page.</li>
+    <li>Begin the download/install process and let Vortex work through it.</li>
+    <li>Don't move Skyrim or the staging folder after deployment has started unless you understand the consequences for hardlinks.</li>
+  </ol>
+  <section class="callout"><h3>Optional Vortex speed workaround (experimental)</h3><p>On tested setups, switching Vortex to a harmless dummy managed game (a Stardew Valley install, for instance) while a large collection's download/install process runs made that process noticeably faster. Treat this as optional and experimental, not a requirement &mdash; switch back to Skyrim before deploying or launching.</p></section>
+
+  <h2 class="section-title">6&thinsp;&middot;&thinsp;Create the Data/data startup fix <span class="req">Required</span></h2>
+  <p>This is one of the most important Linux-specific fixes in this guide. On a large plugin setup (4,000+ plugins tested), a missing inner <code>Data/data</code> directory can make Wine perform extremely expensive case-insensitive path searches against the whole Skyrim Data tree.</p>
+  <section class="callout"><h3>Observed result</h3><p>Creating a real, empty <code>Data/data</code> directory reduced pre-main-menu startup from roughly 30&ndash;70 minutes to about 1&ndash;2 minutes on the tested installation.</p></section>
+  <div class="term"><div class="bar"><span></span><span></span><span></span></div>
+  <pre>GAME="/mnt/Speedy/SteamLibrary/steamapps/common/Skyrim Special Edition"
+mkdir -p "$GAME/Data/data"
+ls -ld "$GAME/Data/data"
+find "$GAME/Data/data" -mindepth 1 -print</pre></div>
+  <p class="note">The final <code>find</code> command should print nothing.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Data/data must be&hellip;</th><th>Why</th></tr>
+    <tr><td>A real directory</td><td>The workaround depends on it existing as a normal filesystem object.</td></tr>
+    <tr><td>Completely empty</td><td>It's only there to make a fallback lookup fail quickly.</td></tr>
+    <tr><td>Not a symlink</td><td>Don't point <code>Data/data</code> back at <code>Data</code>, <code>.</code>, or any other directory.</td></tr>
+  </table></div>
+  <section class="callout warn"><h3>Don't &ldquo;fix&rdquo; this by changing case everywhere</h3><p>Linux filename case can matter in modded Skyrim, but not every mismatch is a bug. Don't lowercase the entire Data tree, recursively add ext4 casefold attributes, or duplicate every differently-cased asset. Use narrow fixes only when a specific asset path is proven broken &mdash; or use a dedicated tool built for exactly this (see &ldquo;Case-sensitive files&rdquo; below).</p></section>
+
+  <h2 class="section-title">7&thinsp;&middot;&thinsp;Run BethINI Pie; decide whether to use VRAMr <span class="req opt">Optional</span></h2>
+  <h3 class="sub">BethINI Pie</h3>
+  <p>Run BethINI Pie through SteamTinkerLaunch using its one-time launch feature. This keeps the tool inside the same Windows/Proton environment as Skyrim.</p>
+  <h3 class="sub">Reducing VRAM usage: prefer Texture Downscaler over VRAMr</h3>
+  <p>If your GPU's VRAM is tight relative to your collection's texture load &mdash; common on 8&ndash;12GB cards paired with texture-heavy collections &mdash; the <strong>Texture Downscaler</strong> mod has proven more reliable in practice than VRAMr and is the current recommendation.</p>
+  <ol class="plain">
+    <li>First launch the collection without any texture-optimizer output and establish a baseline.</li>
+    <li>If you need lower VRAM usage, install and run Texture Downscaler using its own documented process, starting from a moderate preset rather than the most aggressive one.</li>
+    <li>If a model later shows a large missing-model &ldquo;!&rdquo; or invisible equipment, don't automatically blame the optimizer or a bad texture. Check the mesh path and filename capitalization first &mdash; or just check what CaseCompat's scan already reported for that asset.</li>
+    <li>If troubleshooting becomes unclear, temporarily remove the optimizer's output and A/B test one variable at a time.</li>
+  </ol>
+  <section class="callout"><h3>Why the texture warning matters</h3><p>A confirmed armor-failure case looked like bad optimization but was actually a Linux case-path split: the plugin requested one capitalization while the generated mesh existed under a different, differently-cased real directory. Restoring the original textures didn't fix it; making the mesh reachable at the exact requested path did &mdash; see &ldquo;Case-sensitive files&rdquo; below for the tool that now automates finding and fixing exactly this.</p></section>
+
+  <h3 class="sub">Example: known cautions from one tested collection</h3>
+  <p>Every large collection accumulates its own list of mods or settings known to misbehave under Proton. Check your specific collection's Nexus page, Discord, or pinned FAQ for anything flagged Linux/Proton-unsafe before you start &mdash; the table below is what one collection's list looked like, as a model for the kind of thing to track, not a universal rule for every install.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Item</th><th>Guidance on that tested setup</th><th>Confidence</th></tr>
+    <tr><td>A hardware-watchpoint-installing SKSE plugin</td><td>Disabled on Proton; reproduced a reliable <code>EXCEPTION_SINGLE_STEP</code> crash.</td><td>Confirmed on tested build</td></tr>
+    <tr><td>A combat-event-hooking SKSE plugin</td><td>Held disabled after a separate crash investigation (invalid hash bucket count).</td><td>Diagnostic hold, not universal</td></tr>
+    <tr><td>An optimizer-replaced mesh under active A/B test</td><td>Kept the original file active while the investigation was unresolved.</td><td>Temporary test state</td></tr>
+    <tr><td>A frame-generation shader feature</td><td>Kept off; reproduced Proton freezes in testing.</td><td>Reproduced on tested setup</td></tr>
+  </table></div>
+  <section class="callout warn"><h3>These are not permanent rules for any collection</h3><p>Entries like this describe one tested Linux/Proton state at one point in time. They aren't claims that the same mods are broken on Windows, on every collection, or on every future Linux build &mdash; keep your own list current for your own setup.</p></section>
+
+  <h2 class="section-title">8&thinsp;&middot;&thinsp;Check RAM and swap <span class="req">Required</span></h2>
+  <p>A large modlist can exhaust RAM and swap without producing a normal Skyrim crash log. On one tested 32GB RAM system, an initial 2GB swapfile wasn't enough &mdash; the Linux kernel killed Skyrim under memory pressure. Increasing swap to 32GB provided useful overflow capacity. That figure is a tested example, not a universal requirement.</p>
+  <h3 class="sub">Check before changing anything</h3>
+  <div class="term"><div class="bar"><span></span><span></span><span></span></div>
+  <pre>free -h
+swapon --show</pre></div>
+  <p>Look at the Swap line before changing anything. If Skyrim suddenly disappears with no CrashLogger log during a heavy scene or long session, check the Linux kernel log for an out-of-memory kill before assuming a mod caused the failure.</p>
+  <section class="callout"><h3>Swap is not a speed feature</h3><p>Swap gives Linux room to survive temporary memory pressure; it doesn't make Skyrim faster. Use a method appropriate to your distribution and existing disk layout rather than blindly replacing a working configuration. Verify the result afterward with <code>free -h</code> and <code>swapon --show</code>.</p></section>
+
+  <h2 class="section-title">9&thinsp;&middot;&thinsp;Create a simple Skyrim / SKSE launcher <span class="req">Required</span></h2>
+  <p>This launcher keeps the safeguards that are broadly useful for a basic user: it raises the per-process file-descriptor limit, checks Steam is already running, recreates the real empty <code>Data/data</code> directory, and launches SKSE through Skyrim's own Proton environment.</p>
+  <section class="callout"><h3>No SteamTinkerLaunch required here</h3><p>This script calls GE-Proton directly by path, the same way the Vortex launcher in Step 3A does. It doesn't depend on SteamTinkerLaunch or on Steam's own compatibility-tool setting at all &mdash; you can run this from a terminal with Steam merely running in the background.</p></section>
+  <h3 class="sub">Suggested <code>~/bin/skyrim-launch</code></h3>
+  <div class="term"><div class="bar"><span></span><span></span><span></span></div>
+  <pre>#!/bin/bash
+
+<span class="comment"># Change these to your real paths.</span>
+STEAMLIB="/mnt/Speedy/SteamLibrary"
+GAME="$STEAMLIB/steamapps/common/Skyrim Special Edition"
+COMPAT="$STEAMLIB/steamapps/compatdata/489830"
+PROTON="$HOME/.steam/steam/compatibilitytools.d/GE-Proton11-5-x86_64"
+STEAM="$HOME/.steam/debian-installation"
+
+<span class="comment"># Large modlists can exceed the default Linux soft file limit.</span>
+ulimit -S -n 16384 || {
+    echo "ERROR: Could not raise NOFILE limit."
+    exit 1
+}
+
+if ! pgrep -x steam &gt;/dev/null 2&gt;&amp;1; then
+    echo "ERROR: Steam is not running."
+    echo "Start Steam normally, then run this launcher again."
+    exit 1
+fi
+
+<span class="comment"># Keep Data/data as a real, empty directory.</span>
+INNER_DATA="$GAME/Data/data"
+if [ -L "$INNER_DATA" ]; then
+    echo "ERROR: $INNER_DATA must be a real directory, not a symlink."
+    exit 1
+fi
+if [ -e "$INNER_DATA" ] &amp;&amp; [ ! -d "$INNER_DATA" ]; then
+    echo "ERROR: $INNER_DATA exists but is not a directory."
+    exit 1
+fi
+mkdir -p "$INNER_DATA" || exit 1
+if find "$INNER_DATA" -mindepth 1 -print -quit | grep -q .; then
+    echo "ERROR: $INNER_DATA is not empty."
+    echo "Refusing to launch until it is inspected."
+    exit 1
+fi
+
+if [ ! -x "$PROTON/proton" ]; then
+    echo "ERROR: Proton build not found: $PROTON/proton"
+    exit 1
+fi
+if [ ! -f "$GAME/skse64_loader.exe" ]; then
+    echo "ERROR: SKSE loader not found: $GAME/skse64_loader.exe"
+    exit 1
+fi
+
+cd "$GAME" || exit 1
+STEAM_COMPAT_CLIENT_INSTALL_PATH="$STEAM" \
+STEAM_COMPAT_DATA_PATH="$COMPAT" \
+STEAM_COMPAT_INSTALL_PATH="$GAME" \
+SteamAppId=489830 \
+SteamGameId=489830 \
+"$PROTON/proton" run "$GAME/skse64_loader.exe"</pre></div>
+
+  <h3 class="sub">Finish the launcher setup</h3>
+  <div class="term"><div class="bar"><span></span><span></span><span></span></div>
+  <pre>mkdir -p ~/bin
+nano ~/bin/skyrim-launch
+<span class="comment"># paste the script above, save and exit</span>
+
+chmod +x ~/bin/skyrim-launch
+~/bin/skyrim-launch</pre></div>
+  <p class="note">For most users, the only lines that need to change are the paths at the top. If your Steam client or Proton build live somewhere nonstandard, update those variables too.</p>
+
+  <h2 class="section-title">10&thinsp;&middot;&thinsp;If something goes wrong, classify it first <span class="req">Required</span></h2>
+  <p>Don't start disabling random mods until you know what kind of failure you actually had.</p>
+  <div class="table-wrap"><table>
+    <tr><th>What you see</th><th>First thing to check</th><th>What it usually means</th></tr>
+    <tr><td>A <code>crash-*.log</code> appears</td><td>CrashLogger log in <code>Documents/My Games/Skyrim Special Edition/SKSE</code></td><td>Normal Skyrim crash &mdash; analyze the log first.</td></tr>
+    <tr><td>Game freezes but process stays alive</td><td>Process state, CPU/GPU activity, kernel messages</td><td>A hard freeze &mdash; different from a normal crash.</td></tr>
+    <tr><td>Game disappears with no crash log</td><td>Linux kernel log for OOM or NVIDIA events</td><td>Could be an OS memory kill or GPU/driver event.</td></tr>
+    <tr><td>Large &ldquo;!&rdquo; or invisible equipment</td><td>Exact mesh path and capitalization &mdash; run CaseCompat's read-only scan</td><td>Can be a Linux case-path problem, not necessarily a bad texture.</td></tr>
+  </table></div>
+  <h3 class="sub">Useful kernel check after a no-log exit</h3>
+  <div class="term"><div class="bar"><span></span><span></span><span></span></div>
+  <pre>sudo journalctl -k --since "10 minutes ago" --no-pager | \
+grep -Ei 'oom|out of memory|killed process|NVRM|Xid|GPU|Skyrim|wine'</pre></div>
+
+  <h2 class="section-title">Case-sensitive files</h2>
+  <p>Windows generally treats path capitalization as equivalent. Most Linux filesystems normally don't. A large mod collection assembled from thousands of files across different tools and archives can end up with two real folders whose names differ only by capitalization &mdash; and a plugin that requests one exact spelling has no way to find content that only exists under the other.</p>
+  <section class="callout"><h3>Example proven in-game</h3><p>One plugin requested <code>meshes/example folder/Some Armor/&hellip;</code> while a generated mesh existed under <code>meshes/example folder/some armor/&hellip;</code> &mdash; two different real directories below <code>Data/meshes</code>, differing only by case. Copying the exact same mesh bytes to the capitalization the plugin actually requested fixed it; nothing about the texture itself was wrong.</p></section>
+
+  <h3 class="sub">CaseCompat: this is now automated</h3>
+  <p>
+    Diagnosing and fixing this by hand &mdash; the manual process the rest of
+    this section describes &mdash; is exactly what
+    <a href="https://github.com/shhStealth/skyrim-casecompat" target="_blank" rel="noopener">CaseCompat</a>
+    now does automatically. It scans your actual load order, finds every
+    mismatch between what a plugin requests and what physically exists on
+    disk, and corrects it with a reversible rename &mdash; or, when two mods
+    genuinely disagree about a shared folder's casing and both have real
+    content there, links a second name to the same folder rather than
+    guessing which mod is &ldquo;right.&rdquo; Every fix is planned, journaled, and
+    can be rolled back with a single guided command. See its
+    <a href="https://shhstealth.github.io/skyrim-casecompat/quickstart.html" target="_blank" rel="noopener">quickstart guide</a>
+    for setup and rollback instructions.
+  </p>
+  <p>The manual reasoning below is still worth understanding &mdash; it's exactly what CaseCompat automates, and it explains what its output means if you're curious or hit a case it can't safely resolve on its own.</p>
+
+  <h3 class="sub">When should a basic user act manually?</h3>
+  <ul class="plain">
+    <li>Act when a specific mod is broken and you can identify the exact loose asset path it expects.</li>
+    <li>Act when two real folders/files differ only by case and the required assets are split between them.</li>
+    <li>Don't act just because a scanner reports capitalization differences &mdash; many are harmless.</li>
+    <li>Remember a file may be inside a BSA archive, so a missing loose file alone doesn't prove the asset is missing.</li>
+  </ul>
+  <section class="callout danger"><h3>Never use broad destructive fixes</h3><p>Don't lowercase the whole Data tree. Don't recursively add ext4 casefold attributes to an existing populated mod tree. Don't blindly duplicate every case mismatch. Narrow, reversible fixes are safer &mdash; which is exactly the constraint CaseCompat itself is built around: it reports and skips anything it can't resolve without guessing, rather than forcing a fix.</p></section>
+
+  <h3 class="sub">What to include when asking for help</h3>
+  <ul class="plain">
+    <li>What you were doing immediately before the failure.</li>
+    <li>Whether a new <code>crash-*.log</code> was created.</li>
+    <li>For a freeze, whether <code>SkyrimSE.exe</code> is still running.</li>
+    <li>For a no-log disappearance, the relevant kernel log lines.</li>
+    <li>For a missing model/texture, the exact in-game item and the suspected asset path if known &mdash; or just what CaseCompat's read-only scan reported for it.</li>
+    <li>Whether the problem still occurs after removing a recent optimizer or generated-output change.</li>
+  </ul>
+
+  <h2 class="section-title">Final takeaway</h2>
+  <p>
+    Get the Linux/Proton foundation right first: a normal Steam install,
+    Skyrim initialized once, Vortex in the correct prefix, game and staging
+    on the same filesystem, the real empty <code>Data/data</code> fix,
+    enough RAM/swap headroom for the modlist, and a simple guarded SKSE
+    launcher. After that, troubleshoot one failure class at a time. On
+    Linux, a correct mod can still fail because its path isn't exposed the
+    way the Windows-built game expects &mdash; run CaseCompat as part of
+    your normal setup, and prefer narrow, reversible fixes over broad
+    filesystem changes for anything it doesn't already catch.
+  </p>
+
+  <footer>
+    <div class="links">
+      <span>Unofficial community guide &mdash; GPL-3.0, same as CaseCompat</span>
+      <a href="https://github.com/shhStealth/skyrim-casecompat" target="_blank" rel="noopener">github.com/shhStealth/skyrim-casecompat</a>
+    </div>
+    <p class="disclosure">Generalized and edited with AI-assisted development (Claude) from an earlier collection-specific version.</p>
+  </footer>
+</main>
+</body>
+</html>

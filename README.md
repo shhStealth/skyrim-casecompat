@@ -270,3 +270,12 @@ case-equivalent names without modifying the scanned files.
   filesystem (true for a normal, single-drive Skyrim `Data` folder).
   A `Data` directory spanning multiple mounted filesystems is not
   supported.
+
+## Related guides
+
+- [Tester quickstart](docs/quickstart.html) — install, run, and roll
+  back CaseCompat itself.
+- [Modded Skyrim SE on Linux](docs/linux-setup-guide.html) — a general
+  community guide to the rest of the setup (Steam/Proton, Vortex,
+  memory, crash triage). Not part of CaseCompat itself, but maintained
+  alongside it.
